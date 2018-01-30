@@ -1,0 +1,103 @@
+LIBS = lib:amiga.lib lib:sc.lib
+TRACELIB = lib:trace.lib
+LNFLAGS = 
+OBJECTS = $(OD)directory.o $(OD)dostohandlerinterface.o $(OD)disk$(DS).o $(OD)init$(DS).o $(OD)diskchange.o \
+	$(OD)resethandler.o $(OD)volume.o $(OD)allocation.o $(OD)lock.o $(OD)anodes.o $(OD)format.o $(OD)lru.o \
+	$(OD)update.o $(OD)checkaccess.o
+BOOT_OBJECTS = $(OD)assroutines.o $(OD)messages.o $(OD)boot.o $(OBJECTS) 
+GERMAN_OBJECTS = $(OD)assroutines.o $(OD)german_messages.o $(OD)boot.o $(OBJECTS)
+FRENCH_OBJECTS = $(OD)assroutines.o $(OD)french_messages.o $(OD)boot.o $(OBJECTS)
+ITALIAN_OBJECTS = $(OD)assroutines.o $(OD)italian_messages.o $(OD)boot.o $(OBJECTS)
+TEST_OBJECTS = $(OD)test.o $(OD)mount.o $(OD)messages.o $(OD)assroutines.o $(OBJECTS)
+TESTF_OBJECTS = $(OD)test.o $(OD)mountf.o $(OD)messages.o $(OD)assroutines.o $(OBJECTS)
+EFFECTALL = struct.h blocks.h scoptions
+
+all: $(OD)boot$(DS) $(OD)german$(DS) $(OD)french$(DS) $(OD)italian$(DS)
+clean:
+	delete $(OBJECTS)
+
+# targets
+$(OD)boot$(DS): $(BOOT_OBJECTS)
+	slink <WITH < 
+stripdebug
+FROM $(BOOT_OBJECTS)
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+
+$(OD)bootdebug$(DS): $(BOOT_OBJECTS)
+	slink <WITH < 
+FROM $(BOOT_OBJECTS)
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+
+$(OD)german$(DS): $(GERMAN_OBJECTS)
+	slink <WITH <
+FROM $(GERMAN_OBJECTS) 
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+
+$(OD)french$(DS): $(FRENCH_OBJECTS)
+	slink <WITH <
+FROM $(FRENCH_OBJECTS) 
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+
+$(OD)italian$(DS): $(ITALIAN_OBJECTS)
+	slink <WITH <
+FROM $(ITALIAN_OBJECTS) 
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+ 
+$(OD)test$(DS): $(TEST_OBJECTS)
+	slink <WITH <
+FROM lib:c.o
+FROM $(TEST_OBJECTS)
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+
+$(OD)testf$(DS): $(TESTF_OBJECTS)
+	slink <WITH <
+FROM lib:c.o
+FROM $(TESTF_OBJECTS)
+LIB $(LIBS) $(TRACELIB) $(LNFLAGS) 
+TO $@
+MAP $@.map
+<
+
+# sub targets
+$(OD)test.o: test.c $(EFFECTALL)
+$(OD)boot.o: boot.c $(EFFECTALL) versionhistory.doc
+$(OD)init.o: init.c $(EFFECTALL) versionhistory.doc
+$(OD)mount.o: mount.c $(EFFECTALL)
+$(OD)mountf.o: mountf.c $(EFFECTALL)
+$(OD)directory.o: directory.c $(EFFECTALL) support.c
+$(OD)dostohandlerinterface.o: dostohandlerinterface.c dd_funcs.c dd_support.c $(EFFECTALL)
+$(OD)disk.o: disk.c $(EFFECTALL)
+$(OD)init.o: init.c $(EFFECTALL)
+$(OD)diskchange.o: diskchange.asm scoptions
+$(OD)resethandler.o: resethandler.c $(EFFECTALL)
+$(OD)volume.o: volume.c $(EFFECTALL)
+$(OD)allocation.o: allocation.c $(EFFECTALL)
+$(OD)lock.o: lock.c $(EFFECTALL)
+$(OD)anodes.o: anodes.c $(EFFECTALL)
+$(OD)format.o: format.c $(EFFECTALL) versionhistory.doc
+$(OD)lru.o: lru.c $(EFFECTALL)
+$(OD)update.o: update.c $(EFFECTALL)
+$(OD)assroutines.o: assroutines.asm $(EFFECTALL)
+$(OD)messages.o: messages.c scoptions versionhistory.doc
+$(OD)german_messages.o: german_messages.c scoptions versionhistory.doc
+$(OD)french_messages.o: french_messages.c scoptions versionhistory.doc
+$(OD)italian_messages.o: italian_messages.c scoptions versionhistory.doc
+$(OD)checkaccess.o: checkaccess.c $(EFFECTALL)
