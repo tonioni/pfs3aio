@@ -338,6 +338,8 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 			if (g->geom->dg_TotalSectors > MAXDISKSIZE2K) {
 				resblocksize = 4096;
 			}
+			rbl->disktype = ID_PFS2_DISK;
+			ErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, NULL, g);
 		}
 	}
 
@@ -351,6 +353,8 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 
 #if LARGE_FILE_SIZE
 	rbl->options |= MODE_LARGEFILE;
+	rbl->disktype = ID_PFS2_DISK;
+	ErrorMsg(AFS_WARNING_EXPERIMENTAL_FILE, NULL, g);
 #endif
 
 	rbl->datestamp = 1;
