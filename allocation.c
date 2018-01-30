@@ -433,7 +433,7 @@ alloc_end:
 			i += extra;
 			alloc_data.rovingbit = i%32;
 			bmoffset += i/32;
-			if (bmoffset > alloc_data.longsperbmb)
+			if (bmoffset >= alloc_data.longsperbmb)
 			{
 				bmoffset -= alloc_data.longsperbmb;
 				bmseqnr = (bmseqnr+1)%(alloc_data.no_bmb);
@@ -707,7 +707,7 @@ ULONG AllocReservedBlock (globaldata *g)
 	return 0;
 
   j = 31 - alloc_data.res_roving % 32;
-  for (i = alloc_data.res_roving / 32; i <= (alloc_data.numreserved/32); i++, j=31)
+  for (i = alloc_data.res_roving / 32; i < ((alloc_data.numreserved + 31)/32); i++, j=31)
   {
 	if (bitmap[i] != 0)
 	{
