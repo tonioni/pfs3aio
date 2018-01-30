@@ -1018,6 +1018,10 @@ BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 				if (rblsize < 1 || rblsize > 521)
 					goto nrd_error;
 
+				// original PFS_DISK with PFS2_DISK features -> don't mount
+				if ((*rootblock)->disktype == ID_PFS_DISK && (((*rootblock)->options & MODE_LARGEFILE) || ((*rootblock)->reserved_blksize > 1024)))
+					goto nrd_error;
+
 				if (!InitLRU(g, (*rootblock)->reserved_blksize))
 					goto nrd_error;
 
@@ -1105,11 +1109,18 @@ void GetDriveGeometry(globaldata *g)
 
 	g->firstblock = g->dosenvec->de_LowCyl * geom->dg_CylSectors;
 	g->lastblock = (g->dosenvec->de_HighCyl + 1) *  geom->dg_CylSectors - 1;
+	g->maxtransfermax = 0x7ffffffe;
 #if LIMIT_MAXTRANSFER
-	/* A600/A1200/A4000 ROM scsi.device ATA spec max transfer bug workaround */
-	g->maxtransfer = min(g->dosenvec->de_MaxTransfer, LIMIT_MAXTRANSFER);
-#else
-	g->maxtransfer = g->dosenvec->de_MaxTransfer;
+	if (g->scsidevice) {
+		struct Library *d;
+		Forbid();
+		d = (struct Library*)FindName(&SysBase->DeviceList, "scsi.device")
+		if (d && d->lib_Version >= 36 && d->lib_Version < 50) {
+			/* A600/A1200/A4000 ROM scsi.device ATA spec max transfer bug workaround */
+			g->maxtransfermax = LIMIT_MAXTRANSFER;
+		}
+		Permit();
+	}
 #endif
 	DB(Trace(1,"GetDriveGeometry","firstblk %lu lastblk %lu\n",g->firstblock,g->lastblock));
 }

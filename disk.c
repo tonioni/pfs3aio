@@ -1448,7 +1448,7 @@ retry_read:
 	}
 
 	/* chop in maxtransfer chunks */
-	maxtransfer = g->maxtransfer >> BLOCKSHIFT;
+	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
 	while (blocks > 0)
 	{
 		transfer = min(blocks,maxtransfer);
@@ -1508,7 +1508,7 @@ retry_write:
 	}
 
 	/* chop in maxtransfer chunks */
-	maxtransfer = g->maxtransfer >> BLOCKSHIFT;
+	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
 	while (blocks > 0)
 	{
 		transfer = min(blocks,maxtransfer);
@@ -1586,7 +1586,7 @@ retry_read:
 
 	while (io_length > 0)
 	{
-		io_transfer = min(io_length, g->maxtransfer);
+		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
 		io_transfer &= ~(BLOCKSIZE-1);
 		request = g->request;
 		request->iotd_Req.io_Command = CMD_READ;
@@ -1662,7 +1662,7 @@ retry_format:
 	request->iotd_Req.io_Data    = buffer;      // bufmemtype ??
 	request->iotd_Req.io_Offset  = realblocknr*BLOCKSIZE;
 	PROFILE_OFF();
-	if(DoIO((struct IORequest*)request) != NULL)
+	if(DoIO((struct IORequest*)request) != 0)
 	{
 		ULONG args[2];
 		PROFILE_ON();
@@ -1724,7 +1724,7 @@ retry_write:
 
 	while(io_length > 0)
 	{
-		io_transfer = min(io_length, g->maxtransfer);
+		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
 		io_transfer &= ~(BLOCKSIZE-1);
 		request = g->request;
 		request->iotd_Req.io_Command = CMD_WRITE;
@@ -1806,9 +1806,9 @@ ULONG RawWrite(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 #if ACCESS_DETECT
 
 #if DETECTDEBUG
-static UBYTE ACCESS_DEBUG1[] = "%s:%ld\nfirstblock=%ld\nlastblock=%ld\nblockshift=%ld\nblocksize=%ld\ninside4G=%ld";
-static UBYTE ACCESS_DEBUG2[] = "Test %ld = %ld";
-static UBYTE ACCESS_DEBUG3[] = "SCSI Read Capacity = %ld, Lastblock = %ld";
+static CONST UBYTE ACCESS_DEBUG1[] = "%s:%ld\nfirstblock=%ld\nlastblock=%ld\nblockshift=%ld\nblocksize=%ld\ninside4G=%ld";
+static CONST UBYTE ACCESS_DEBUG2[] = "Test %ld = %ld";
+static CONST UBYTE ACCESS_DEBUG3[] = "SCSI Read Capacity = %ld, Lastblock = %ld";
 #endif
 
 static void fillbuffer(UBYTE *buffer, UBYTE data, globaldata *g)
@@ -1879,7 +1879,7 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 			return FALSE;
 		}
 		if (testbuffer(buffer, cnt, g)) {
-#ifdef DETECTDEBUG
+#if DETECTDEBUG
 			DebugPutStr("ok\n");
 #endif
 			return TRUE;
@@ -1935,6 +1935,7 @@ static BOOL testread_td2(UBYTE *buffer, globaldata *g)
 			return FALSE;
 	}
 #endif
+
 #if TD64
 	if (g->tdmode == ACCESS_TD64) {
 		UBYTE err;
@@ -1948,6 +1949,7 @@ static BOOL testread_td2(UBYTE *buffer, globaldata *g)
 			return FALSE;
 	}
 #endif
+
 	for (cnt = 0; cnt < 2; cnt++) {
 		fillbuffer(buffer, cnt, g);
 		io->iotd_Req.io_Command = CMD_READ;
@@ -2011,7 +2013,7 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 	DebugPutHex("firstblock", g->firstblock);
 	DebugPutHex("lastblock", g->lastblock);
 	DebugPutHex("inside4G", inside4G);
-	DebugPutHex("maxtransfer", g->maxtransfer);
+	DebugPutHex("maxtransfer", g->maxtransfermax);
 #endif
 
 #if SCSIDIRECT

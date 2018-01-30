@@ -142,7 +142,7 @@ extern void ResetHandler(void);
 
 /* prototypes
  */
-static BOOL OpenDiskDevice(struct FileSysStartupMsg * , struct MsgPort ** , struct IOExtTD **, BOOL *, globaldata *);
+static BOOL OpenDiskDevice(struct FileSysStartupMsg * , struct MsgPort ** , struct IOExtTD **, BOOL *, BOOL *, globaldata *);
 static BOOL init_device_unit_sema(struct FileSysStartupMsg *, globaldata *);
 static BOOL OpenTimerDevice(struct MsgPort ** , struct timerequest ** , ULONG, globaldata * );
 static BOOL TestRemovability(globaldata *);
@@ -273,7 +273,7 @@ Removed because of problems with Phase 5 boards
 	NewList((struct List *)&g->volumes);    /* %9.1 */
 	NewList((struct List *)&g->idlelist);
 
-	if (!OpenDiskDevice(fssm, &g->port, &g->request, &g->trackdisk, g) )
+	if (!OpenDiskDevice(fssm, &g->port, &g->request, &g->trackdisk, &g->scsidevice, g) )
 		return FALSE;
 
 	DB(Trace(4,"Init","result = %ld",(ULONG)g->trackdisk));
@@ -543,7 +543,7 @@ void UninstallResetHandler(struct globaldata *g)
 ** out port, request, trackdisk
 */
 static BOOL OpenDiskDevice(struct FileSysStartupMsg *startup, struct MsgPort **port,
-		struct IOExtTD **request, BOOL *trackdisk, globaldata *g)
+		struct IOExtTD **request, BOOL *trackdisk, BOOL *scsidevice, globaldata *g)
 {
   UBYTE name[FNSIZE];
 
@@ -555,6 +555,7 @@ static BOOL OpenDiskDevice(struct FileSysStartupMsg *startup, struct MsgPort **p
 		{
 			BCPLtoCString(name, (UBYTE *)BADDR(startup->fssm_Device));
 			*trackdisk = (strcmp(name, "trackdisk.device") == 0) || (strcmp(name, "diskspare.device") == 0);
+			*scsidevice = strcmp(name, "scsi.device") == 0;
 			if(OpenDevice(name, startup->fssm_Unit, (struct IORequest *)*request,
 				startup->fssm_Flags) == 0)
 				return TRUE;
@@ -703,7 +704,7 @@ void InitModules (struct volumedata *volume, BOOL formatting, globaldata *g)
 	g->dirextension = (rootblock->options & MODE_DIR_EXTENSION) != 0;
 #if DELDIR
 	g->deldirenabled = (rootblock->options & MODE_DELDIR) && 
-		g->dirextension && (volume->rblkextension->blk.deldirsize > 0);
+	g->dirextension && (volume->rblkextension->blk.deldirsize > 0);
 #endif
 	g->supermode = (rootblock->options & MODE_SUPERINDEX) != 0;
 	g->fnsize = (volume->rblkextension) ? (volume->rblkextension->blk.fnsize) : 32;
