@@ -17,6 +17,8 @@
  * new notify routines
  * */
 
+#include "kswrapper.h"
+
 /**********************
  * function prototypes
  */

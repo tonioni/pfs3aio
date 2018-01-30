@@ -163,6 +163,8 @@
 #include "init_protos.h"
 #include "format_protos.h"
 
+#include "kswrapper.h"
+
 static VOID CreateInputEvent(BOOL inserted, globaldata *g);
 
 /**********************************************************************/

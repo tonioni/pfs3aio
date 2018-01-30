@@ -36,6 +36,11 @@
  * first RCS revision
  * */
 
+#include <exec/types.h>
+#include <clib/alib_protos.h>
+
+#include "kswrapper.h"
+
 static void OutOfMemory (globaldata *g);
 
 /*

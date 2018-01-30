@@ -126,6 +126,8 @@
 #include "ass_protos.h"
 #include "init_protos.h"
 
+#include "kswrapper.h"
+
 /*
  * prototypes
  */

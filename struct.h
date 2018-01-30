@@ -144,6 +144,7 @@
 /* For SAS/C use amiga.lib assembly memory pool routines                    */
 /****************************************************************************/
 #ifdef __SASC
+#ifndef KSWRAPPER
 void * __asm AsmCreatePool(register __d0 ULONG,
                            register __d1 ULONG,
                            register __d2 ULONG,
@@ -161,6 +162,7 @@ void __asm AsmFreePooled(register __a0 void *,
 #define LibDeletePool(p) AsmDeletePool(p,SysBase)
 #define LibAllocPooled(p,s) AsmAllocPooled(p,s,SysBase)
 #define LibFreePooled(p,m,s) AsmFreePooled(p,m,s,SysBase)
+#endif
 /* Workaround for old NDK */
 #ifndef CONST
 #define CONST const
@@ -192,23 +194,32 @@ typedef CONST unsigned char *CONST_STRPTR;
 #define RemHead(l)     REMHEAD(l)
 #undef RemTail
 #define RemTail(l)     REMTAIL(l)
-#define memcpy(d,s,n)  CopyMem(s,d,n)
 #endif
 
 /****************************************************************************/
-/* AROS specific global headers                                          */
+/* AROS specific global headers                                             */
 /****************************************************************************/
 
 #ifdef __AROS__
 #include <proto/alib.h>
 #include <clib/macros.h>
-#define min(a,b)       MIN(a,b)
-#define max(a,b)       MAX(a,b)
 #undef IsMinListEmpty
 #define __saveds
 #define COUNT UWORD
 #define UCOUNT WORD
 #endif
+
+/****************************************************************************/
+/* Generic GCC headers                                                      */
+/****************************************************************************/
+
+#if __GNUC__
+#define max(a,b) (((a)>(b))?(a):(b))
+#define min(a,b) (((a)<(b))?(a):(b))
+int stcu_d(char *out, unsigned int val);
+#define memcpy(d,s,n)  CopyMem(s,d,n)
+#endif
+
 
 /****************************************************************************/
 /* New actions (packets)                                                    */
@@ -427,7 +438,7 @@ struct lru_data_s
 	struct MinList LRUqueue;
 	struct MinList LRUpool;
 	ULONG poolsize;
-	struct lru_cachedblock *LRUarray;
+	struct lru_cachedblock **LRUarray;
 	UWORD reserved_blksize;
 };
 
@@ -502,7 +513,7 @@ struct globaldata
 	/* partition info (volume dependent) %7 */
 	ULONG firstblock;                   /* first and last block of partition    */
 	ULONG lastblock;
-	ULONG maxtransfer;
+	ULONG maxtransfermax;
 	struct diskcache dc;                /* cache to make '196 byte mode' faster */
 
 	/* LRU stuff */
@@ -537,6 +548,7 @@ struct globaldata
 	BOOL postpone;                      /* repeat timer when finished           */
 	BOOL removable;                     /* Is volume removable?                 */
 	BOOL trackdisk;                     /* Is the device trackdisk?             */
+	BOOL scsidevice;                    /* Is the device scsi.device?           */
 	LONG (*ErrorMsg)(CONST_STRPTR, APTR, ULONG, struct globaldata *);    /* The error message routine        */
 
 	struct rootblock *rootblock;        /* shortcut of currentvolume->rootblk   */
@@ -598,6 +610,11 @@ struct globaldata
 	LONG   resethandlersigbit;
 	ULONG  resethandlersignal;
 	struct Interrupt *resethandlerinterrupt;
+#ifdef KSWRAPPER
+	BOOL v37DOS;
+	BOOL v37EXEC;
+	BOOL v39EXEC;
+#endif
 };
 
 typedef struct globaldata globaldata;
@@ -772,8 +789,8 @@ struct idlehandle
 // IsRoot(fi) checked of *oi bij de rootdir hoort
 // IsRootA(fi) checked of oi bij de rootdir hoort
 #define N(x) ((x)?(&(x)):NULL)
-#define IsRoot(oi) (((oi)==NULL) || ((oi)->volume.root == NULL))
-#define IsRootA(oi) ((oi).volume.root == NULL)
+#define IsRoot(oi) (((oi)==NULL) || ((oi)->volume.root == 0))
+#define IsRootA(oi) ((oi).volume.root == 0)
 
 // voor VolumeRequest:
 #define VR_URGENT   0

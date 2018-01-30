@@ -128,6 +128,8 @@
 #include "lru_protos.h"
 #include "allocation_protos.h"
 
+#include "kswrapper.h"
+
 /* external globals
  */
 extern CONST UBYTE *version;

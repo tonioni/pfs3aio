@@ -86,6 +86,7 @@
 #include "disk_protos.h"
 #include "allocation_protos.h"
 
+#include "kswrapper.h"
 
 /*
  * prototypes

@@ -1,9 +1,9 @@
 LIBS = lib:amiga.lib lib:sc.lib
-TRACELIB = lib:trace.lib
+TRACELIB =
 LNFLAGS = 
 OBJECTS = $(OD)directory.o $(OD)dostohandlerinterface.o $(OD)disk$(DS).o $(OD)init$(DS).o $(OD)diskchange.o \
 	$(OD)resethandler.o $(OD)volume.o $(OD)allocation.o $(OD)lock.o $(OD)anodes.o $(OD)format.o $(OD)lru.o \
-	$(OD)update.o $(OD)checkaccess.o
+	$(OD)update.o $(OD)checkaccess.o $(OD)kswrapper.o
 BOOT_OBJECTS = $(OD)assroutines.o $(OD)messages.o $(OD)boot.o $(OBJECTS) 
 GERMAN_OBJECTS = $(OD)assroutines.o $(OD)german_messages.o $(OD)boot.o $(OBJECTS)
 FRENCH_OBJECTS = $(OD)assroutines.o $(OD)french_messages.o $(OD)boot.o $(OBJECTS)
@@ -101,3 +101,4 @@ $(OD)german_messages.o: german_messages.c scoptions versionhistory.doc
 $(OD)french_messages.o: french_messages.c scoptions versionhistory.doc
 $(OD)italian_messages.o: italian_messages.c scoptions versionhistory.doc
 $(OD)checkaccess.o: checkaccess.c $(EFFECTALL)
+$(OD)kswrapper.o: kswrapper.c

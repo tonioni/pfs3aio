@@ -15,6 +15,8 @@
 #include "update_protos.h"
 #include "checkaccess_protos.h"
 
+#include "kswrapper.h"
+
 /* fileaccess that changes a file but doesn't write to it
  */
 BOOL CheckChangeAccess(fileentry_t *file, ULONG *error, globaldata *g)

@@ -98,6 +98,8 @@
 #include "ass_protos.h"
 #include "volume_protos.h"
 
+#include "kswrapper.h"
+
 /*
  * Contents (local functions)
  */

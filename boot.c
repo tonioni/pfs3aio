@@ -157,6 +157,8 @@ BOOL debug=FALSE;
 #include "lock_protos.h"
 #include "lru_protos.h"
 
+#include "kswrapper.h"
+
 /* protos */
 // extern void __saveds EntryWithNewStack(void);
 void __saveds EntryPoint(void);
@@ -234,7 +236,7 @@ void __saveds EntryPoint (void)
 	SysBase =  *((struct ExecBase **)4);
 
 	/* init globaldata */
-	g = AllocVec (sizeof(struct globaldata), MEMF_CLEAR);
+	g = AllocMem(sizeof(struct globaldata), MEMF_CLEAR);
 	if (!g)
 	{
 		Alert (AG_NoMemory);
@@ -243,12 +245,23 @@ void __saveds EntryPoint (void)
 	g->g_SysBase = SysBase;
 
 	/* open libs */
-	IntuitionBase = (APTR)OpenLibrary ("intuition.library", 36L);
+	IntuitionBase = (APTR)OpenLibrary ("intuition.library", MIN_LIB_VERSION);
+	DOSBase = (struct DosLibrary *)OpenLibrary ("dos.library", MIN_LIB_VERSION);
+#ifdef KSWRAPPER
+	g->v37DOS = DOSBase->dl_lib.lib_Version >= 37;
+	g->v37EXEC = SysBase->LibNode.lib_Version >= 37;
+	g->v39EXEC = SysBase->LibNode.lib_Version >= 39;
+	/* This must not cause indirect DOS call! */
+	if (g->v37DOS && g->v37EXEC)
+#endif
 	UtilityBase = OpenLibrary ("utility.library",0L);
-	DOSBase = (struct DosLibrary *)OpenLibrary ("dos.library", 36L);
 	msgport = &((struct Process *)FindTask (NULL))->pr_MsgPort;
 
-	if (!IntuitionBase || !UtilityBase || !DOSBase)
+	if (!IntuitionBase ||
+#ifndef KSWRAPPER
+		!UtilityBase ||
+#endif
+		!DOSBase)
 	{
 		NormalErrorMsg (AFS_ERROR_LIBRARY_PROBLEM, NULL, 1);
 		Wait (0);
@@ -267,6 +280,11 @@ void __saveds EntryPoint (void)
 	 * ARG2 = Value from dn_Startup
 	 * ARG3 = BPTR to DeviceNode
 	 */
+
+#ifdef KSWRAPPER
+	FixStartupPacket(pkt, g);
+#endif
+
 	mountname = (UBYTE *)BADDR(pkt->dp_Arg1);
 	fssm = (struct FileSysStartupMsg *)BADDR(pkt->dp_Arg2);
 	devnode = (struct DeviceNode *)BADDR(pkt->dp_Arg3);
@@ -638,10 +656,11 @@ static void Quit (globaldata *g)
 	if (muBase)
 		CloseLibrary((struct Library *) muBase);
 #endif
-	CloseLibrary(UtilityBase);
+	if (UtilityBase)
+		CloseLibrary(UtilityBase);
 	CloseLibrary((struct Library *) DOSBase);
 	CloseLibrary((struct Library *) IntuitionBase);
 
-	FreeVec (g);
+	FreeMem(g, sizeof(struct globaldata));
 	AfsDie ();
 }

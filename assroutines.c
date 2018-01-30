@@ -1,13 +1,15 @@
+
 #include <exec/types.h>
 
 #include "blocks.h"
 #include "struct.h"
 
-
 /* StackSwap is not used (or required) for NG systems (at least not MorphOS), thus dummy */
+#ifndef __GNUC__
 void AfsDie(void)
 {
 }
+#endif
 
 /* Let MorphOS know that this is a native MorphOS ELF and not PowerUP binary */
 #ifdef __MORPHOS__
@@ -88,12 +90,15 @@ int stcd_i(const char *in, int *ivalue)
 }
 
 /* SAS/C function - similar to strcpy but return ptr to terminating \0 */
+#ifndef __GNUC__
 char *stpcpy(char *dst, const char *src)
 {
 	while ((*dst++ = *src++))
 		;
 	return dst - 1;
 }
+#endif
+
 #endif
 
 

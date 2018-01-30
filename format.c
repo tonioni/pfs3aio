@@ -138,6 +138,8 @@
 #include "lru_protos.h"
 #include "versionhistory.doc"
 
+#include "kswrapper.h"
+
 /*
  * Contents
  */

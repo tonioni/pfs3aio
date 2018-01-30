@@ -131,6 +131,8 @@
 #include "volume_protos.h"
 #include "directory_protos.h"
 
+#include "kswrapper.h"
+
 /*
  * Contents
  */

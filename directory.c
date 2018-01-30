@@ -254,6 +254,8 @@
 #include "ass_protos.h"
 #include "support.c"
 
+#include "kswrapper.h"
+
 void PFSDoNotify(struct fileinfo *object, BOOL checkparent, globaldata * g);
 void PFSUpdateNotify(ULONG dirnode, DSTR filename, ULONG anodenr, globaldata * g);
 

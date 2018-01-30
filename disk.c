@@ -179,6 +179,8 @@
 #include "update_protos.h"
 #include "checkaccess_protos.h"
 
+#include "kswrapper.h"
+
 #define PROFILE_OFF()
 #define PROFILE_ON()
 

@@ -121,6 +121,7 @@ static LONG dd_SetDeldir(struct DosPacket *pkt, globaldata *g);
 static LONG dd_MorphOSQueryAttr(struct DosPacket *pkt, globaldata *g);
 #endif
 
+#include "kswrapper.h"
 
 /**********************
  * table functions 

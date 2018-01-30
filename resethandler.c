@@ -49,6 +49,14 @@ AROS_UFH2(ULONG, ResetHandler,
 	AROS_USERFUNC_EXIT
 }
 
+#elif __GNUC__
+
+ULONG __interrupt ResetHandler(register struct globaldata *g asm("a1"))
+{
+	Signal(&g->myproc->pr_Task, g->resethandlersignal);
+	return 0;
+}
+
 #else
 
 #warning "Add the implementation for your platform"

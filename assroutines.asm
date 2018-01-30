@@ -66,43 +66,36 @@
 
 	; allocate stackswap memory
 
-		move.l	#5000,d0
+		move.l	#6000,d0
 		; move.l	#(MEMF_CLEAR|MEMF_PUBLIC),d1
 		move.l	#$10001,d1
 		jsr	_LVOAllocMem(a6)
 		move.l	d0,stk_Lower(a3)
-		add.l	#5000,d0
+		add.l	#6000,d0
 		move.l	d0,stk_Upper(a3)
 		move.l	d0,stk_Pointer(a3)
 
 	; do the stackswap
 	; check exec revision
 
-		move.w	$14(a6),d0	; SysBase->LibNode.lib_Version
-		cmp.w	#36,d0
+		cmp.w #37,$14(a6)	; SysBase->LibNode.lib_Version
+		bcc ss_V37
 
-		beq	ss_V36
-		bcs	ss_V35
-		bra	ss_V37
-
-	; stackswap V35
-ss_V35		moveq.l	#0,d0
-		jsr	_LVOWait(a6)
-
-	; stackswap V36
-ss_V36		move.l	a3,a0
+	; stackswap V36 and older
+		move.l	a3,a0
 		bsr	@myStackSwap
 		bra	ss_after
 
 	; stackswap V37
-ss_V37		move.l	a3,a0
+ss_V37
+		move.l	a3,a0
 		jsr	_LVOStackSwap(a6)
 ss_after
 
 	; remember sss address and enter filesystem
 
 		move.l	a3,-(a7)
-		jmp	@EntryPoint
+		bra	@EntryPoint
 
 
 ;-----------------------------------------------------------------------------
