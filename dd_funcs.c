@@ -182,7 +182,7 @@ static LONG dd_CurrentVolume(struct DosPacket *pkt, globaldata * g)
 		if (g->currentvolume)
 			return MKBADDR(g->currentvolume->devlist);
 		else
-			return NULL;
+			return 0;
 	}
 	else
 		return MKBADDR(((fileentry_t *) pkt->dp_Arg1)->le.volume->devlist);
@@ -217,7 +217,7 @@ static LONG dd_Lock(struct DosPacket *pkt, globaldata * g)
 	GetFileInfoFromLock(pkt->dp_Arg1, 0, parentfe, parentfi);
 	BCPLtoCString(pathname, (DSTR)BARG2(pkt));
 	DB(Trace(1, "Lock", "locking : %s parent: %lx \n", pathname, pkt->dp_Arg1));
-	DB(if (parentfi) Trace(1, "Lock", "anodenr = %lx and %lx \n", parentfe->anodenr,
+	DB(if (parentfi) Trace(1, "Lock", "anodenr = %lx and %lx \n", parentfe->le.anodenr,
 		(parentfi->file.direntry ? parentfi->file.direntry->anode : ANODE_ROOTDIR)));
 	SkipColon(fullname, pathname);
 
@@ -313,7 +313,7 @@ static LONG dd_DupLock(struct DosPacket *pkt, globaldata * g)
 		}
 
 		/* return lock to root (GURU 605) */
-		filefi.volume.root = NULL;
+		filefi.volume.root = 0;
 		filefi.volume.volume = g->currentvolume;
 		type.value = ET_VOLUME + ET_SHAREDREAD;
 		if (!(dstfe = (lockentry_t *)MakeListEntry(&filefi, type, (ULONG *)&pkt->dp_Res2, g)))
@@ -966,7 +966,7 @@ static LONG dd_Relabel(struct DosPacket *pkt, globaldata * g)
 			devlist->dl_VolumeDate.ds_Days = volume->rootblk->creationday;
 			devlist->dl_VolumeDate.ds_Minute = volume->rootblk->creationminute;
 			devlist->dl_VolumeDate.ds_Tick = volume->rootblk->creationtick;
-			devlist->dl_LockList = NULL;    // disk still inserted
+			devlist->dl_LockList = 0;    // disk still inserted
 			devlist->dl_DiskType = volume->rootblk->disktype;
 
 			/* toevoegen */
@@ -1064,7 +1064,12 @@ static LONG dd_Info(struct DosPacket *pkt, globaldata * g)
 			- g->rootblock->alwaysfree - 1;
 		info->id_NumBlocksUsed = info->id_NumBlocks - alloc_data.alloc_available;
 		info->id_BytesPerBlock = volume->bytesperblock;
+#ifdef KSWRAPPER
+		// 1.x C:Info only understands DOS\0
+		info->id_DiskType = g->v37DOS ? ID_INTER_FFS_DISK : ID_DOS_DISK;
+#else
 		info->id_DiskType = ID_INTER_FFS_DISK;  // c:Info does not like this
+#endif
 
 		info->id_VolumeNode = MKBADDR(volume->devlist);
 		info->id_InUse = !IsMinListEmpty(&volume->fileentries);

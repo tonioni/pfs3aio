@@ -436,7 +436,7 @@ UBYTE *GetFullPath(union objectinfo *basispath, STRPTR filename,
 BOOL GetRoot(union objectinfo * path, globaldata * g)
 {
 	UpdateCurrentDisk(g);
-	path->volume.root = NULL;
+	path->volume.root = 0;
 	path->volume.volume = g->currentvolume;
 	return DOSTRUE;
 }
@@ -1276,6 +1276,11 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen,
 #endif
 
 	ENTER("ExamineAll");
+
+#ifdef KSWRAPPER
+	if (!g->v37DOS)
+		return DOSFALSE;
+#endif
 
 	/* init and check */
 	if (!object || !object->le.type.flags.dir)

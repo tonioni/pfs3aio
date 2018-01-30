@@ -232,12 +232,12 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, ULONG *error, globaldata *g)
 static void ShowVersion (globaldata *g)
 {
   /* data needed for requester */
-  struct EasyStruct req =
+  static const struct EasyStruct req =
   {
 	sizeof(struct EasyStruct),
 	0,
 	"Professional File System 3 V" RELEASE,
-	NULL,
+	(STRPTR)FORMAT_MESSAGE,
 	"OK"
   };
 
@@ -246,7 +246,10 @@ static void ShowVersion (globaldata *g)
   struct Window	*window;
   ULONG rec_idcmp, retval, tick;
 
-	req.es_TextFormat = (STRPTR)FORMAT_MESSAGE;
+#ifdef KSWRAPPER
+	if (!g->v37DOS)
+		return;
+#endif
 
 	/*
 	 * Show  copyright message

@@ -1684,7 +1684,7 @@ retry_format:
 		return ERROR_NOT_A_DOS_DISK;
 	} 
 	PROFILE_ON();
-	return NULL;
+	return 0;
 }
 #endif /* TRACKDISK */
 
