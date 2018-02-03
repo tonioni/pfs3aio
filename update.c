@@ -407,6 +407,7 @@ static void RemoveEmptyABlocks(struct volumedata *volume, globaldata *g)
 
 				/* and remove the reference (this one should already be in the cache) */
 				index = GetIndexBlock(indexblknr, g);
+				DBERR(if (!index) ErrorTrace(5,"RemoveEmptyABlocks", "GetIndexBlock returned NULL!"));
 				index->blk.index[indexoffset] = 0;
 				index->changeflag = TRUE;
 			}
@@ -675,6 +676,9 @@ static void UpdateABLK (struct cachedblock *blk, ULONG newblocknr, globaldata *g
 
 	/* this one should already be in the cache */
 	index = GetIndexBlock(indexblknr, g);
+
+	DBERR(if (!index) ErrorTrace(5,"UpdateABLK", "GetIndexBlock returned NULL!"));
+
 	index->blk.index[indexoffset] = newblocknr;
 	MakeBlockDirty ((struct cachedblock *)index, g);
 	ReHash(blk, g->currentvolume->anblks, HASHM_ANODE);
@@ -690,6 +694,9 @@ static void UpdateIBLK(struct cachedblock *blk, ULONG newblocknr, globaldata *g)
 	{
 		temp = divide (((struct cindexblock *)blk)->blk.seqnr, andata.indexperblock);
 		superblk = GetSuperBlock (temp /* & 0xffff */, g);
+
+		DBERR(if (!superblk) ErrorTrace(5,"UpdateIBLK", "GetSuperBlock returned NULL!"));
+
 		superblk->blk.index[temp >> 16] = newblocknr;
 		MakeBlockDirty ((struct cachedblock *)superblk, g);
 	}
@@ -716,6 +723,9 @@ static void UpdateBMBLK (struct cachedblock *blk, ULONG newblocknr, globaldata *
 	blk->changeflag = TRUE;
 	temp = divide (bmb->blk.seqnr, andata.indexperblock);
 	indexblock = GetBitmapIndex (temp /* & 0xffff */, g);
+
+	DBERR(if (!indexblock) ErrorTrace(5,"UpdateBMBLK", "GetBitmapIndex returned NULL!"));
+
 	indexblock->blk.index[temp >> 16] = newblocknr;
 	MakeBlockDirty ((struct cachedblock *)indexblock, g);   /* recursion !! */
 }

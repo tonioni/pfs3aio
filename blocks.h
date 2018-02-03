@@ -146,7 +146,7 @@ typedef struct rootblock
     ULONG roving_ptr;       /* current LONG bitmapfield nr for allocation       */
     ULONG deldir;           /* deldir location (<= 17.8)        */
     ULONG disksize;         /* disksize in sectors              */
-    ULONG extension;        /* rootblock extension (16.4)       */
+    ULONG extension;        /* rootblock extension (16.4)       offset=88 $58 */
     ULONG not_used;
     union
     {
@@ -441,7 +441,7 @@ struct rootblockextension
 	UWORD deldirsize;			/* size of deldir */
 	UWORD fnsize;				/* filename size (18.1) */
 	UWORD not_used_2[3];
-	ULONG superindex[MAXSUPER + 1];		/* MODE_SUPERINDEX only. */
+	ULONG superindex[MAXSUPER + 1];		/* MODE_SUPERINDEX only. offset=64 $40 */
 	UWORD dd_uid;				/* deldir user id (17.9)			*/
 	UWORD dd_gid;				/* deldir group id					*/
 	ULONG dd_protection;		/* deldir protection				*/

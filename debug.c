@@ -53,3 +53,18 @@ void Trace(int id, char *title, char *format, ...)
 
 	va_end(parms);
 }
+
+void ErrorTrace(int id, char *title, char *format, ...)
+{
+	va_list parms;
+	char buf[256];
+
+	serout("-");
+	serout(title);
+	serout(":");
+	va_start(parms, format);
+	rawdofmt(buf, format, parms);
+	serout(buf);
+
+	va_end(parms);
+}

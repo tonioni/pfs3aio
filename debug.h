@@ -5,6 +5,12 @@
 #include <debug/debug.h>
 #endif
 
+#if defined(__GNUC__) && defined(ERRDEBUG)
+#define DBERR(x) x
+void ErrorTrace(int id, char*, char *, ...);
+#endif
+
+
 #if defined(__GNUC__) && defined(DEBUG)
 #define DB(x) x
 void ENTER(char*);
@@ -17,6 +23,10 @@ void Trace(int id, char*, char *, ...);
 #define Trace(x)
 #define ENTER(x)
 #define EXIT(x)
+#endif
+
+#ifndef DBERR
+#define DBERR(x)
 #endif
 
 #endif /* DEBUG_H */

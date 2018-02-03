@@ -165,7 +165,7 @@ VOID InitAllocation (struct volumedata *volume, globaldata *g)
 		memset (alloc_data.tobefreed, 0, TBF_CACHE_SIZE*2*sizeof(ULONG));
 		alloc_data.tobefreed_index = 0;
 		alloc_data.tbf_resneed = 0;
-		alloc_data.res_bitmap = (bitmapblock_t *)(rootblock+1);     /* bitmap directly behind rootblock */
+		alloc_data.res_bitmap = (bitmapblock_t *)(rootblock+1);   /* bitmap directly behind rootblock */
 
 		if (volume->rblkextension)
 		{
@@ -357,7 +357,7 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size,
 									return DOSFALSE;
 								}
 
-								anodenr = AllocAnode (chnode->an.nr, g);    /* should not go wrong! */
+								anodenr = AllocAnode (chnode->an.nr, g);  /* should not go wrong! */
 								chnode->an.next = anodenr; 
 								SaveAnode (&chnode->an, chnode->an.nr, g);
 								chnode = chnode->next;
@@ -367,8 +367,8 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size,
 								chnode->an.next = 0;
 							}
 
-							bitmap->blk.bitmap[bmoffset] &= ~j;     /* remove block from freelist */
-							chnode->an.clustersize++;           /* to file                  */
+							bitmap->blk.bitmap[bmoffset] &= ~j;   /* remove block from freelist */
+							chnode->an.clustersize++;  	   /* to file  	  	  */
 							MakeBlockDirty ((struct cachedblock *)bitmap, g);
 
 							/* update counters */
@@ -471,7 +471,7 @@ alloc_end:
  * be added to the blocksfree counter twice, however (see DoPostoned())
  * 
  * -> all references that indicate the freed blocks must have been
- *    done (atomically).
+ *  done (atomically).
  */
 static void RestoreAnodeChain (struct anodechain *achain, BOOL empty, struct anodechainnode *tail, globaldata *g);
 VOID FreeBlocksAC (struct anodechain *achain, ULONG size, enum freeblocktype freetype, globaldata *g)
@@ -499,7 +499,7 @@ VOID FreeBlocksAC (struct anodechain *achain, ULONG size, enum freeblocktype fre
 
 		rext->blk.tobedone.argument1 = achain->head.an.nr;
 		rext->blk.tobedone.argument2 = size;
-		rext->blk.tobedone.argument3 = 0;       /* blocks done (FREEBLOCKS_KEEP) */
+		rext->blk.tobedone.argument3 = 0;     /* blocks done (FREEBLOCKS_KEEP) */
 		MakeBlockDirty ((struct cachedblock *)rext, g);
 	}
 
@@ -526,7 +526,7 @@ VOID FreeBlocksAC (struct anodechain *achain, ULONG size, enum freeblocktype fre
 		while (chnode->next != tail)
 			chnode = chnode->next;
 
-l1:     /* get blocks to free */
+l1:   /* get blocks to free */
 		if (chnode->an.clustersize <= size)
 		{
 			freeing = chnode->an.clustersize;
@@ -703,44 +703,44 @@ ULONG AllocReservedBlock (globaldata *g)
   /* Check if allocation possible 
    * (really necessary?)
    */
-  if (*free == 0)
-	return 0;
+	if (*free == 0)
+  	return 0;
 
   j = 31 - alloc_data.res_roving % 32;
   for (i = alloc_data.res_roving / 32; i < ((alloc_data.numreserved + 31)/32); i++, j=31)
   {
-	if (bitmap[i] != 0)
-	{
-	  ULONG field = bitmap[i];
-	  for ( ;j >= 0; j--)
-	  {
-		if (field & (1 << j))
+		if (bitmap[i] != 0)
 		{
-		  blocknr = g->rootblock->firstreserved + (i*32+(31-j))*vol->rescluster;
-		  if (blocknr <= g->rootblock->lastreserved) 
+		  ULONG field = bitmap[i];
+		  for ( ;j >= 0; j--)
 		  {
-			bitmap[i] &= ~(1 << j);
-			g->currentvolume->rootblockchangeflag = TRUE;
-			g->dirty = TRUE;
-			(*free)--;
-			alloc_data.res_roving = 32*i + (31 - j);
-			DB(Trace(10,"AllocReservedBlock","allocated %ld\n", blocknr));
-			return blocknr;
+				if (field & (1 << j))
+				{
+				  blocknr = g->rootblock->firstreserved + (i*32+(31-j))*vol->rescluster;
+				  if (blocknr <= g->rootblock->lastreserved) 
+				  {
+						bitmap[i] &= ~(1 << j);
+						g->currentvolume->rootblockchangeflag = TRUE;
+						g->dirty = TRUE;
+						(*free)--;
+						alloc_data.res_roving = 32*i + (31 - j);
+						DB(Trace(10,"AllocReservedBlock","allocated %ld\n", blocknr));
+						return blocknr;
+				  }
+				}
 		  }
 		}
-	  }
-	}
   }
 
   /* end of bitmap reached. Reset roving pointer and try again 
   */
   if (alloc_data.res_roving)
   {
-	alloc_data.res_roving = 0;
-	return AllocReservedBlock (g);
+		alloc_data.res_roving = 0;
+		return AllocReservedBlock (g);
   }
   else
-	return 0;
+		return 0;
 
   EXIT("AllocReservedBlock");
 }
@@ -879,9 +879,9 @@ cindexblock_t *GetBitmapIndex (UWORD nr, globaldata *g)
 
 	if (indexblk->blk.id == BMIBLKID)
 	{
-		indexblk->volume     = volume;
-		indexblk->blocknr    = blocknr;
-		indexblk->used       = FALSE;
+		indexblk->volume   = volume;
+		indexblk->blocknr  = blocknr;
+		indexblk->used     = FALSE;
 		indexblk->changeflag = FALSE;
 		MinAddHead (&volume->bmindexblks, indexblk);
 	}
@@ -900,7 +900,7 @@ cindexblock_t *GetBitmapIndex (UWORD nr, globaldata *g)
 
 	LOCK(indexblk);
 	return indexblk;
-}       
+}     
 
 /*
  * the following routines (NewBitmapBlock & NewBitmapIndexBlock are
@@ -944,7 +944,7 @@ struct cbitmapblock *NewBitmapBlock (ULONG seqnr, globaldata *g)
 
 	MinAddHead(&volume->bmblks, blok);
 	MakeBlockDirty((struct cachedblock *)indexblock, g);
-	indexblock->used = oldlock;             // unlock;
+	indexblock->used = oldlock;  	   // unlock;
 
 	return blok;
 }
@@ -966,10 +966,10 @@ static struct cindexblock *NewBitmapIndexBlock (UWORD seqnr, globaldata *g)
 
 	volume->rootblockchangeflag = TRUE;
 
-	blok->volume     = volume;
-	blok->blocknr    = volume->rootblk->idx.large.bitmapindex[seqnr];
-	blok->used       = FALSE;
-	blok->blk.id     = BMIBLKID;
+	blok->volume   = volume;
+	blok->blocknr  = volume->rootblk->idx.large.bitmapindex[seqnr];
+	blok->used     = FALSE;
+	blok->blk.id   = BMIBLKID;
 	blok->blk.seqnr  = seqnr;
 	blok->changeflag = TRUE;
 	MinAddHead(&volume->bmindexblks, blok);
