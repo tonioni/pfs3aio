@@ -44,7 +44,7 @@ AROS_UFH2(ULONG, DiskChangeHandler,
 
 #elif __GNUC__
 
-ULONG __interrupt DiskChangeHandler(register struct globaldata *g asm("a1"))
+ULONG DiskChangeHandler(register struct globaldata *g asm("a1"))
 {
 	Signal(&g->myproc->pr_Task, g->diskchangesignal);
 	return 0;
