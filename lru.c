@@ -92,6 +92,8 @@
  * prototypes
  */
 
+#define MIN_BUFFERS 10
+#define MAX_BUFFERS 600
 #define NEW_LRU_ENTRIES 5
 
 /* Allocate LRU queue
@@ -216,12 +218,16 @@ retry:
 	}
 
 	/* Attempt to allocate new entries */
-	nlru = AllocVec(sizeof(struct lru_cachedblock*) * (g->glob_lrudata.poolsize + NEW_LRU_ENTRIES), 0);
+	nlru = AllocVec(sizeof(struct lru_cachedblock*) * (g->glob_lrudata.poolsize + NEW_LRU_ENTRIES), MEMF_CLEAR);
 	for (j = 0; j < NEW_LRU_ENTRIES; j++) {
 		if (!nlru)
 			break;
 		nlru[j + g->glob_lrudata.poolsize] = AllocVec((sizeof(struct lru_cachedblock) + SIZEOF_RESBLOCK), g->dosenvec->de_BufMemType | MEMF_CLEAR);
 		if (!nlru[j + g->glob_lrudata.poolsize]) {
+			while (j >= 0) {
+				FreeVec(nlru[j + g->glob_lrudata.poolsize]);
+				j--;
+			}
 			FreeVec(nlru);
 			nlru = NULL;
 		}
@@ -235,11 +241,12 @@ retry:
 		goto retry;
 	}
 	CopyMem(g->glob_lrudata.LRUarray, nlru, sizeof(struct lru_cachedblock*) * g->glob_lrudata.poolsize);
-	for (j = 0; j < 5; j++, g->glob_lrudata.poolsize++) {
-		MinAddHead(&g->glob_lrudata.LRUpool, g->glob_lrudata.LRUarray[g->glob_lrudata.poolsize]);
-	}
 	FreeVec(g->glob_lrudata.LRUarray);
 	g->glob_lrudata.LRUarray = nlru;
+	for (j = 0; j < NEW_LRU_ENTRIES; j++, g->glob_lrudata.poolsize++) {
+		MinAddHead(&g->glob_lrudata.LRUpool, g->glob_lrudata.LRUarray[g->glob_lrudata.poolsize]);
+	}
+	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize;
 	goto retry;
 
 ready:
