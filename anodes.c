@@ -741,9 +741,10 @@ static struct cindexblock *NewIndexBlock (UWORD seqnr, globaldata *g)
 
 	DBERR(ErrorTrace(10,"NewIndexBlock", "seqnr = %lu block = %lu\n", seqnr, blocknr));
 
-	if (g->supermode)
+	if (g->supermode) {
 		superblok->blk.index[superoffset] = blocknr;
-	else {
+		MakeBlockDirty((struct cachedblock *)superblok, g);
+	} else {
 		volume->rootblk->idx.small.indexblocks[seqnr] = blocknr;
 		volume->rootblockchangeflag = TRUE;
 	}
