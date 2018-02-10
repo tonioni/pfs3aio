@@ -339,7 +339,7 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 				resblocksize = 4096;
 			}
 			rbl->disktype = ID_PFS2_DISK;
-			ErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, NULL, g);
+			NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, NULL, 1);
 		}
 	}
 
@@ -354,7 +354,7 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 #if LARGE_FILE_SIZE
 	rbl->options |= MODE_LARGEFILE;
 	rbl->disktype = ID_PFS2_DISK;
-	ErrorMsg(AFS_WARNING_EXPERIMENTAL_FILE, NULL, g);
+	NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_FILE, NULL, 1);
 #endif
 
 	rbl->datestamp = 1;
