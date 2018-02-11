@@ -1,12 +1,18 @@
 
+NOWDATE := "\"$(shell date "+%d.%m.%Y")\""
+NOWTIME := "\"$(shell date "+%T")\""
+
 CC=m68k-amigaos-gcc
 
 LIBS=-nostdlib -lnix -lamiga -lgcc -lnix13 -lnix -s
 
 CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -msmall-code \
-	-DMIN_LIB_VERSION=33 -DKSWRAPPER=1 -DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
+	-DMIN_LIB_VERSION=33 -DKSWRAPPER=1 \
+	-DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
 	-DLARGE_FILE_SIZE=0 -DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
-	-DMULTIUSER=0 -DPROTECTION=0 -DVERSION23=1 -DROLLOVER=1
+	-DMULTIUSER=0 -DPROTECTION=0 -DVERSION23=1 -DROLLOVER=1 \
+	-DLIMIT_MAXTRANSFER=0x20000 \
+	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME)
 
 OBJS = startup.o boot.o init.o assroutines.o messages.o volume.o lock.o dostohandlerinterface.o anodes.o directory.o lru.o disk.o \
 	update.o allocation.o CheckAccess.o diskchange.o resethandler.o kswrapper.o format.o

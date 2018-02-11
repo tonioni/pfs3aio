@@ -1114,7 +1114,7 @@ void GetDriveGeometry(globaldata *g)
 	if (g->scsidevice) {
 		struct Library *d;
 		Forbid();
-		d = (struct Library*)FindName(&SysBase->DeviceList, "scsi.device")
+		d = (struct Library*)FindName(&SysBase->DeviceList, "scsi.device");
 		if (d && d->lib_Version >= 36 && d->lib_Version < 50) {
 			/* A600/A1200/A4000 ROM scsi.device ATA spec max transfer bug workaround */
 			g->maxtransfermax = LIMIT_MAXTRANSFER;

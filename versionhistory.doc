@@ -838,13 +838,17 @@
 **
 *********************************************************************************/
 #define REVISION "19.0"
-#define REVDATE  "22.06.14"
+#ifndef REVDATE
+#define REVDATE  "10.02.2018"
+#endif
+#ifndef REVTIME
 #define REVTIME  "18:02:53"
+#endif
 #define AUTHOR   "Michiel Pelt"
 #define VERNUM   19
 #define REVNUM   0
 
-#define RELNUM  "5.5"
+#define RELNUM  "6.0"
 
 #if MULTIUSER
 #define E1 "mu"
