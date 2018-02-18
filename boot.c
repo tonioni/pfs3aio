@@ -176,7 +176,7 @@ CONST UBYTE version[] = "$VER: PFS-III " REVISION " BETA (" REVDATE ") "
 CONST UBYTE version[] = "$VER: " "Professional-File-System-III " REVISION " MULTIUSER-VERSION (" REVDATE ") "
 	 "written by Michiel Pelt and copyright (c) 1994-2012 Peltin BV";
 #else
-CONST UBYTE version[] = "$VER: " "Professional-File-System-III " REVISION " PROFESSIONAL-VERSION (" REVDATE ") "
+CONST UBYTE version[] = "$VER: " "Professional-File-System-III " REVISION " PFS3AIO-VERSION (" REVDATE ") "
 	 "written by Michiel Pelt and copyright (c) 1994-2012 Peltin BV";
 #endif
 #endif
