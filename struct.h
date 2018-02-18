@@ -122,7 +122,14 @@
 #include <devices/scsidisk.h>
 #endif
 
-
+#ifndef DEF_SCSIDIRECT
+// Always choose SCSI Direct. Never use TD_GETGEOMETRY.
+#define DEF_SCSIDIRECT (1 << 16)
+// Removable, trackdisk.device like
+#define DEF_SUPERFLOPPY (1 << 17)
+// Never use NSD
+#define DEF_DISABLENSD (1 << 18)
+#endif
 
 /****************************************************************************/
 /* Useful macros to handle various compiler dependecies                     */

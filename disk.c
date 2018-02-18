@@ -1407,8 +1407,7 @@ ULONG DiskWrite(UBYTE *buffer, ULONG blockstowrite, ULONG blocknr, globaldata *g
 
 #if SCSIDIRECT
 
-static int DoSCSICommand(UBYTE *data, ULONG datalen, UBYTE *command,
-	UWORD commandlen, UBYTE direction, globaldata *g)
+static int DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *command, UWORD commandlen, UBYTE direction, globaldata *g)
 {
 	g->scsicmd.scsi_Data = (UWORD *)data;
 	g->scsicmd.scsi_Length = datalen;
@@ -1419,6 +1418,7 @@ static int DoSCSICommand(UBYTE *data, ULONG datalen, UBYTE *command,
 	g->scsicmd.scsi_SenseLength = 18;
 	g->scsicmd.scsi_SenseActual = 0;
 	g->scsicmd.scsi_Status = 1;
+	g->scsicmd.scsi_Actual = 0;
 
 	g->request->iotd_Req.io_Length = sizeof(struct SCSICmd);
 	g->request->iotd_Req.io_Data = (APTR)&g->scsicmd;
@@ -1427,8 +1427,9 @@ static int DoSCSICommand(UBYTE *data, ULONG datalen, UBYTE *command,
 		return 0;
 	if (g->scsicmd.scsi_Status)
 		return 0;
-	else 
-		return 1;
+	if (minlen > 0 && g->scsicmd.scsi_Actual < minlen)
+		return 0;
+	return 1;
 }
 
 static ULONG RawRead_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
@@ -1456,7 +1457,7 @@ retry_read:
 		*((ULONG *)&cmdbuf[2]) = blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer<<8;
 		PROFILE_OFF();
-		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_READ,g))
+		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_READ,g))
 		{
 			ULONG args[2];
 			PROFILE_ON();
@@ -1516,7 +1517,7 @@ retry_write:
 		*((ULONG *)&cmdbuf[2]) = blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer<<8;
 		PROFILE_OFF();
-		if (!DoSCSICommand(buffer,blocks<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
+		if (!DoSCSICommand(buffer,blocks<<BLOCKSHIFT,blocks<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
 		{
 			ULONG args[2];
 			PROFILE_ON();
@@ -1828,6 +1829,151 @@ static BOOL testbuffer(UBYTE *buffer, UBYTE data, globaldata *g)
 }
 
 #if SCSIDIRECT
+
+struct SCSIInquiry
+{
+	UBYTE sci_Status;
+	UBYTE sci_Modification;
+	UBYTE sci_Version;
+	UBYTE sci_Format;
+	UBYTE sci_AdditionalBytes;
+	UBYTE sci_reserved2[2];
+	UBYTE sci_Flags;
+	UBYTE sci_Provider[8];
+	UBYTE sci_Product[16];
+	UBYTE sci_ProdVersion[4];
+	UBYTE sci_Date[8];
+	UBYTE sci_Comment[12];
+};
+
+struct SCSICapacity
+{
+	ULONG scc_Block;
+	ULONG scc_BlockLength;
+};
+
+struct RigidDiskPage
+{
+	UBYTE rgp_NumberOfCylinders[3];
+	UBYTE rgp_NumberOfHeads;
+	UBYTE rgp_StartPrecomp[3];
+	UBYTE rgp_StartReducedWrite[3];
+	UWORD rgp_StepRate;
+	UBYTE rgp_LandingZone[3];
+	UBYTE rgp_RPL;
+	UBYTE rgp_RotationalOffset;
+	UBYTE rgp_reserved;
+	UWORD rgp_RotationRate;
+};
+
+struct SCSIPageHeader
+{
+	UBYTE   spch_ModeDataLength;
+	UBYTE   spch_MediumType;
+	UBYTE   spch_DeviceSpecific;
+	UBYTE   spch_BlockDescriptorLength;
+};
+
+struct SCSIBlockDescriptor
+{
+	ULONG scbd_NumberOfBlocks;
+	ULONG scbd_BlockLength;
+};
+
+/* Simulate TD_GETGEOMETRY using SCSI commands */
+BOOL get_scsi_geometry(globaldata *g)
+{
+	UBYTE buffer[256];
+	UBYTE cmdbuf[10] = { 0 };
+	struct SCSIInquiry *inq;
+	struct DriveGeometry *geom = g->geom;
+	ULONG *env = (ULONG *)g->dosenvec;
+
+	memset(geom, 0, sizeof(struct DriveGeometry));
+
+	geom->dg_BufMemType = env[DE_MEMBUFTYPE];
+	
+	// TUR
+	if (!DoSCSICommand(buffer, 0, 0, cmdbuf, 6, SCSIF_READ, g))
+		return FALSE;
+
+	// INQUIRY
+	cmdbuf[0] = 0x12;
+	cmdbuf[4] = sizeof(struct SCSIInquiry);
+	if (!DoSCSICommand(buffer, cmdbuf[4], 2, cmdbuf, 6, SCSIF_READ, g))
+		return FALSE;
+	inq = (struct SCSIInquiry*)buffer;
+	// check whether this device is connected
+	if ((inq->sci_Status >> 5) == 0) {
+		UBYTE cl = inq->sci_Status & 31;
+		// test the device class
+		if (cl != 0 && cl != 4 && cl != 5 && cl != 7)
+			return FALSE;
+		geom->dg_DeviceType = cl;
+	}
+	geom->dg_Flags = (inq->sci_Modification & 0x80) ? 1 : 0; // removable?
+
+	// MODE SENSE
+	cmdbuf[0] = 0x1a;
+	cmdbuf[2] = 0x3f; // current values, all pages
+	cmdbuf[4] = 254;
+	if (DoSCSICommand(buffer, cmdbuf[4], sizeof(struct SCSIPageHeader) + sizeof(struct SCSIBlockDescriptor), cmdbuf, 6, SCSIF_READ, g)) {
+		struct SCSIPageHeader *ph = (struct SCSIPageHeader*)buffer;
+		if (ph->spch_BlockDescriptorLength >= sizeof(struct SCSIBlockDescriptor) && ph->spch_ModeDataLength >= sizeof(struct SCSIPageHeader) - 1) {
+			struct SCSIBlockDescriptor *bd = (struct SCSIBlockDescriptor*)(ph + 1);
+			ULONG blocks = bd->scbd_NumberOfBlocks & 0x00ffffff;
+			if (blocks != 0x00ffffff)
+				geom->dg_TotalSectors = blocks;
+			geom->dg_SectorSize = bd->scbd_BlockLength & 0x00ffffff;
+		}
+	}
+
+	// READ_CAPACITY
+	memset(cmdbuf, 0, sizeof(cmdbuf));
+	cmdbuf[0] = 0x25;
+	if (DoSCSICommand(buffer, 8, sizeof(struct SCSICapacity), cmdbuf, 10, SCSIF_READ, g)) {
+		struct SCSICapacity *scc = (struct SCSICapacity*)buffer;
+		geom->dg_TotalSectors = scc->scc_Block;
+		geom->dg_SectorSize = scc->scc_BlockLength ? scc->scc_BlockLength : 512;
+	}
+	
+	if (!geom->dg_TotalSectors || !geom->dg_SectorSize)
+		return FALSE;
+
+	// MODE SENSE
+	cmdbuf[0] = 0x1a;
+	cmdbuf[2] = 0x04; // rigid drive geometry
+	cmdbuf[4] = 254;
+	if (DoSCSICommand(buffer, cmdbuf[4], 4, cmdbuf, 6, SCSIF_READ, g)) {
+		ULONG cylhead = *((ULONG*)buffer);
+		geom->dg_Heads = cylhead & 255;
+		geom->dg_Cylinders = cylhead >> 8;
+	}
+
+	if (!geom->dg_Cylinders) {
+		// try to guessimate some reasonable numbers
+		UWORD c;
+		ULONG cylsecs;
+		for (c = 16; c > 0; c--) {
+			geom->dg_Heads = c;
+			cylsecs = geom->dg_TotalSectors / c;
+			if ((geom->dg_TotalSectors % c) == 0)
+				break;
+		}
+		for (c = 256; c > 0; c--) {
+			geom->dg_Cylinders = c;
+			if ((cylsecs % c) == 0)
+				break;
+		}
+	}
+
+	// compute now the remaining data
+	geom->dg_TrackSectors =  geom->dg_TotalSectors / (geom->dg_Cylinders && geom->dg_Heads ? geom->dg_Cylinders * geom->dg_Heads : 1);
+	geom->dg_CylSectors = geom->dg_TotalSectors / (geom->dg_Cylinders ? geom->dg_Cylinders : 1);
+	
+	return TRUE;
+}
+
 static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 {
 	UBYTE cmdbuf[10];
@@ -1841,11 +1987,20 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 		ULONG capacity;
 
 		fillbuffer(buffer, 0xfe, g);
-		/* Read Capacity */
-		*((UWORD *)&cmdbuf[0]) = 0x2500;
+
+		*((UWORD *)&cmdbuf[0]) = 0;
 		*((ULONG *)&cmdbuf[2]) = 0;
 		*((ULONG *)&cmdbuf[6]) = 0;
-		if (!DoSCSICommand(buffer, 8, cmdbuf, 10, SCSIF_READ, g)) {
+		if (!DoSCSICommand(buffer, 0, 0, cmdbuf, 6, SCSIF_READ, g)) {
+#if DETECTDEBUG
+			DebugPutStr("DoSCSICommand TUR failed\n");
+#endif
+			return FALSE;
+		}
+
+		/* Read Capacity */
+		*((UWORD *)&cmdbuf[0]) = 0x2500;
+		if (!DoSCSICommand(buffer, sizeof(struct SCSICapacity), sizeof(struct SCSICapacity), cmdbuf, 10, SCSIF_READ, g)) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand Read Capacity failed\n");
 #endif
@@ -1872,7 +2027,7 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 		*((UWORD *)&cmdbuf[0]) = 0x2800;
 		*((ULONG *)&cmdbuf[2]) = g->lastblock;
 		*((ULONG *)&cmdbuf[6]) = 1 << 8;
-		if (!DoSCSICommand(buffer, 1 << BLOCKSHIFT, cmdbuf, 10, SCSIF_READ, g)) {
+		if (!DoSCSICommand(buffer, 1 << BLOCKSHIFT, 1 << BLOCKSHIFT, cmdbuf, 10, SCSIF_READ, g)) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand Read(10) failed\n");
 #endif
@@ -1995,6 +2150,9 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 {
 	UBYTE name[FNSIZE];
 	BOOL inside4G = g->lastblock < (0x80000000ul >> (BLOCKSHIFT - 1));
+	ULONG *env = (ULONG *)g->dosenvec;
+	BOOL disableNSD = (env[DE_INTERLEAVE] & DEF_DISABLENSD) != 0;
+	BOOL forceDS = (env[DE_INTERLEAVE] & DEF_SCSIDIRECT) != 0;
 
 	BCPLtoCString(name, (UBYTE *)BADDR(g->startup->fssm_Device));
 
@@ -2018,8 +2176,10 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 
 #if SCSIDIRECT
 	/* if dostype = PDSx, test Direct SCSI first and always use it if test succeeded */
-	if ((g->dosenvec->de_DosType & 0xffffff00) == 0x50445300) {
+	if ((g->dosenvec->de_DosType & 0xffffff00) == 0x50445300 || forceDS) {
 		g->tdmode = ACCESS_DS;
+		if (forceDS)
+			return TRUE;
 		if (testread_ds(buffer, g))
 			return TRUE;
 	}
@@ -2054,9 +2214,11 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 	}
 	/* outside of first 4G, must use TD64, NSD or DS */
 #if NSD
-	g->tdmode = ACCESS_NSD;
-	if (testread_td(buffer, g))
-		return TRUE;
+	if (!disableNSD) {
+		g->tdmode = ACCESS_NSD;
+		if (testread_td(buffer, g))
+			return TRUE;
+	}
 #endif
 #if TD64
 	g->tdmode = ACCESS_TD64;

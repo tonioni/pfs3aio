@@ -344,7 +344,7 @@ static BOOL TestRemovability(globaldata *g)
 	{
 	  struct DosEnvec *env = g->dosenvec;
 
-		if( (env->de_Surfaces <= 2) && (env->de_LowCyl == 0) )
+		if(((env->de_Surfaces <= 2) && (env->de_LowCyl == 0)) || (env->de_Interleave & DEF_SUPERFLOPPY))
 			result = 1;     /* to accomodate things like the diskspare.device */
 		else
 			result = 0;     /* disk is assumed to be NOT removable by default */
@@ -556,8 +556,7 @@ static BOOL OpenDiskDevice(struct FileSysStartupMsg *startup, struct MsgPort **p
 			BCPLtoCString(name, (UBYTE *)BADDR(startup->fssm_Device));
 			*trackdisk = (strcmp(name, "trackdisk.device") == 0) || (strcmp(name, "diskspare.device") == 0);
 			*scsidevice = strcmp(name, "scsi.device") == 0;
-			if(OpenDevice(name, startup->fssm_Unit, (struct IORequest *)*request,
-				startup->fssm_Flags) == 0)
+			if(OpenDevice(name, startup->fssm_Unit, (struct IORequest *)*request, startup->fssm_Flags) == 0)
 				return TRUE;
 			DeleteIORequest(*request);
 			*request = 0;

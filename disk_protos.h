@@ -26,3 +26,4 @@ void FlushDataCache (globaldata *g);
 void UpdateDataCache (globaldata *g);
 
 BOOL detectaccessmode(UBYTE *buffer, globaldata *g);
+BOOL get_scsi_geometry(globaldata *g);
