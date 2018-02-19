@@ -1444,7 +1444,12 @@ static ULONG RawRead_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *
 retry_read:
 	if(!(InPartition(blocknr) && InPartition(blocknr+blocks-1)))
 	{
-		ErrorMsg(AFS_ERROR_READ_OUTSIDE, NULL, g);
+		ULONG args[4];
+		args[0] = blocknr;
+		args[1] = blocks;
+		args[2] = g->firstblock;
+		args[3] = g->lastblock;
+		ErrorMsg(AFS_ERROR_READ_OUTSIDE, args, g);
 		return ERROR_SEEK_ERROR;
 	}
 
@@ -1504,7 +1509,12 @@ retry_write:
 
 	if (!(InPartition(blocknr) && InPartition(blocknr+blocks-1)))
 	{
-		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, NULL, g);
+		ULONG args[4];
+		args[0] = blocknr;
+		args[1] = blocks;
+		args[2] = g->firstblock;
+		args[3] = g->lastblock;
+		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, args, g);
 		return ERROR_SEEK_ERROR;
 	}
 
@@ -1572,7 +1582,12 @@ retry_read:
 	realblocknr = blocknr + g->firstblock;
 	if(!(InPartition(realblocknr) && InPartition(realblocknr+blocks-1)))
 	{
-		ErrorMsg (AFS_ERROR_READ_OUTSIDE, NULL, g);
+		ULONG args[4];
+		args[0] = realblocknr;
+		args[1] = blocks;
+		args[2] = g->firstblock;
+		args[3] = g->lastblock;
+		ErrorMsg (AFS_ERROR_READ_OUTSIDE, args, g);
 		return ERROR_SEEK_ERROR;
 	}
 
@@ -1653,7 +1668,12 @@ retry_format:
 	realblocknr = blocknr + g->firstblock;
 	if(!InPartition(realblocknr))
 	{
-		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, NULL, g);
+		ULONG args[4];
+		args[0] = realblocknr;
+		args[1] = blocks;
+		args[2] = g->firstblock;
+		args[3] = g->lastblock;
+		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, args, g);
 		return ERROR_SEEK_ERROR;
 	}
 
@@ -1710,6 +1730,11 @@ retry_write:
 	realblocknr = blocknr + g->firstblock;
 	if (!(InPartition(realblocknr) && InPartition(realblocknr+blocks-1)))
 	{
+		ULONG args[4];
+		args[0] = realblocknr;
+		args[1] = blocks;
+		args[2] = g->firstblock;
+		args[3] = g->lastblock;
 		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, NULL, g);
 		return ERROR_SEEK_ERROR;
 	}

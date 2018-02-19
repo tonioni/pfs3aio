@@ -57,12 +57,11 @@ CONST UBYTE AFS_ERROR_MEMORY_POOL[]           = "Couldn't allocate memorypool";
 CONST UBYTE AFS_ERROR_PLEASE_FREE_MEM[]       = "Please free some memory";
 CONST UBYTE AFS_ERROR_LIBRARY_PROBLEM[]       = "Couldn't open library!";
 CONST UBYTE AFS_ERROR_INIT_FAILED[]           = "Initialization failure";
-CONST UBYTE AFS_ERROR_READ_OUTSIDE[]          = "Read attempt outside partition!";
-CONST UBYTE AFS_ERROR_WRITE_OUTSIDE[]         = "Write attempt outside partition!";
-CONST UBYTE AFS_ERROR_SEEK_OUTSIDE[]          = "Seek attempt outside partition!";
-CONST UBYTE AFS_ERROR_READ_ERROR[]            = "Read Error %ld on block %ld\n"
+CONST UBYTE AFS_ERROR_READ_OUTSIDE[]          = "Read attempt outside partition! %lu + %lu (%ld - %lu)";
+CONST UBYTE AFS_ERROR_WRITE_OUTSIDE[]         = "Write attempt outside partition! %lu + %lu (%ld - %lu)";
+CONST UBYTE AFS_ERROR_READ_ERROR[]            = "Read Error %ld on block %lu\n"
                                           "Make sure disk is inserted";
-CONST UBYTE AFS_ERROR_WRITE_ERROR[]           = "Write Error %ld on block %ld\n"
+CONST UBYTE AFS_ERROR_WRITE_ERROR[]           = "Write Error %ld on block %lu\n"
                                           "Make sure disk is inserted";
 CONST UBYTE AFS_ERROR_READ_DELDIR[]           = "Could not read deldir";
 CONST UBYTE AFS_ERROR_DELDIR_INVALID[]        = "Deldir invalid";
@@ -79,7 +78,7 @@ CONST UBYTE AFS_ERROR_DISK_TOO_LARGE[]		= "Disk too large for this version of PF
 #endif
 CONST UBYTE AFS_ERROR_ANODE_ERROR[]			= "Anode index invalid";
 CONST UBYTE AFS_ERROR_ANODE_INIT[]            = "Anode initialisation failure";
-CONST UBYTE AFS_ERROR_32BIT_ACCESS_ERROR[]    = "TD32 and Direct SCSI access modes failed!\nCan't read block %ld (<4G)\n%s:%ld";
+CONST UBYTE AFS_ERROR_32BIT_ACCESS_ERROR[]    = "TD32 and Direct SCSI access modes failed!\nCan't read block %lu (<4G)\n%s:%ld";
 
 #if VERSION23
 CONST UBYTE AFS_ERROR_READ_EXTENSION[]        = "Could not read rootblock extension";
