@@ -1879,6 +1879,8 @@ struct SCSICapacity
 
 struct RigidDiskPage
 {
+	UBYTE rgp_PageCode;
+	UBYTE rgp_PageLength;
 	UBYTE rgp_NumberOfCylinders[3];
 	UBYTE rgp_NumberOfHeads;
 	UBYTE rgp_StartPrecomp[3];
@@ -1967,12 +1969,18 @@ BOOL get_scsi_geometry(globaldata *g)
 
 	// MODE SENSE
 	cmdbuf[0] = 0x1a;
+	cmdbuf[1] = 0x08; // DBD
 	cmdbuf[2] = 0x04; // rigid drive geometry
 	cmdbuf[4] = 254;
-	if (DoSCSICommand(buffer, cmdbuf[4], 4, cmdbuf, 6, SCSIF_READ, g)) {
-		ULONG cylhead = *((ULONG*)buffer);
-		geom->dg_Heads = cylhead & 255;
-		geom->dg_Cylinders = cylhead >> 8;
+	memset(buffer, 0, sizeof(struct SCSIPageHeader) + sizeof(struct RigidDiskPage));
+	if (DoSCSICommand(buffer, cmdbuf[4], sizeof(struct SCSIPageHeader) + 2 + 4, cmdbuf, 6, SCSIF_READ, g)) {
+		struct SCSIPageHeader *ph = (struct SCSIPageHeader*)buffer;
+		struct RigidDiskPage *rdp = (struct RigidDiskPage*)(buffer + sizeof(struct SCSIPageHeader));
+		if (ph->spch_ModeDataLength >= sizeof(struct SCSIPageHeader) + 2 + 4 - 1 && ph->spch_BlockDescriptorLength == 0 && (rdp->rgp_PageCode & 0x3f) == 4 && rdp->rgp_PageLength >= 5 - 1) {
+			ULONG cylhead = *((ULONG*)(&rdp->rgp_NumberOfCylinders[0]));
+			geom->dg_Heads = cylhead & 255;
+			geom->dg_Cylinders = cylhead >> 8;
+		}
 	}
 
 	if (!geom->dg_Cylinders) {
