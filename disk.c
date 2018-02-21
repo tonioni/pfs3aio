@@ -1427,8 +1427,10 @@ static int DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *comman
 		return 0;
 	if (g->scsicmd.scsi_Status)
 		return 0;
-	if (minlen > 0 && g->scsicmd.scsi_Actual < minlen)
+	if (minlen > 0 && g->scsicmd.scsi_Actual < minlen) {
+		g->scsicmd.scsi_Status = 0xff;
 		return 0;
+	}
 	return 1;
 }
 
