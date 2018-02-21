@@ -1527,7 +1527,7 @@ retry_write:
 		*((ULONG *)&cmdbuf[2]) = blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer<<8;
 		PROFILE_OFF();
-		if (!DoSCSICommand(buffer,blocks<<BLOCKSHIFT,blocks<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
+		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
 		{
 			ULONG args[2];
 			PROFILE_ON();
