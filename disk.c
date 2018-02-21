@@ -1434,6 +1434,26 @@ static int DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *comman
 	return 1;
 }
 
+static BOOL ErrorRequest(BOOL write, ULONG errnum, ULONG blocknr, globaldata *g)
+{
+	ULONG args[2];
+	args[0] = errnum;
+	args[1] = blocknr;
+	while ((g->ErrorMsg)(write ? AFS_ERROR_WRITE_ERROR : AFS_ERROR_READ_ERROR, args, 2, g))
+	{
+		if (CheckCurrentVolumeBack(g))
+			return TRUE;
+	}
+	if (!g->softprotect)
+	{
+		g->softprotect = 1;
+		g->protectkey = ~0;
+	}
+	if (g->currentvolume)
+		g->currentvolume->numsofterrors++;
+	return FALSE;
+}
+
 static ULONG RawRead_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 {
 	UBYTE cmdbuf[10];
@@ -1467,22 +1487,10 @@ retry_read:
 		PROFILE_OFF();
 		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_READ,g))
 		{
-			ULONG args[2];
 			PROFILE_ON();
-			args[0] = g->sense[2];
-			args[1] = blocknr - g->firstblock;
-			while ((g->ErrorMsg)(AFS_ERROR_READ_ERROR, args, 2, g))
-			{
-				if (CheckCurrentVolumeBack(g))
-					goto retry_read;
-			}
-			if (!g->softprotect)
-			{
-				g->softprotect = 1;
-				g->protectkey = ~0;
-			}
-			if (g->currentvolume)
-				g->currentvolume->numsofterrors++;
+			if (ErrorRequest(FALSE, g->sense[2], blocknr, g))
+				goto retry_read;
+			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
 		buffer += transfer<<BLOCKSHIFT;
@@ -1533,22 +1541,10 @@ retry_write:
 		PROFILE_OFF();
 		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
 		{
-			ULONG args[2];
 			PROFILE_ON();
-			args[0] = g->sense[2];
-			args[1] = blocknr - g->firstblock;
-			while ((g->ErrorMsg)(AFS_ERROR_WRITE_ERROR, args, 2, g))
-			{
-				if (CheckCurrentVolumeBack(g))
-					goto retry_write;
-			}
-			if (!g->softprotect)
-			{
-				g->softprotect = 1;
-				g->protectkey = ~0;
-			}
-			if (g->currentvolume)
-				g->currentvolume->numsofterrors++;
+			if (ErrorRequest(TRUE, g->sense[2], blocknr, g))
+				goto retry_write;
+			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
 		buffer += transfer<<BLOCKSHIFT;
@@ -1621,23 +1617,9 @@ retry_read:
 		PROFILE_OFF();
 		if (DoIO((struct IORequest*)request) != 0)
 		{
-			ULONG args[2];
 			PROFILE_ON();
-			args[0] = request->iotd_Req.io_Error;
-			args[1] = blocknr;  /* should be realblocknr ?? */
-			while ((g->ErrorMsg)(AFS_ERROR_READ_ERROR, args, 2, g))
-			{
-				if (CheckCurrentVolumeBack(g))
-					goto retry_read;
-			}
-			if (!g->softprotect)
-			{
-				g->softprotect = 1;
-				g->protectkey = ~0;
-			}
-			if (g->currentvolume)
-				g->currentvolume->numsofterrors++;
-			DB(Trace(1,"RawRead","readerror nr %ld\n", args[0], args[1]));
+			if (ErrorRequest(FALSE, request->iotd_Req.io_Error, realblocknr, g))
+				goto retry_read;
 			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
@@ -1689,23 +1671,9 @@ retry_format:
 	PROFILE_OFF();
 	if(DoIO((struct IORequest*)request) != 0)
 	{
-		ULONG args[2];
 		PROFILE_ON();
-		args[0] = request->iotd_Req.io_Error;
-		args[1] = blocknr;      /* should be realblocknr?? */
-		while ((g->ErrorMsg)(AFS_ERROR_WRITE_ERROR, args, 2, g))
-		{
-			if (CheckCurrentVolumeBack(g))
-				goto retry_format;
-		}
-		if (!g->softprotect)
-		{
-			g->softprotect = 1;
-			g->protectkey = ~0;
-		}
-		if (g->currentvolume)
-			g->currentvolume->numsofterrors++;
-		DB(Trace(1,"TD_Format","writeerror nr %d\n", args[0], args[1]));
+		if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, g))
+			goto retry_format;
 		return ERROR_NOT_A_DOS_DISK;
 	} 
 	PROFILE_ON();
@@ -1769,23 +1737,9 @@ retry_write:
 		PROFILE_OFF();
 		if (DoIO((struct IORequest*)request) != 0)
 		{
-			ULONG args[2];
 			PROFILE_ON();
-			args[0] = request->iotd_Req.io_Error;
-			args[1] = blocknr;      /* should be realblocknr?? */
-			while ((g->ErrorMsg)(AFS_ERROR_WRITE_ERROR, args, 2, g))
-			{
-				if (CheckCurrentVolumeBack(g))
-					goto retry_write;
-			}
-			if (!g->softprotect)
-			{
-				g->softprotect = 1;
-				g->protectkey = ~0;
-			}
-			if (g->currentvolume)
-				g->currentvolume->numsofterrors++;
-			DB(Trace(1,"RawWrite","writeerror nr %d\n", args[0], args[1]));
+			if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, g))
+				goto retry_write;
 			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
