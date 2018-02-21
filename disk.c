@@ -1455,6 +1455,7 @@ retry_read:
 
 	/* chop in maxtransfer chunks */
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
+	maxtransfer = min(65535, maxtransfer); // SCSI READ(10) max transfer
 	while (blocks > 0)
 	{
 		transfer = min(blocks,maxtransfer);
@@ -1520,6 +1521,7 @@ retry_write:
 
 	/* chop in maxtransfer chunks */
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
+	maxtransfer = min(65535, maxtransfer); // SCSI WRITE(10) max transfer
 	while (blocks > 0)
 	{
 		transfer = min(blocks,maxtransfer);
