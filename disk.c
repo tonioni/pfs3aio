@@ -1434,11 +1434,50 @@ static int DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *comman
 	return 1;
 }
 
-static BOOL ErrorRequest(BOOL write, ULONG errnum, ULONG blocknr, globaldata *g)
+static BOOL BoundsCheck(BOOL write, ULONG blocknr, ULONG blocks, globaldata *g)
 {
-	ULONG args[2];
-	args[0] = errnum;
-	args[1] = blocknr;
+	if(!(InPartition(blocknr) && InPartition(blocknr+blocks-1)))
+	{
+		ULONG args[5];
+		args[0] = g->tdmode;
+		args[1] = blocknr;
+		args[2] = blocks;
+		args[3] = g->firstblock;
+		args[4] = g->lastblock;
+		ErrorMsg(write ? AFS_ERROR_WRITE_OUTSIDE : AFS_ERROR_READ_OUTSIDE, args, g);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+static BOOL ErrorRequest(BOOL write, ULONG errnum, ULONG blocknr, ULONG blocks, globaldata *g)
+{
+	ULONG args[5];
+	UBYTE scsierr[1 + 18 * 3 + 1];
+	
+	scsierr[0] = 0;
+	args[0] = g->tdmode;
+	args[1] = errnum;
+	args[2] = blocknr;
+	args[3] = blocks;
+	args[4] = (ULONG)scsierr;
+
+	// Include Sense if Direct SCSI
+	if (g->tdmode == ACCESS_DS) {
+		UBYTE *p = scsierr;
+		*p++ = '\n';
+		for (int i = 0; i < g->scsicmd.scsi_SenseLength && i < 18; i++) {
+			UBYTE v;
+			if (i > 0)
+				*p ++= '.';
+			v = g->sense[i] >> 4;
+			*p++ = v < 10 ? v + '0' : v + 'A' - 10;
+			v = g->sense[i] & 15;
+			*p++ = v < 10 ? v + '0' : v + 'A' - 10;
+			*p = 0;
+		}
+	}
+	
 	while ((g->ErrorMsg)(write ? AFS_ERROR_WRITE_ERROR : AFS_ERROR_READ_ERROR, args, 2, g))
 	{
 		if (CheckCurrentVolumeBack(g))
@@ -1464,16 +1503,8 @@ static ULONG RawRead_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *
 
 	blocknr += g->firstblock;
 retry_read:
-	if(!(InPartition(blocknr) && InPartition(blocknr+blocks-1)))
-	{
-		ULONG args[4];
-		args[0] = blocknr;
-		args[1] = blocks;
-		args[2] = g->firstblock;
-		args[3] = g->lastblock;
-		ErrorMsg(AFS_ERROR_READ_OUTSIDE, args, g);
+	if (!BoundsCheck(FALSE, blocknr, blocks, g))
 		return ERROR_SEEK_ERROR;
-	}
 
 	/* chop in maxtransfer chunks */
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
@@ -1488,7 +1519,7 @@ retry_read:
 		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_READ,g))
 		{
 			PROFILE_ON();
-			if (ErrorRequest(FALSE, g->sense[2], blocknr, g))
+			if (ErrorRequest(FALSE, g->scsicmd.scsi_Status, blocknr, transfer, g))
 				goto retry_read;
 			return ERROR_NOT_A_DOS_DISK;
 		}
@@ -1518,16 +1549,8 @@ retry_write:
 	if(g->softprotect)
 		return ERROR_DISK_WRITE_PROTECTED;
 
-	if (!(InPartition(blocknr) && InPartition(blocknr+blocks-1)))
-	{
-		ULONG args[4];
-		args[0] = blocknr;
-		args[1] = blocks;
-		args[2] = g->firstblock;
-		args[3] = g->lastblock;
-		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, args, g);
+	if (!BoundsCheck(TRUE, blocknr, blocks, g))
 		return ERROR_SEEK_ERROR;
-	}
 
 	/* chop in maxtransfer chunks */
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
@@ -1542,7 +1565,7 @@ retry_write:
 		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
 		{
 			PROFILE_ON();
-			if (ErrorRequest(TRUE, g->sense[2], blocknr, g))
+			if (ErrorRequest(TRUE, g->scsicmd.scsi_Status, blocknr, transfer, g))
 				goto retry_write;
 			return ERROR_NOT_A_DOS_DISK;
 		}
@@ -1580,16 +1603,8 @@ retry_read:
 		return 1;
 
 	realblocknr = blocknr + g->firstblock;
-	if(!(InPartition(realblocknr) && InPartition(realblocknr+blocks-1)))
-	{
-		ULONG args[4];
-		args[0] = realblocknr;
-		args[1] = blocks;
-		args[2] = g->firstblock;
-		args[3] = g->lastblock;
-		ErrorMsg (AFS_ERROR_READ_OUTSIDE, args, g);
+	if (!BoundsCheck(FALSE, realblocknr, blocks, g))
 		return ERROR_SEEK_ERROR;
-	}
 
 	io_length = blocks << BLOCKSHIFT;
 	io_offset = realblocknr << BLOCKSHIFT;
@@ -1618,7 +1633,7 @@ retry_read:
 		if (DoIO((struct IORequest*)request) != 0)
 		{
 			PROFILE_ON();
-			if (ErrorRequest(FALSE, request->iotd_Req.io_Error, realblocknr, g))
+			if (ErrorRequest(FALSE, request->iotd_Req.io_Error, realblocknr, io_transfer >> BLOCKSHIFT, g))
 				goto retry_read;
 			return ERROR_NOT_A_DOS_DISK;
 		}
@@ -1652,16 +1667,8 @@ retry_format:
 		return(1);
 
 	realblocknr = blocknr + g->firstblock;
-	if(!InPartition(realblocknr))
-	{
-		ULONG args[4];
-		args[0] = realblocknr;
-		args[1] = blocks;
-		args[2] = g->firstblock;
-		args[3] = g->lastblock;
-		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, args, g);
+	if (!BoundsCheck(TRUE, realblocknr, 1, g))
 		return ERROR_SEEK_ERROR;
-	}
 
 	request = g->request;
 	request->iotd_Req.io_Command = TD_FORMAT;
@@ -1672,7 +1679,7 @@ retry_format:
 	if(DoIO((struct IORequest*)request) != 0)
 	{
 		PROFILE_ON();
-		if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, g))
+		if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, 1, g))
 			goto retry_format;
 		return ERROR_NOT_A_DOS_DISK;
 	} 
@@ -1700,16 +1707,8 @@ retry_write:
 		return ERROR_DISK_WRITE_PROTECTED;
 
 	realblocknr = blocknr + g->firstblock;
-	if (!(InPartition(realblocknr) && InPartition(realblocknr+blocks-1)))
-	{
-		ULONG args[4];
-		args[0] = realblocknr;
-		args[1] = blocks;
-		args[2] = g->firstblock;
-		args[3] = g->lastblock;
-		ErrorMsg (AFS_ERROR_WRITE_OUTSIDE, NULL, g);
+	if (!BoundsCheck(TRUE, realblocknr, blocks, g))
 		return ERROR_SEEK_ERROR;
-	}
 
 	io_length = blocks << BLOCKSHIFT;
 	io_offset = realblocknr << BLOCKSHIFT;
@@ -1738,7 +1737,7 @@ retry_write:
 		if (DoIO((struct IORequest*)request) != 0)
 		{
 			PROFILE_ON();
-			if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, g))
+			if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, io_transfer >> BLOCKSHIFT, g))
 				goto retry_write;
 			return ERROR_NOT_A_DOS_DISK;
 		}

@@ -57,12 +57,10 @@ CONST UBYTE AFS_ERROR_MEMORY_POOL[]           = "Couldn't allocate memorypool";
 CONST UBYTE AFS_ERROR_PLEASE_FREE_MEM[]       = "Please free some memory";
 CONST UBYTE AFS_ERROR_LIBRARY_PROBLEM[]       = "Couldn't open library!";
 CONST UBYTE AFS_ERROR_INIT_FAILED[]           = "Initialization failure";
-CONST UBYTE AFS_ERROR_READ_OUTSIDE[]          = "Read attempt outside partition! %lu + %lu (%ld - %lu)";
-CONST UBYTE AFS_ERROR_WRITE_OUTSIDE[]         = "Write attempt outside partition! %lu + %lu (%ld - %lu)";
-CONST UBYTE AFS_ERROR_READ_ERROR[]            = "Read Error %ld on block %lu\n"
-                                          "Make sure disk is inserted";
-CONST UBYTE AFS_ERROR_WRITE_ERROR[]           = "Write Error %ld on block %lu\n"
-                                          "Make sure disk is inserted";
+CONST UBYTE AFS_ERROR_READ_OUTSIDE[]          = "Read %ld attempt outside partition! %lu + %lu (%ld - %lu)";
+CONST UBYTE AFS_ERROR_WRITE_OUTSIDE[]         = "Write %ld attempt outside partition! %lu + %lu (%ld - %lu)";
+CONST UBYTE AFS_ERROR_READ_ERROR[]            = "Read %ld Error %lu on block %lu + %lu%s";
+CONST UBYTE AFS_ERROR_WRITE_ERROR[]           = "Write %ld Error %lu on block %lu + %lu%s";
 CONST UBYTE AFS_ERROR_READ_DELDIR[]           = "Could not read deldir";
 CONST UBYTE AFS_ERROR_DELDIR_INVALID[]        = "Deldir invalid";
 CONST UBYTE AFS_ERROR_EXNEXT_FAIL[]           = "ExamineNext failed";
