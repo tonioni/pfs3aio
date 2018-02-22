@@ -3,6 +3,9 @@
 
 	.globl _AfsDie
 	.globl _rawdofmt
+	.globl _entrypoint
+
+_entrypoint:
 
 		sub.l a3,a3
 		move.l	4.w,a6

@@ -41,6 +41,7 @@
 
 		xdef	@AfsDie
 		xdef	@InitStack
+		xdef	@entrypoint
 
 		xref	_SysBase
 		xref	@EntryPoint
@@ -54,6 +55,7 @@
 ;-----------------------------------------------------------------------------
 
 ; entrypoint of program!!
+@entrypoint
 @InitStack
 
 	; allocate stackswap memory

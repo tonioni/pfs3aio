@@ -116,6 +116,7 @@
 #include <exec/alerts.h>
 #include <exec/tasks.h>
 #include <exec/execbase.h>
+#include <exec/resident.h>
 #include <dos/dos.h>
 #include <dos/dosextens.h>
 #include <dos/filehandler.h>
@@ -180,6 +181,23 @@ CONST UBYTE version[] = "$VER: " "Professional-File-System-III " REVISION " PFS3
 	 "written by Michiel Pelt and copyright (c) 1994-2012 Peltin BV";
 #endif
 #endif
+
+extern void entrypoint(void);
+
+/* So that c:version finds us */
+struct Resident PFS3Resident =
+{
+	RTC_MATCHWORD,
+	&PFS3Resident,
+	&PFS3Resident + 1,
+	0,
+	VERNUM,
+	0,
+	80,
+	"pfs3aio",
+	(UBYTE*)version + 6,
+	entrypoint
+};
 
 #if MULTIUSER
 CONST struct muExtOwner NOBODY = {0,0,0};
