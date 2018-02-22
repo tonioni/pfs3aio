@@ -1,5 +1,5 @@
 
-NOWDATE := "\"$(shell date "+%d.%m.%Y")\""
+NOWDATE := "\"$(shell date "+%-d.%-m.%Y")\""
 NOWTIME := "\"$(shell date "+%T")\""
 
 CC=m68k-amigaos-gcc
