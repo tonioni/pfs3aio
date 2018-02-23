@@ -1493,7 +1493,7 @@ static BOOL ErrorRequest(BOOL write, ULONG errnum, ULONG blocknr, ULONG blocks, 
 	return FALSE;
 }
 
-static ULONG RawRead_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
+static ULONG RawReadWrite_DS(BOOL write, UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 {
 	UBYTE cmdbuf[10];
 	ULONG transfer, maxtransfer;
@@ -1502,75 +1502,32 @@ static ULONG RawRead_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *
 		return 1;
 
 	blocknr += g->firstblock;
-retry_read:
-	if (!BoundsCheck(FALSE, blocknr, blocks, g))
-		return ERROR_SEEK_ERROR;
-
-	/* chop in maxtransfer chunks */
-	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
-	maxtransfer = min(65535, maxtransfer); // SCSI READ(10) max transfer
-	while (blocks > 0)
-	{
-		transfer = min(blocks,maxtransfer);
-		*((UWORD *)&cmdbuf[0]) = 0x2800;
-		*((ULONG *)&cmdbuf[2]) = blocknr;
-		*((ULONG *)&cmdbuf[6]) = transfer<<8;
-		PROFILE_OFF();
-		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_READ,g))
-		{
-			PROFILE_ON();
-			if (ErrorRequest(FALSE, g->scsicmd.scsi_Status, blocknr, transfer, g))
-				goto retry_read;
-			return ERROR_NOT_A_DOS_DISK;
-		}
-		PROFILE_ON();
-		buffer += transfer<<BLOCKSHIFT;
-		blocks -= transfer;
-		blocknr += transfer;
-	}
-
-	return 0;
-}
-
-/*
- * VVV Todo: SCSI ErrorNumber in requester
- */
-
-static ULONG RawWrite_DS(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
-{
-	UBYTE cmdbuf[10];
-	ULONG transfer, maxtransfer;
-
-	if(blocknr == (ULONG)-1)
-		return 1;
-
-	blocknr += g->firstblock;
-retry_write:
-	if(g->softprotect)
+retry:
+	if(write && g->softprotect)
 		return ERROR_DISK_WRITE_PROTECTED;
 
-	if (!BoundsCheck(TRUE, blocknr, blocks, g))
+	if (!BoundsCheck(write, blocknr, blocks, g))
 		return ERROR_SEEK_ERROR;
 
 	/* chop in maxtransfer chunks */
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
-	maxtransfer = min(65535, maxtransfer); // SCSI WRITE(10) max transfer
+	maxtransfer = min(65535, maxtransfer); // SCSI READ/WRITE(10) max transfer
 	while (blocks > 0)
 	{
 		transfer = min(blocks,maxtransfer);
-		*((UWORD *)&cmdbuf[0]) = 0x2a00;
+		*((UWORD *)&cmdbuf[0]) = write ? 0x2a00 : 0x2800;
 		*((ULONG *)&cmdbuf[2]) = blocknr;
-		*((ULONG *)&cmdbuf[6]) = transfer<<8;
+		*((ULONG *)&cmdbuf[6]) = transfer << 8;
 		PROFILE_OFF();
-		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE,g))
+		if (!DoSCSICommand(buffer, transfer << BLOCKSHIFT, transfer << BLOCKSHIFT, cmdbuf, 10, write ? SCSIF_WRITE : SCSIF_READ, g))
 		{
 			PROFILE_ON();
-			if (ErrorRequest(TRUE, g->scsicmd.scsi_Status, blocknr, transfer, g))
-				goto retry_write;
+			if (ErrorRequest(write, g->scsicmd.scsi_Status, blocknr, transfer, g))
+				goto retry;
 			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
-		buffer += transfer<<BLOCKSHIFT;
+		buffer += transfer << BLOCKSHIFT;
 		blocks -= transfer;
 		blocknr += transfer;
 	}
@@ -1588,22 +1545,25 @@ retry_write:
 	
 /* Geometry MUST be loaded!!
 */
-static ULONG RawRead_TD(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
+
+static ULONG RawReadWrite_TD(BOOL write, UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 {
 	struct IOExtTD *request;
 	ULONG realblocknr;
 	ULONG io_length, io_transfer, io_offset, io_actual = 0, io_startblock = 0;
 	UBYTE *io_buffer;
 
-	DB(Trace(1, "RawRead", "%ld blocks from %ld firstblock %ld\n",
-		 (ULONG)blocks, (ULONG)blocknr, g->firstblock));
+	DB(Trace(1, write ? "RawWrite" : "RawRead", "%ld blocks from %ld + %ld\n", blocks, blocknr, g->firstblock));
 
-retry_read:
+retry:
 	if(blocknr == (ULONG)-1)   // blocknr of uninitialised anode
 		return 1;
 
+	if (write && g->softprotect)
+		return ERROR_DISK_WRITE_PROTECTED;
+
 	realblocknr = blocknr + g->firstblock;
-	if (!BoundsCheck(FALSE, realblocknr, blocks, g))
+	if (!BoundsCheck(write, realblocknr, blocks, g))
 		return ERROR_SEEK_ERROR;
 
 	io_length = blocks << BLOCKSHIFT;
@@ -1611,30 +1571,29 @@ retry_read:
 	io_buffer = buffer;
 	if (g->tdmode >= ACCESS_TD64) {
 		// upper 32 bit of offset
-		io_actual = realblocknr >> (32-BLOCKSHIFT);
+		io_actual = realblocknr >> (32 - BLOCKSHIFT);
 		io_startblock = realblocknr;
 	}
 
-	while (io_length > 0)
+	while(io_length > 0)
 	{
 		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
 		io_transfer &= ~(BLOCKSIZE-1);
 		request = g->request;
-		request->iotd_Req.io_Command = CMD_READ;
+		request->iotd_Req.io_Command = write ? CMD_WRITE : CMD_WRITE;
 		request->iotd_Req.io_Length  = io_transfer;
 		request->iotd_Req.io_Data    = io_buffer;       // bufmemtype ??
 		request->iotd_Req.io_Offset  = io_offset;
 		if (g->tdmode >= ACCESS_TD64) {
-			request->iotd_Req.io_Actual  = io_actual;
-			request->iotd_Req.io_Command = g->tdmode == ACCESS_NSD ? NSCMD_TD_READ64 : TD_READ64;
+			request->iotd_Req.io_Actual = io_actual;
+			request->iotd_Req.io_Command = g->tdmode == ACCESS_NSD ? (write ? NSCMD_TD_WRITE64 : NSCMD_TD_READ64) : (write ? TD_WRITE64 : TD_READ64);
 		}
-
 		PROFILE_OFF();
 		if (DoIO((struct IORequest*)request) != 0)
 		{
 			PROFILE_ON();
-			if (ErrorRequest(FALSE, request->iotd_Req.io_Error, realblocknr, io_transfer >> BLOCKSHIFT, g))
-				goto retry_read;
+			if (ErrorRequest(write, request->iotd_Req.io_Error, realblocknr, io_transfer >> BLOCKSHIFT, g))
+				goto retry;
 			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
@@ -1651,7 +1610,6 @@ retry_read:
 
 	return 0;
 }
-
 
 #if TRACKDISK
 static ULONG TD_Format(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
@@ -1689,86 +1647,19 @@ retry_format:
 #endif /* TRACKDISK */
 
 
-static ULONG RawWrite_TD(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
-{
-	struct IOExtTD *request;
-	ULONG realblocknr;
-	ULONG io_length, io_transfer, io_offset, io_actual = 0, io_startblock = 0;
-	UBYTE *io_buffer;
-
-	DB(Trace(1, "RawWrite", "%ld blocks from %ld + %ld\n", blocks, blocknr,
-			g->firstblock));
-
-retry_write:
-	if(blocknr == (ULONG)-1)   // blocknr of uninitialised anode
-		return 1;
-
-	if (g->softprotect)
-		return ERROR_DISK_WRITE_PROTECTED;
-
-	realblocknr = blocknr + g->firstblock;
-	if (!BoundsCheck(TRUE, realblocknr, blocks, g))
-		return ERROR_SEEK_ERROR;
-
-	io_length = blocks << BLOCKSHIFT;
-	io_offset = realblocknr << BLOCKSHIFT;
-	io_buffer = buffer;
-	if (g->tdmode >= ACCESS_TD64) {
-		// upper 32 bit of offset
-		io_actual = realblocknr >> (32 - BLOCKSHIFT);
-		io_startblock = realblocknr;
-	}
-
-	while(io_length > 0)
-	{
-		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
-		io_transfer &= ~(BLOCKSIZE-1);
-		request = g->request;
-		request->iotd_Req.io_Command = CMD_WRITE;
-		request->iotd_Req.io_Length  = io_transfer;
-		request->iotd_Req.io_Data    = io_buffer;       // bufmemtype ??
-		request->iotd_Req.io_Offset  = io_offset;
-		if (g->tdmode >= ACCESS_TD64) {
-			request->iotd_Req.io_Actual = io_actual;
-			request->iotd_Req.io_Command = g->tdmode == ACCESS_NSD ? NSCMD_TD_WRITE64 : TD_WRITE64;
-		}
-
-		PROFILE_OFF();
-		if (DoIO((struct IORequest*)request) != 0)
-		{
-			PROFILE_ON();
-			if (ErrorRequest(TRUE, request->iotd_Req.io_Error, realblocknr, io_transfer >> BLOCKSHIFT, g))
-				goto retry_write;
-			return ERROR_NOT_A_DOS_DISK;
-		}
-		PROFILE_ON();
-		io_buffer += io_transfer;
-		io_length -= io_transfer;
-		if (g->tdmode >= ACCESS_TD64) {
-			io_startblock += (io_transfer >> BLOCKSHIFT);
-			io_offset = io_startblock << BLOCKSHIFT;
-			io_actual = io_startblock >> (32-BLOCKSHIFT);
-		} else {
-			io_offset += io_transfer;
-		}
-	}
-
-	return 0;
-}
-
 #endif /* TD64 */
 
 ULONG RawRead(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 {
 #if (TRACKDISK || TD64 || NSD) && SCSIDIRECT
 	if (g->tdmode == ACCESS_DS)
-		return RawRead_DS(buffer, blocks, blocknr, g);
+		return RawReadWrite_DS(FALSE, buffer, blocks, blocknr, g);
 	else
-		return RawRead_TD(buffer, blocks, blocknr, g);
+		return RawReadWrite_TD(FALSE, buffer, blocks, blocknr, g);
 #elif SCSIDIRECT
-	return RawRead_DS(buffer, blocks, blocknr, g);
+	return RawReadWrite_DS(FALSE, buffer, blocks, blocknr, g);
 #else
-	return RawRead_TD(buffer, blocks, blocknr, g);
+	return RawReadWrite_TD(FALSE, buffer, blocks, blocknr, g);
 #endif
 }
 
@@ -1776,13 +1667,13 @@ ULONG RawWrite(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 {
 #if (TRACKDISK || TD64 || NSD) && SCSIDIRECT
 	if (g->tdmode == ACCESS_DS)
-		return RawWrite_DS(buffer, blocks, blocknr, g);
+		return RawReadWrite_DS(TRUE, buffer, blocks, blocknr, g);
 	else
-		return RawWrite_TD(buffer, blocks, blocknr, g);
+		return RawReadWrite_TD(TRUE, buffer, blocks, blocknr, g);
 #elif SCSIDIRECT
-	return RawWrite_DS(buffer, blocks, blocknr, g);
+	return RawReadWrite_DS(TRUE, buffer, blocks, blocknr, g);
 #else
-	return RawWrite_TD(buffer, blocks, blocknr, g);
+	return RawReadWrite_TD(TRUE, buffer, blocks, blocknr, g);
 #endif
 }
 
