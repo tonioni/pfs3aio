@@ -1583,7 +1583,7 @@ retry:
 		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
 		io_transfer &= ~(BLOCKSIZE-1);
 		request = g->request;
-		request->iotd_Req.io_Command = write ? CMD_WRITE : CMD_WRITE;
+		request->iotd_Req.io_Command = write ? CMD_WRITE : CMD_READ;
 		request->iotd_Req.io_Length  = io_transfer;
 		request->iotd_Req.io_Data    = io_buffer;       // bufmemtype ??
 		request->iotd_Req.io_Offset  = io_offset;
