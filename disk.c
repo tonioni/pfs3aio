@@ -1407,7 +1407,7 @@ ULONG DiskWrite(UBYTE *buffer, ULONG blockstowrite, ULONG blocknr, globaldata *g
 
 #if SCSIDIRECT
 
-static int DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *command, UWORD commandlen, UBYTE direction, globaldata *g)
+static BOOL DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *command, UWORD commandlen, UBYTE direction, globaldata *g)
 {
 	g->scsicmd.scsi_Data = (UWORD *)data;
 	g->scsicmd.scsi_Length = datalen;
@@ -1423,15 +1423,18 @@ static int DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *comman
 	g->request->iotd_Req.io_Length = sizeof(struct SCSICmd);
 	g->request->iotd_Req.io_Data = (APTR)&g->scsicmd;
 	g->request->iotd_Req.io_Command = HD_SCSICMD;
-	if (DoIO((struct IORequest *)g->request) != 0)
-		return 0;
+	UBYTE err = DoIO((struct IORequest *)g->request);
+	if (err != 0) {
+		g->scsicmd.scsi_Status = 128 + err;
+		return FALSE;
+	}		
 	if (g->scsicmd.scsi_Status)
-		return 0;
+		return FALSE;
 	if (minlen > 0 && g->scsicmd.scsi_Actual < minlen) {
 		g->scsicmd.scsi_Status = 0xff;
-		return 0;
+		return FALSE;
 	}
-	return 1;
+	return TRUE;
 }
 
 static BOOL BoundsCheck(BOOL write, ULONG blocknr, ULONG blocks, globaldata *g)
