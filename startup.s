@@ -4,6 +4,25 @@
 	.globl _AfsDie
 	.globl _rawdofmt
 	.globl _entrypoint
+	.globl _PFS3ResidentEnd
+	.globl _ResidentAddToFSResource
+	.globl _shortname
+	.globl _version
+
+	bra.s _entrypoint
+
+_PFS3Resident:
+	dc.w 0x4afc
+	dc.l _PFS3Resident
+	dc.l _PFS3ResidentEnd
+	dc.b 1,19,0,78
+	dc.l _shortname
+	dc.l _version+6
+	dc.l _ResidentAddToFSResource
+
+	/* fake segment */
+	dc.l 0
+	dc.l 16
 
 _entrypoint:
 
@@ -120,19 +139,3 @@ _AfsDie:
 end:
 		moveq	#0,d0	
 		rts
-
-putproc:
-	move.b d0,(a3)+
-	rts
-
-_rawdofmt:
-	movem.l a2/a3/a6,-(sp)
-	move.l 4.w,a6
-	move.l 8+16(sp),a1
-	move.l 4+16(sp),a0
-	move.l 0+16(sp),a3
-	lea putproc(pc),a2
-	jsr -0x20a(a6)
-	movem.l (sp)+,a2/a3/a6
-	rts
-	

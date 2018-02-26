@@ -15,13 +15,16 @@ CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregpar
 	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME)
 
 OBJS = startup.o boot.o init.o assroutines.o messages.o volume.o lock.o dostohandlerinterface.o anodes.o directory.o lru.o disk.o \
-	update.o allocation.o CheckAccess.o diskchange.o resethandler.o kswrapper.o format.o
+	update.o allocation.o CheckAccess.o diskchange.o resethandler.o kswrapper.o format.o fsresource.o end.o
 
 all: $(OBJS)
 	$(CC) -o pfs3aio $^ $(CFLAGS) $(LIBS)
 
 startup.o: startup.s
 	$(CC) $(CFLAGS) -I. -c -o $@ startup.s
+
+end.o: end.s
+	$(CC) $(CFLAGS) -I. -c -o $@ end.s
 
 debug.o: debug.c
 	$(CC) $(CFLAGS) -I. -c -o $@ debug.c
@@ -76,6 +79,9 @@ update.o: update.c
 
 CheckAccess.o: CheckAccess.c
 	$(CC) $(CFLAGS) -I. -c -o $@ CheckAccess.c
+
+fsresource.o: fsresource.c
+	$(CC) $(CFLAGS) -I. -c -o $@ fsresource.c
 
 kswrapper.o: kswrapper.c
 	$(CC) $(CFLAGS) -I. -c -o $@ kswrapper.c

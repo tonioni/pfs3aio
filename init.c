@@ -132,7 +132,6 @@
 
 /* external globals
  */
-extern CONST UBYTE *version;
 extern void DiskChangeHandler(void);
 #if defined(__SASC)
 extern void __asm ResetHandler(void);
@@ -148,13 +147,15 @@ static BOOL OpenTimerDevice(struct MsgPort ** , struct timerequest ** , ULONG, g
 static BOOL TestRemovability(globaldata *);
 static void InstallDiskChangeHandler(globaldata *);
 static void InstallResetHandler(struct globaldata *);
-#if !defined(__MORPHOS__) || defined(DISK_BASED_FILESYSTEM)
-/* MorphOS ROM build uses other means to add the filesystem.resource entry */
-static BOOL AddToFSResource(ULONG, BPTR, globaldata *);
-#endif
 #if VERSION23
 static void DoPostponed (struct volumedata *volume, globaldata *g);
 #endif
+
+#if !defined(__MORPHOS__) || defined(DISK_BASED_FILESYSTEM)
+/* MorphOS ROM build uses other means to add the filesystem.resource entry */
+void AddToFSResource(ULONG, BPTR, struct ExecBase*);
+#endif
+
 
 /**********************************************************************/
 /*                             INITIALIZE                             */
@@ -307,7 +308,7 @@ Removed because of problems with Phase 5 boards
 	InstallResetHandler(g);
 
 #if !defined(__MORPHOS__) || defined(DISK_BASED_FILESYSTEM)
-	AddToFSResource (g->dosenvec->de_DosType, ((struct DosList *)devnode)->dol_misc.dol_handler.dol_SegList, g);
+	AddToFSResource (g->dosenvec->de_DosType, ((struct DosList *)devnode)->dol_misc.dol_handler.dol_SegList, SysBase);
 #endif
 
 #if EXTRAPACKETS
@@ -636,56 +637,6 @@ static BOOL OpenTimerDevice(struct MsgPort **port, struct timerequest **request,
 	}
 	return(FALSE);
 }
-
-
-#if !defined(__MORPHOS__) || defined(DISK_BASED_FILESYSTEM)
-/* AddToFSResource
-**
-** function supplied by Nicola Salmoria
-*/
-static BOOL AddToFSResource(ULONG dostype, BPTR seglist, globaldata *g)
-{
-  struct FileSysResource *FileSysResBase;
-
-	FileSysResBase = (struct FileSysResource *)OpenResource(FSRNAME);
-	if (FileSysResBase)
-	{
-	  struct FileSysEntry *fse,*nfse;
-
-		Forbid();
-
-		fse = (struct FileSysEntry *)FileSysResBase->fsr_FileSysEntries.lh_Head;
-		while ((nfse = (struct FileSysEntry *)fse->fse_Node.ln_Succ))
-		{
-			/* if filesystem already in resource, return */
-			if (fse->fse_DosType == dostype)
-			{
-				DB(Trace(4,"ADDTORESOURCE","Already there\n"));    
-				break;
-			}
-
-			fse = nfse;
-		}
-
-		if (!nfse && (fse = AllocMem(sizeof(struct FileSysEntry), MEMF_PUBLIC | MEMF_CLEAR)))
-		{
-			fse->fse_Node.ln_Name = (UBYTE *)&version[6];
-			fse->fse_DosType = dostype;
-			fse->fse_Version = ((LONG)VERNUM) << 16 | REVNUM;
-			fse->fse_PatchFlags = 0x180;
-			fse->fse_SegList = seglist;
-			fse->fse_GlobalVec = -1;
-
-			AddHead(&FileSysResBase->fsr_FileSysEntries,&fse->fse_Node);
-		}
-
-		Permit();
-	}
-
-	return TRUE;
-}
-#endif
-
 
 /* Reconfigure the filesystem from a rootblock
 ** GetDriveGeometry already called by GetCurrentRoot, which does

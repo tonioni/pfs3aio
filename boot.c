@@ -182,22 +182,7 @@ CONST UBYTE version[] = "$VER: " "Professional-File-System-III " REVISION " PFS3
 #endif
 #endif
 
-extern void entrypoint(void);
-
-/* So that c:version finds us */
-struct Resident PFS3Resident =
-{
-	RTC_MATCHWORD,
-	&PFS3Resident,
-	&PFS3Resident + 1,
-	0,
-	VERNUM,
-	0,
-	80,
-	"pfs3aio",
-	(UBYTE*)version + 6,
-	entrypoint
-};
+CONST UBYTE shortname[] = "pfs3aio";
 
 #if MULTIUSER
 CONST struct muExtOwner NOBODY = {0,0,0};
