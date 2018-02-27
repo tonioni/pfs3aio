@@ -1811,8 +1811,9 @@ BOOL get_scsi_geometry(globaldata *g)
 	cmdbuf[0] = 0x25;
 	if (DoSCSICommand(buffer, 8, sizeof(struct SCSICapacity), cmdbuf, 10, SCSIF_READ, g)) {
 		struct SCSICapacity *scc = (struct SCSICapacity*)buffer;
-		geom->dg_TotalSectors = scc->scc_Block;
 		geom->dg_SectorSize = scc->scc_BlockLength ? scc->scc_BlockLength : 512;
+		if (scc->scc_Block + 1 != 0)
+			geom->dg_TotalSectors = scc->scc_Block + 1;
 	}
 	
 	if (!geom->dg_TotalSectors || !geom->dg_SectorSize)
