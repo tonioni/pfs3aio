@@ -671,5 +671,4 @@ static void Quit (globaldata *g)
 	CloseLibrary((struct Library *) IntuitionBase);
 
 	FreeMem(g, sizeof(struct globaldata));
-	AfsDie ();
 }

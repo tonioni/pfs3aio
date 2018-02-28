@@ -1,7 +1,6 @@
 	
 #include <exec/exec_lib.i>
 
-	.globl _AfsDie
 	.globl _rawdofmt
 	.globl _entrypoint
 	.globl _PFS3ResidentEnd
@@ -35,7 +34,7 @@ _entrypoint:
 		jsr _LVOFindTask(a6)
 		move.l d0,a0
 		move.l 62(a0),d0
-		sub.l	58(a0),d0
+		sub.l 58(a0),d0
 		cmp.l #6000,d0
 		bcc.b 3f
 
@@ -73,7 +72,34 @@ _entrypoint:
 	/* remember sss address and enter filesystem */
 3:
 		move.l	a3,-(a7)
-		bra	_EntryPoint
+
+		bsr	_EntryPoint
+
+		move.l (sp)+,d2
+		beq 3f
+		move.l d2,a0
+
+		cmp.w #37,20(a6)
+		bcc.b 1f
+
+		bsr myStackSwap
+		bra.b 2f
+
+1:
+		jsr	_LVOStackSwap(a6)
+2:
+
+	/* free stack */
+
+		move.l d2,a1
+		move.l	#6000+12,d0
+		jsr	_LVOFreeMem(a6)	
+
+3:
+	/* exit AFS */
+end:
+		moveq	#0,d0	
+		rts
 
 myStackSwap:
 
@@ -99,43 +125,3 @@ myStackSwap:
 		move.l	a1,sp
 
 		jmp	_LVOEnable(a6)
-
-_AfsDie:
-
-	/* find my task structure */
-
-		move.l	4.w,a6
-		suba.l	a1,a1
-		jsr	_LVOFindTask(a6)
-		move.l	d0,a0
-
-	/* clear stack and get StackSwapStruct */
-
-		move.l	62(a0),a7 /* TC_SPUPPER */
-		move.l	58(a0),a3 /* TC_SPLOWER */
-		lea	-4(a7),a7
-		move.l	(a7)+,a0
-		move.l a0,d0
-		beq.b 3f
-
-		cmp.w #37,20(a6)
-		bcc.b 1f
-
-		bsr myStackSwap
-		bra.b 2f
-
-1:
-		jsr	_LVOStackSwap(a6)
-2:
-
-	/* free stack */
-
-		move.l a3,a1
-		move.l	#6000+12,d0
-		jsr	_LVOFreeMem(a6)	
-
-3:
-	/* exit AFS */
-end:
-		moveq	#0,d0	
-		rts
