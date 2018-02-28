@@ -301,12 +301,10 @@ void __saveds EntryPoint (void)
 	if (!Initialize ((DSTR)mountname, fssm, devnode, g))
 	{
 		NormalErrorMsg (AFS_ERROR_INIT_FAILED, NULL, 1);
-		if (g->mountname) FreeVec (g->mountname);
-		if (g->geom) FreeMemP (g->geom, g);
-		RES1(pkt) = DOSTRUE;
+		RES1(pkt) = DOSFALSE;
+		RES2(pkt) = 0;
 		ReturnPacket (pkt, msgport, g);
-		FreeVec (g);
-		Wait (0); // wait forever
+		goto terminate;
 	}
 
 	g->DoCommand = NormalCommands;  //%4.5
@@ -522,7 +520,8 @@ static BOOL FindInLibraryList (CONST_STRPTR name, globaldata *g)
 }
 #endif
 
-/* When does this routine get called? NOT with 'assign dismount'! */
+/* ACTION_DIE */
+
 static void Quit (globaldata *g)
 {
   struct volumedata *volume;
@@ -556,7 +555,7 @@ static void Quit (globaldata *g)
 #endif
 
 	/* check if packets queued */
-	while ((msg = GetMsg(g->msgport)))
+	while (g->msgport && (msg = GetMsg(g->msgport)))
 	{
 		g->action = (struct DosPacket *)msg->mn_Node.ln_Name;
 		g->action->dp_Res1 = DOSFALSE;
@@ -565,7 +564,7 @@ static void Quit (globaldata *g)
 	}
 
 	/* check if notifypackets queued */
-	while ((nmsg = (struct NotifyMessage *)GetMsg (g->notifyport)))
+	while (g->notifyport && (nmsg = (struct NotifyMessage *)GetMsg (g->notifyport)))
 	{
 		nr = nmsg->nm_NReq;
 		if (nr->nr_Flags & NRF_MAGIC)
@@ -583,23 +582,27 @@ static void Quit (globaldata *g)
 	Forbid ();
 
 	/* remove devicenode */
-	RemDosEntry ((struct DosList *)g->devnode);
-//  FreeDosEntry ((struct DosList *)g->devnode);
+	if (g->devnode)
+		RemDosEntry ((struct DosList *)g->devnode);
 
 	/* cleanup timer device (OK) */
 	/* FreeSignal wil even niet..(signalnr!) */
-	if(!(CheckIO((struct IORequest *)g->trequest)))
-		AbortIO((struct IORequest *)g->trequest);
-	WaitIO((struct IORequest *)g->trequest);
-	CloseDevice((struct IORequest *)g->trequest);
+	if (g->trequest) {
+		if(!(CheckIO((struct IORequest *)g->trequest)))
+			AbortIO((struct IORequest *)g->trequest);
+		WaitIO((struct IORequest *)g->trequest);
+		CloseDevice((struct IORequest *)g->trequest);
+	}
 	DeleteIORequest((struct IORequest *)g->trequest);
 	DeleteMsgPort(g->timeport);
 
 	/* clean up device */
-	if(!(CheckIO((struct IORequest *)g->request)))
-		AbortIO((struct IORequest *)g->request);
-	WaitIO((struct IORequest *)g->request);
-	CloseDevice((struct IORequest *)g->request);
+	if (g->request) {
+		if(!(CheckIO((struct IORequest *)g->request)))
+			AbortIO((struct IORequest *)g->request);
+		WaitIO((struct IORequest *)g->request);
+		CloseDevice((struct IORequest *)g->request);
+	}
 	DeleteIORequest((struct IORequest *)g->request);
 	DeleteMsgPort(g->port);
 
