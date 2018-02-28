@@ -435,6 +435,7 @@ static void InstallResetHandler(struct globaldata *g)
 			{
 			struct MsgPort mp;
 			struct IOStdReq *ioreq;
+			memset(&mp, 0, sizeof(mp));
 			mp.mp_Node.ln_Type = NT_MSGPORT;
 			mp.mp_Flags = PA_SIGNAL;
 			mp.mp_SigBit = sigbit;
@@ -483,6 +484,7 @@ void HandshakeResetHandler(struct globaldata *g)
 		struct IOStdReq *ioreq = g->resethandlerioreq;
 		struct MsgPort mp;
 
+		memset(&mp, 0, sizeof(mp));
 		mp.mp_Node.ln_Type = NT_MSGPORT;
 		mp.mp_Flags = PA_SIGNAL;
 		mp.mp_SigBit = g->resethandlersigbit;
@@ -512,6 +514,7 @@ void UninstallResetHandler(struct globaldata *g)
 #else
 		struct IOStdReq *ioreq = g->resethandlerioreq;
 		struct MsgPort mp;
+		memset(&mp, 0, sizeof(mp));
 		mp.mp_Node.ln_Type = NT_MSGPORT;
 		mp.mp_Flags = PA_SIGNAL;
 		mp.mp_SigBit = g->resethandlersigbit;
