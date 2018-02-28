@@ -595,7 +595,12 @@ static BOOL init_device_unit_sema(struct FileSysStartupMsg *startup, globaldata 
 			sema->ss.ss_Link.ln_Name = sema->name;
 			sema->ss.ss_Link.ln_Pri  = -128;
 			sema->ss.ss_Link.ln_Type = NT_SIGNALSEM;
-			AddSemaphore(&sema->ss);
+			// Pre-2.x AddSemaphore() is broken.
+			if (g->v37EXEC) {
+				AddSemaphore(&sema->ss);
+			} else {
+				Enqueue(&SysBase->SemaphoreList, &sema->ss.ss_Link);
+			}
 			g->device_unit_lock_sema = &sema->ss;
 		}
 		Permit();
