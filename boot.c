@@ -652,6 +652,9 @@ static void Quit (globaldata *g)
 
 	Delay (5);
 #endif
+
+	g->devnode->dn_Task = NULL;
+
 	LibDeletePool (g->bufferPool);
 	LibDeletePool (g->mainPool);
 
