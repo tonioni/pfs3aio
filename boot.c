@@ -228,6 +228,7 @@ void __saveds EntryPoint (void)
 	struct globaldata *g;
 	struct MsgPort *msgport;
 	struct DosPacket *pkt;
+	struct DosPacket *diepkt = NULL;
 	struct DeviceNode *devnode;
 	struct FileSysStartupMsg *fssm;
 	struct Message *msg;
@@ -429,10 +430,15 @@ void __saveds EntryPoint (void)
 					g->timeron = TRUE;
 				}
 
+				if (g->dieing) {
+					CheckUpdate (RTBF_CHECK_TH, g);
+					if (pkt->dp_Type == ACTION_DIE)
+						diepkt = pkt;
+					goto terminate;
+				}
+	
 				ReturnPacket (pkt, msgport, g);
 				CheckUpdate (RTBF_CHECK_TH, g);
-				if (g->dieing)
-					goto terminate;
 			}
 		}
 
@@ -481,9 +487,25 @@ void __saveds EntryPoint (void)
 		}
 	}
 
-	terminate:
+terminate:
 
 	Quit (g);
+
+	g->devnode->dn_Task = NULL;
+	
+	if (diepkt)
+		ReturnPacket (diepkt, msgport, g);
+
+#if MULTIUSER
+	if (muBase)
+		CloseLibrary((struct Library *) muBase);
+#endif
+	if (UtilityBase)
+		CloseLibrary(UtilityBase);
+	CloseLibrary((struct Library *) DOSBase);
+	CloseLibrary((struct Library *) IntuitionBase);
+
+	FreeMem(g, sizeof(struct globaldata));
 }
 
 void ReturnPacket (struct DosPacket *packet, struct MsgPort *sender, globaldata *g)
@@ -656,19 +678,6 @@ static void Quit (globaldata *g)
 	Delay (5);
 #endif
 
-	g->devnode->dn_Task = NULL;
-
 	LibDeletePool (g->bufferPool);
 	LibDeletePool (g->mainPool);
-
-#if MULTIUSER
-	if (muBase)
-		CloseLibrary((struct Library *) muBase);
-#endif
-	if (UtilityBase)
-		CloseLibrary(UtilityBase);
-	CloseLibrary((struct Library *) DOSBase);
-	CloseLibrary((struct Library *) IntuitionBase);
-
-	FreeMem(g, sizeof(struct globaldata));
 }
