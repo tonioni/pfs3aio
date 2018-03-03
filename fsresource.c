@@ -59,7 +59,7 @@ void AddToFSResource(ULONG dostype, BPTR seglist, struct ExecBase *SysBase)
 			fse->fse_Node.ln_Name = (UBYTE*)shortname;
 			fse->fse_DosType = dostype;
 			fse->fse_Version = ((LONG)VERNUM) << 16 | REVNUM;
-			fse->fse_PatchFlags = 0x180;
+			fse->fse_PatchFlags = 0x180; // SegList and GlobalVec
 			fse->fse_SegList = seglist;
 			fse->fse_GlobalVec = -1;
 
@@ -71,10 +71,12 @@ void AddToFSResource(ULONG dostype, BPTR seglist, struct ExecBase *SysBase)
 }
 
 extern void entrypoint(void);
+// PFS\1 PDS\1 PFS\3 PDS\3
+static const ULONG fsids[] = { 0x50465301, 0x50445301, 0x50465303, 0x50445303, 0 };
 void ResidentAddToFSResource(void)
 {
 	struct ExecBase *eb =  *((struct ExecBase **)4);
-
-	AddToFSResource(0x50465303, MKBADDR(entrypoint) - 2, eb); // PFS\3
-	AddToFSResource(0x50445303, MKBADDR(entrypoint) - 2, eb); // PDS\3
+	for (int i = 0; fsids[i]; i++) {
+		AddToFSResource(fsids[i], MKBADDR(entrypoint) - 2, eb);
+	}
 }
