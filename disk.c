@@ -2002,10 +2002,10 @@ static BOOL testread_td2(UBYTE *buffer, globaldata *g)
 		}
 		if (DoIO((struct IORequest*)io) != 0)
 			return FALSE;
-		if (!testbuffer(buffer, cnt, g))
-			return FALSE;
+		if (testbuffer(buffer, cnt, g))
+			return TRUE;
 	}
-	return TRUE;
+	return FALSE;
 }
 
 static BOOL testread_td(UBYTE *buffer, globaldata *g)
