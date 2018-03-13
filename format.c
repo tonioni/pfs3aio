@@ -163,6 +163,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, ULONG *error, globaldata *g)
   struct rootblock *rootblock;
   struct volumedata *volume;
   struct crootblockextension *rext;
+  ULONG err;
   ULONG i;
 
 	ENTER("FDSFormat");
@@ -172,8 +173,10 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, ULONG *error, globaldata *g)
 #endif
 
 	/* remove error-induced soft protect */
-	if (g->softprotect < 0)
+	if (g->softprotect < 0) {
+		*error = ERROR_DISK_WRITE_PROTECTED;
 		return DOSFALSE;
+	}
 
 	if (g->softprotect && g->protectkey == ~0)
 		g->softprotect = g->protectkey = 0;
@@ -183,21 +186,30 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, ULONG *error, globaldata *g)
 	ShowVersion (g);
 
 	/* issue 00118: disk cannot exceed MAX_DISK_SIZE */
-	if (g->geom->dg_TotalSectors > MAXDISKSIZE)
+	if (g->geom->dg_TotalSectors > MAXDISKSIZE) {
+		*error = ERROR_OBJECT_TOO_LARGE;
 		return DOSFALSE;
+	}
 
-	if (MakeBootBlock (g) != 0)
-		return DOSFALSE;
+	err = MakeBootBlock (g);
+	if (err != 0) {
+		*error = err;
+ 		return DOSFALSE;
+	}
 
-	if (!(rootblock = MakeRootBlock (diskname, g)))
+	if (!(rootblock = MakeRootBlock (diskname, g))) {
+		*error = ERROR_NO_FREE_STORE;
 		return DOSFALSE;
+	}
 
 	/*  make volumedata BEFORE rext ! (bug 00135) */
 	g->currentvolume = volume = MakeVolumeData (rootblock, g);
 
 	/* add extension */
-	if (!(rext = MakeFormatRBlkExtension (rootblock, g)))
+	if (!(rext = MakeFormatRBlkExtension (rootblock, g))) {
+		*error = ERROR_NO_FREE_STORE;
 		return DOSFALSE;			// rootblock extension could not be created
+	}
 
 	volume->rblkextension = rext;
 	rootblock->options |= MODE_EXTENSION;
