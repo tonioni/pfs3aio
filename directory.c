@@ -405,7 +405,16 @@ UBYTE *GetFullPath(union objectinfo *basispath, STRPTR filename,
 
 			case '/':
 				if (*pathpart == 0x0)
+				{
+					// if already at root, fail with an error
+					if (IsVolume(*fullpath))
+					{
+						*error = ERROR_OBJECT_NOT_FOUND;
+						success = FALSE;
+						break;
+					}
 					success = GetParentOf(fullpath, error, g);
+				}
 				else
 					success = GetDir(pathpart, fullpath, error, g);
 				break;
