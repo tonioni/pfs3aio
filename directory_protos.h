@@ -53,7 +53,7 @@ BOOL ProtectFile(struct fileinfo * , ULONG , ULONG * , globaldata * );
 
 BOOL SetOwnerID(struct fileinfo *file, ULONG owner, ULONG *error, globaldata *g);
 
-LONG ReadSoftLink(union objectinfo *linkfi, char *buffer, ULONG size, ULONG *error, globaldata *g);
+LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, ULONG size, ULONG *error, globaldata *g);
 
 BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 	union objectinfo *newlink, ULONG *error, globaldata *g);

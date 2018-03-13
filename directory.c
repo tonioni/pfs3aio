@@ -2370,10 +2370,14 @@ BOOL SetOwnerID(struct fileinfo * file, ULONG owner, ULONG *error, globaldata * 
 	return DOSTRUE;
 }
 
-LONG ReadSoftLink(union objectinfo *linkfi, char *buffer, ULONG size, ULONG *error, globaldata * g)
+LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, ULONG size, ULONG *error, globaldata * g)
 {
 	struct canode anode;
-	UBYTE softblock[1024];
+	UBYTE *softblock;
+	ULONG rc;
+	ULONG prefixlen;
+	ULONG postfixlen;
+	char *ptr = buffer;
 
 	ENTER("ReadSoftLink");
 	if (!linkfi || IsVolume(*linkfi))
@@ -2382,17 +2386,64 @@ LONG ReadSoftLink(union objectinfo *linkfi, char *buffer, ULONG size, ULONG *err
 		return -1;
 	}
 
-	if (linkfi->file.direntry->fsize + (g->unparsed ? strlen(g->unparsed) : 0) > size)
-		return -2;
+	softblock = AllocVec(1024, 0);
+	if (!softblock) {
+		*error = ERROR_NO_FREE_STORE;
+		return -1;
+	}
+
+	/*
+	* TODO: It might be a good idea to try to compress the resulting
+	* path. For example "foo/bar/bleh///meh" should become "foo/meh".
+	* FFS2 does this sort of thing for instance.
+	*
+	* Not doing this could lead to problems easily as many callers use
+	* maximum buffer of around 256 bytes. - Piru
+	*/
 
 	GetAnode(&anode, linkfi->file.direntry->anode, g);
-	DiskRead(softblock, 1, anode.blocknr, g);
-	strcpy(buffer, softblock);
+	if ((rc = DiskRead(softblock, 1, anode.blocknr, g)))
+	{
+		FreeVec(softblock);
+		*error = rc;
+		return -1;
+	}
 
-	if (g->unparsed)
-		strcat(buffer, g->unparsed);
+	/* If link destination is absolute, ignore prefix */
+	prefixlen = index(softblock, ':') ? 0 : strlen(prefix);
+	postfixlen = g->unparsed ? strlen(g->unparsed) : 0;
 
-	return (LONG)strlen(buffer);
+	/* if link desination ends in a /, skip the postfix / if any */
+	if (linkfi->file.direntry->fsize > 0 && softblock[linkfi->file.direntry->fsize - 1] == '/')
+	{
+		if (postfixlen)
+			g->unparsed++;
+	}
+	else
+	{
+		/* Else remove a lone trailing '/' in the postfix, if any */
+		/* "/" becomes "" */
+		/* "foo/" becomes "foo" */
+		/* "foo//" becomes "foo//" */
+		if (postfixlen > 0 && g->unparsed[postfixlen - 1] == '/' &&
+		    (postfixlen == 1 || g->unparsed[postfixlen - 2] != '/'))
+			postfixlen--;
+	}
+
+	if (prefixlen + linkfi->file.direntry->fsize + postfixlen + 1 > size)
+		return -2;
+
+	memcpy(ptr, (void*)prefix, prefixlen);
+	ptr += prefixlen;
+	memcpy(ptr, softblock, linkfi->file.direntry->fsize);
+	ptr += linkfi->file.direntry->fsize;
+	memcpy(ptr, g->unparsed, postfixlen);
+	ptr += postfixlen;
+	*ptr = '\0';
+
+	FreeVec(softblock);
+
+	return (LONG) (ptr - buffer);
 }
 
 BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
@@ -2401,7 +2452,7 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 	ULONG anodenr;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct direntry *de;
-	UBYTE softblock[1024];
+	UBYTE *softblock = NULL;
 	struct canode anode;
 	size_t l;
 
@@ -2450,12 +2501,18 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 		return DOSFALSE;
 	}
 
+	softblock = AllocVec(1024, MEMF_CLEAR);
+	if (!softblock) {
+		*error = ERROR_NO_FREE_STORE;
+		return DOSFALSE;
+	}
+
 	/* make directory entry 
 	 * the anode allocated is the link list element
 	 */
 	de = (struct direntry *)entrybuffer;
 	if (!MakeDirEntry(ST_SOFTLINK, linkname, entrybuffer, g))
-		return DOSFALSE;
+		goto error0;
 
 	/* store directoryentry */
 	if (!AddDirectoryEntry(linkdir, (struct direntry *)entrybuffer, &newlink->file, g))
@@ -2469,7 +2526,6 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 	}
 
 	GetAnode(&anode, de->anode, g);
-	memset(softblock, 0, 1024);
 	strcpy(softblock, softlink);
 	DiskWrite(softblock, 1, anode.blocknr, g);
 	newlink->file.direntry->fsize = strlen(softblock);
@@ -2480,6 +2536,9 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 	RemoveDirEntry(newlink->file, g);
   error1:
 	FreeAnode(de->anode, g);
+  error0:
+  	FreeVec(softblock);
+
 	return DOSFALSE;
 }
 

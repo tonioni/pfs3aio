@@ -1496,22 +1496,99 @@ static LONG dd_ReadLink(struct DosPacket *pkt, globaldata * g)
 
 	lockentry_t *parentle;
 	union objectinfo linkfi, *parentfi;
-	char *fullname;
+	char *fullname, *prefixptr, oldchar;
 	ULONG *error = &pkt->dp_Res2;
+	LONG res;
 
 	GetFileInfoFromLock(pkt->dp_Arg1, 0, parentle, parentfi);
 
 	/* strip upto first : */
 	SkipColon(fullname, (char *)pkt->dp_Arg2);
 
-	if (!(FindObject(parentfi, fullname, &linkfi,
-					 (ULONG *)&pkt->dp_Res2, g)))
-	{
-		if (pkt->dp_Res2 != ERROR_IS_SOFT_LINK)
-			return DOSFALSE;
+	if (FindObject(parentfi, fullname, &linkfi, error, g))	{
+		if (!IsSoftLink(linkfi))
+		{
+			*error = ERROR_OBJECT_WRONG_TYPE;
+			return -1;
+		}
+		/*
+		 * The softlink is the last element of the path. Determine
+		 * if we have a prefix. We can have:
+		 *
+		 * 1. no prefix:
+		 * "softlink"
+		 *
+		 * 2. prefix:
+		 * "foo:softlink"
+		 * "bar:normal/dirs/softlink"
+		 * "normal/dirs/softlink"
+		 *
+		 * The prefix cut position is after the last '/' element,
+		 * if found, else the cut position is after the first ':'
+		 * element found, or no prefix was specified.
+		 */
+		prefixptr = rindex(fullname, '/');
+		if (prefixptr)
+			prefixptr++;
+		else if (fullname != (char *)pkt->dp_Arg2)
+			prefixptr = fullname;
 	}
-
-	return ReadSoftLink(&linkfi, (char *)pkt->dp_Arg3, pkt->dp_Arg4, (ULONG *)&pkt->dp_Res2, g);
+	else
+	{
+		if (*error != ERROR_IS_SOFT_LINK)
+			return -1;
+		/*
+		 * The softlink is part of the path, but not the last
+		 * element. Determine if we have a prefix.
+		 *
+		 * We can have g->unparsed point to:
+		 *
+		 * 1. no prefix:
+		 *  "softlink/unparsed/stuff"
+		 *           ^
+		 * 2. prefix:
+		 *  "foo:softlink/unparsed/stuff"
+		 *               ^
+		 *  "bar:normal/dirs/softlink/unparsed/stuff"
+		 *                           ^
+		 *  "normal/dirs/softlink/unparsed/stuff"
+		 *                       ^
+		 * To determine the prefix cut position, walk backwards
+		 * until '/ is found. If no '/' is met before we reach the
+		 * path beginning, check if ':' was present in the path. If
+		 * so that is the prefix.
+		 */
+		for (prefixptr = g->unparsed - 1;
+		     prefixptr > fullname;
+		     prefixptr--)
+		{
+			if (*prefixptr == '/')
+			{
+				prefixptr++;
+				break;
+			}
+		}
+		if (prefixptr == fullname) /* no '/' was found ? */
+		{
+			/* If the path includes a volume/device ("foo:"),
+			 * fullname is the prefix cut position, else no
+			 * prefix is specified.
+			 */
+			if (fullname == (char *)pkt->dp_Arg2)
+				prefixptr = 0;
+		}
+ 	}
+ 
+	/* Terminate to get the prefix, if any */
+	if (prefixptr)
+	{
+		oldchar = *prefixptr;
+		*prefixptr = '\0';
+	}
+	res = ReadSoftLink(&linkfi, prefixptr ? (char *)pkt->dp_Arg2 : "", (char *)pkt->dp_Arg3, pkt->dp_Arg4, error, g);
+	if (prefixptr)
+		*prefixptr = oldchar;
+	return res;
 }
 
 
