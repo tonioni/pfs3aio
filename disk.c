@@ -1996,11 +1996,14 @@ static BOOL testread_td2(UBYTE *buffer, globaldata *g)
 		io->iotd_Req.io_Length  = BLOCKSIZE;
 		io->iotd_Req.io_Data    = buffer;
 		io->iotd_Req.io_Offset  = g->lastblock << BLOCKSHIFT;
+		io->iotd_Req.io_Actual  = 0;
 		if (g->tdmode >= ACCESS_TD64) {
 			io->iotd_Req.io_Actual  = g->lastblock >> (32 - BLOCKSHIFT);
 			io->iotd_Req.io_Command = g->tdmode == ACCESS_NSD ? NSCMD_TD_READ64 : TD_READ64;
 		}
 		if (DoIO((struct IORequest*)io) != 0)
+			return FALSE;
+		if (io->iotd_Req.io_Actual != BLOCKSIZE)
 			return FALSE;
 		if (testbuffer(buffer, cnt, g))
 			return TRUE;
