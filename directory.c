@@ -2439,8 +2439,10 @@ LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, UL
 			postfixlen--;
 	}
 
-	if (prefixlen + linkfi->file.direntry->fsize + postfixlen + 1 > size)
+	if (prefixlen + linkfi->file.direntry->fsize + postfixlen + 1 > size) {
+		FreeVec(softblock);
 		return -2;
+	}
 
 	memcpy(ptr, (void*)prefix, prefixlen);
 	ptr += prefixlen;
@@ -2538,6 +2540,7 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 	strcpy(softblock, softlink);
 	DiskWrite(softblock, 1, anode.blocknr, g);
 	newlink->file.direntry->fsize = strlen(softblock);
+	FreeVec(softblock);
 	return DOSTRUE;
 
 	/* errors */
