@@ -1115,7 +1115,7 @@ void GetDriveGeometry(globaldata *g)
 	}
 #endif
 
-	if (forceDS) {
+	if (forceDS && SuperFloppy) {
 		if (get_scsi_geometry(g))
 			goto gotgeom;
 	}
