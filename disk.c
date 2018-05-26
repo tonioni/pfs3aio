@@ -208,8 +208,7 @@ extern BOOL debug;
 
 enum vctype {read, write};
 static int CheckDataCache(ULONG blocknr, globaldata *g);
-static int CachedRead(ULONG blocknr, ULONG *error, globaldata *g);
-static int FakeCachedRead(ULONG blocknr, ULONG *error, globaldata *g);
+static int CachedRead(ULONG blocknr, ULONG *error, BOOL fake, globaldata *g);
 static UBYTE *CachedReadD(ULONG blknr, ULONG *err, globaldata *g);
 static int CachedWrite(UBYTE *data, ULONG blocknr, globaldata *g);
 static void ValidateCache(ULONG blocknr, ULONG numblocks, enum vctype, globaldata *g);
@@ -863,14 +862,14 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 
 			if (blockoffset) 
 			{
-				slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, g);
+				slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, FALSE, g);
 				if (*error)
 					goto wtf_error;
 			}
 			else
 			{
 				/* for one block no offset growing file */
-				slotnr = FakeCachedRead(chnode->an.blocknr + anodeoffset, error, g);
+				slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, TRUE, g);
 			}
 
 			/* copy data to cache and mark block as dirty */
@@ -919,7 +918,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	{
 	  UBYTE *lastblock;
 
-		slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, g);
+		slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, FALSE, g);
 		if (!*error)
 		{
 			lastblock = &g->dc.data[slotnr<<BLOCKSHIFT];
@@ -1178,7 +1177,7 @@ static int CheckDataCache(ULONG blocknr, globaldata *g)
  * there already. return cache slotnr. errors are indicated by 'error'
  * (null = ok)
  */
-static int CachedRead(ULONG blocknr, ULONG *error, globaldata *g)
+static int CachedRead(ULONG blocknr, ULONG *error, BOOL fake, globaldata *g)
 {
 	int i;
 
@@ -1189,25 +1188,10 @@ static int CachedRead(ULONG blocknr, ULONG *error, globaldata *g)
 	if (g->dc.ref[i].dirty && g->dc.ref[i].blocknr)
 		UpdateSlot(i, g);
 
-	*error = RawRead(&g->dc.data[i<<BLOCKSHIFT], 1, blocknr, g);
-	g->dc.roving = (g->dc.roving+1)&g->dc.mask;
-	g->dc.ref[i].dirty = 0;
-	g->dc.ref[i].blocknr = blocknr;
-	return i;
-}
-
-static int FakeCachedRead(ULONG blocknr, ULONG *error, globaldata *g)
-{
-	int i;
-
-	*error = 0;
-	i = CheckDataCache(blocknr, g);
-	if (i != -1) return i;
-	i = g->dc.roving;
-	if (g->dc.ref[i].dirty && g->dc.ref[i].blocknr)
-		UpdateSlot(i, g);
-
-	memset(&g->dc.data[i<<BLOCKSHIFT], 0xAA, BLOCKSIZE);
+	if (fake)
+		memset(&g->dc.data[i<<BLOCKSHIFT], 0xAA, BLOCKSIZE);
+	else
+		*error = RawRead(&g->dc.data[i<<BLOCKSHIFT], 1, blocknr, g);
 	g->dc.roving = (g->dc.roving+1)&g->dc.mask;
 	g->dc.ref[i].dirty = 0;
 	g->dc.ref[i].blocknr = blocknr;
@@ -1218,7 +1202,7 @@ static UBYTE *CachedReadD(ULONG blknr, ULONG *err, globaldata *g)
 { 
 	int i;
 
-	i = CachedRead(blknr,err,g);
+	i = CachedRead(blknr, err, FALSE, g);
 	if (*err)   
 		return NULL;
 	else
@@ -1349,7 +1333,7 @@ ULONG DiskRead(UBYTE *buffer, ULONG blockstoread, ULONG blocknr, globaldata *g)
 
 	if (blockstoread == 1)
 	{
-		slotnr = CachedRead(blocknr, &error, g);
+		slotnr = CachedRead(blocknr, &error, FALSE, g);
 		memcpy(buffer, &g->dc.data[slotnr<<BLOCKSHIFT], BLOCKSIZE);
 		return error;
 	}
