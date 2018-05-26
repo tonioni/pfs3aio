@@ -35,12 +35,12 @@ _entrypoint:
 		move.l d0,a0
 		move.l 62(a0),d0
 		sub.l 58(a0),d0
-		cmp.l #6000,d0
+		cmp.l #4000,d0
 		bcc.b 3f
 
 	/* allocate stackswap memory */
 
-		move.l #6000+12,d0
+		move.l #4000+12,d0
 		moveq #1,d1
 		jsr	_LVOAllocMem(a6)
 		move.l	d0,a3
@@ -48,7 +48,7 @@ _entrypoint:
 		beq end
 		add.l	#12,d0
 		move.l	d0,(a3)
-		add.l	#6000,d0
+		add.l	#4000,d0
 		move.l	d0,4(a3)
 		move.l	d0,8(a3)
 		move.l	a3,a0
@@ -92,7 +92,7 @@ _entrypoint:
 	/* free stack */
 
 		move.l d2,a1
-		move.l	#6000+12,d0
+		move.l	#4000+12,d0
 		jsr	_LVOFreeMem(a6)	
 
 3:
