@@ -521,6 +521,8 @@ struct globaldata
 	ULONG firstblock;                   /* first and last block of partition    */
 	ULONG lastblock;
 	ULONG maxtransfermax;
+	UWORD infoblockshift;
+	UWORD dummy_1;
 	struct diskcache dc;                /* cache to make '196 byte mode' faster */
 
 	/* LRU stuff */

@@ -1064,6 +1064,12 @@ static LONG dd_Info(struct DosPacket *pkt, globaldata * g)
 			- g->rootblock->alwaysfree - 1;
 		info->id_NumBlocksUsed = info->id_NumBlocks - alloc_data.alloc_available;
 		info->id_BytesPerBlock = volume->bytesperblock;
+		// Return faked large block size to prevent WB disk free space calculation overflow
+		// (if >=16G, minimum block size is 1024, >=32G, 2048 and so on..)
+		info->id_NumBlocksUsed >>= g->infoblockshift;
+		info->id_NumBlocks >>= g->infoblockshift;
+		info->id_BytesPerBlock <<= g->infoblockshift;
+		
 #ifdef KSWRAPPER
 		// 1.x C:Info only understands DOS\0
 		info->id_DiskType = g->v37DOS ? ID_INTER_FFS_DISK : ID_DOS_DISK;

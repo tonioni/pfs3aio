@@ -588,6 +588,26 @@ struct volumedata *MakeVolumeData (struct rootblock *rootblock, globaldata *g)
 	volume->bytesperblock   = g->geom->dg_SectorSize;
 	volume->rescluster      = rootblock->reserved_blksize / volume->bytesperblock;
 
+	/* Calculate minimum fake block size that keeps total block count less than 16M.
+	 * Workaround for programs (including WB) that calculate free space using
+	 * "in use * 100 / total" formula that overflows if in use is block count is larger
+	 * than 16M blocks with 512 block size. Used only in ACTION_INFO.
+	 */
+	g->infoblockshift = 0;
+	if (DOSBase->dl_lib.lib_Version < 50) {
+		UWORD blockshift = 0;
+		ULONG bpb = volume->bytesperblock;
+		while (bpb > 512) {
+			blockshift++;
+			bpb >>= 1;
+		}
+		// Calculate smallest safe fake block size, up to max 32k. (512=0,1024=1,..32768=6)
+		while ((volume->numblocks >> blockshift) >= 0x02000000 && g->infoblockshift < 6) {
+			g->infoblockshift++;
+			blockshift++;	
+		}
+	}
+
 	/* load rootblock extension (if it is present) */
 	if (rootblock->extension && (rootblock->options & MODE_EXTENSION))
 	{
