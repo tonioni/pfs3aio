@@ -1019,6 +1019,7 @@ typedef struct lockentry
 #define FirstReserved   (g->currentvolume->rootblk->firstreserved)
 #define InPartition(blk)  ((blk)>=g->firstblock && (blk)<=g->lastblock)
 #define BLOCKSIZE (g->blocksize)
+#define BLOCKSIZEMASK (g->blocksize - 1)
 #define BLOCKSHIFT (g->blockshift)
 #define DIRECTSIZE (g->directsize)
 

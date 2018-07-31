@@ -2891,7 +2891,7 @@ ULONG SetRollover(fileentry_t *rollfile, struct rolloverinfo *roinfo, globaldata
 	{
 		if (roinfo->realsize)
 		{
-			realsize = roinfo->realsize & ~(BLOCKSIZE-1);
+			realsize = roinfo->realsize & ~BLOCKSIZEMASK;
 			if (!realsize) realsize = BLOCKSIZE;
 		}
 		else

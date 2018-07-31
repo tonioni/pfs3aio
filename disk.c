@@ -511,7 +511,7 @@ static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, ULONG 
 
 	/* calculate new values */
 	anodeoffset = file->offset >> BLOCKSHIFT;
-	blockoffset = file->offset & (BLOCKSIZE-1);
+	blockoffset = file->offset & BLOCKSIZEMASK;
 	file->currnode = &file->anodechain->head;
 	CorrectAnodeAC(&file->currnode, &anodeoffset, g);
 	
@@ -639,7 +639,7 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	chnode = file->currnode;
 	t = blockoffset + size;
 	fullblks = t>>BLOCKSHIFT;       /* # full blocks */
-	bytesleft = t&(BLOCKSIZE-1);    /* # bytes in last incomplete block */
+	bytesleft = t&BLOCKSIZEMASK;    /* # bytes in last incomplete block */
 
 	/* check mask, both at start and end */
 	t = (((ULONG)(buffer-blockoffset+BLOCKSIZE))&~g->dosenvec->de_Mask) ||
@@ -727,7 +727,7 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	if (!*error)
 	{
 		file->anodeoffset += fullblks;
-		file->blockoffset = (file->blockoffset + size)&(BLOCKSIZE-1);   // not bytesleft!!
+		file->blockoffset = (file->blockoffset + size)&BLOCKSIZEMASK;   // not bytesleft!!
 		CorrectAnodeAC(&file->currnode, &file->anodeoffset, g);
 		file->offset += size;
 		return size;
@@ -784,7 +784,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	chnode = file->currnode;
 	anodeoffset = file->anodeoffset;
 	blockoffset = file->blockoffset;
-	totalblocks = (blockoffset + size + BLOCKSIZE-1)>>BLOCKSHIFT;   /* total # changed blocks */
+	totalblocks = (blockoffset + size + BLOCKSIZEMASK)>>BLOCKSHIFT;   /* total # changed blocks */
 	if (!(bytestowrite = size))                                     /* # bytes to be done */
 		return 0;
 
@@ -798,8 +798,8 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 		return -1;
 	}
 
-	oldblocksinfile = (oldfilesize + BLOCKSIZE-1)>>BLOCKSHIFT;
-	newblocksinfile = (newfileoffset + BLOCKSIZE-1)>>BLOCKSHIFT;
+	oldblocksinfile = (oldfilesize + BLOCKSIZEMASK)>>BLOCKSHIFT;
+	newblocksinfile = (newfileoffset + BLOCKSIZEMASK)>>BLOCKSHIFT;
 	if (newblocksinfile > oldblocksinfile)
 	{
 		t = newblocksinfile - oldblocksinfile;
@@ -933,7 +933,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	if (!*error)
 	{
 		file->anodeoffset += (blockoffset + size)>>BLOCKSHIFT; 
-		file->blockoffset  = (blockoffset + size)&(BLOCKSIZE-1);
+		file->blockoffset  = (blockoffset + size)&BLOCKSIZEMASK;
 		CorrectAnodeAC(&file->currnode, &file->anodeoffset, g);
 		file->offset      += size;
 		SetDEFileSize(file->le.info.file.direntry, max(oldfilesize, file->offset), g);
@@ -1027,7 +1027,7 @@ SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error, glo
 
 	/* calculate new values */
 	anodeoffset = newoffset >> BLOCKSHIFT;
-	blockoffset = newoffset & (BLOCKSIZE-1);
+	blockoffset = newoffset & BLOCKSIZEMASK;
 	file->currnode = &file->anodechain->head;
 	CorrectAnodeAC(&file->currnode, &anodeoffset, g);
 	/* DiskSeek(anode.blocknr + anodeoffset, g); */
@@ -1096,8 +1096,8 @@ SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, ULONG *error,
 
 	/* change allocation (ala WriteToFile) */
 	oldfilesize = GetDEFileSize(file->le.info.file.direntry, g);
-	oldblocksinfile = (GetDEFileSize(file->le.info.file.direntry, g) + BLOCKSIZE-1)>>BLOCKSHIFT;
-	newblocksinfile = (abseof+BLOCKSIZE-1)>>BLOCKSHIFT;
+	oldblocksinfile = (GetDEFileSize(file->le.info.file.direntry, g) + BLOCKSIZEMASK)>>BLOCKSHIFT;
+	newblocksinfile = (abseof+BLOCKSIZEMASK)>>BLOCKSHIFT;
 
 	if (newblocksinfile > oldblocksinfile)
 	{
@@ -1567,7 +1567,7 @@ retry:
 	while(io_length > 0)
 	{
 		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
-		io_transfer &= ~(BLOCKSIZE-1);
+		io_transfer &= ~BLOCKSIZEMASK;
 		request = g->request;
 		request->iotd_Req.io_Command = write ? CMD_WRITE : CMD_READ;
 		request->iotd_Req.io_Length  = io_transfer;
