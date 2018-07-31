@@ -1407,7 +1407,7 @@ static BOOL DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *comma
 	g->request->iotd_Req.io_Length = sizeof(struct SCSICmd);
 	g->request->iotd_Req.io_Data = (APTR)&g->scsicmd;
 	g->request->iotd_Req.io_Command = HD_SCSICMD;
-	UBYTE err = DoIO((struct IORequest *)g->request);
+	BYTE err = DoIO((struct IORequest *)g->request);
 	if (err != 0) {
 		g->scsicmd.scsi_Status = 128 + err;
 		return FALSE;
