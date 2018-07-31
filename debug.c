@@ -4,7 +4,7 @@
 
 extern __stdargs void rawdofmt(char*, char*, void*);
 
-void serout(char *s)
+void serout(const char *s)
 {
 	static int init;
 	if (!init) {
@@ -24,6 +24,28 @@ void serout(char *s)
 		*serdat = (*s) | 0x100;
 		s++;
 	}
+}
+
+void DebugPutStr(char *buff)
+{
+	serout(buff);
+}
+void DebugPutDec(char *what, ULONG val)
+{
+	APTR format[2] = { (APTR)val, what };
+	char buf[80];
+	rawdofmt(buf, "%08ld %s ", format);
+	serout(buf);
+}
+void DebugPutHex(char *what, ULONG val)
+{
+	APTR format[2] = { (APTR)val, what };
+	char buf[80];
+	rawdofmt(buf, "%08lx %s ", format);
+	serout(buf);
+}
+void DebugPutHexVal(ULONG val)
+{
 }
 
 void ENTER(char *s)

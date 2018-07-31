@@ -98,9 +98,9 @@ void W_LibFreePooled(APTR pool, APTR memory, ULONG memSize, struct globaldata *g
 APTR W_LibAllocPooled(APTR pool, ULONG memSize, struct globaldata *g);
 
 /* debug */
-void DebugPutStr(register const char *buff);
+void DebugPutStr(const char *buff);
 void DebugPutDec(const char *what, ULONG val);
-void DebugPutHex(const char *what, APTR val);
+void DebugPutHex(const char *what, ULONG val);
 void DebugPutHexVal(ULONG val);
 
 #endif

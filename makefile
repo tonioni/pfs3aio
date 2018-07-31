@@ -2,7 +2,7 @@
 NOWDATE := "\"$(shell date "+%-d.%-m.%Y")\""
 NOWTIME := "\"$(shell date "+%T")\""
 
-CC=m68k-amigaos-gcc
+CC=/opt/amiga/bin/m68k-amigaos-gcc
 
 LIBS=-nostdlib -lnix -lamiga -lgcc -lnix13 -lnix -s
 
@@ -25,6 +25,9 @@ startup.o: startup.s
 
 end.o: end.s
 	$(CC) $(CFLAGS) -I. -c -o $@ end.s
+
+rawdofmt.o: rawdofmt.s
+	$(CC) $(CFLAGS) -I. -c -o $@ rawdofmt.s
 
 debug.o: debug.c
 	$(CC) $(CFLAGS) -I. -c -o $@ debug.c

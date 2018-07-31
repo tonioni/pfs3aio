@@ -1,4 +1,6 @@
 
+	.globl _rawdofmt
+
 putproc:
 	move.b d0,(a3)+
 	rts
