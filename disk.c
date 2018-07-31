@@ -1672,6 +1672,7 @@ ULONG RawWrite(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 static CONST UBYTE ACCESS_DEBUG1[] = "%s:%ld\nfirstblock=%ld\nlastblock=%ld\nblockshift=%ld\nblocksize=%ld\ninside4G=%ld";
 static CONST UBYTE ACCESS_DEBUG2[] = "Test %ld = %ld";
 static CONST UBYTE ACCESS_DEBUG3[] = "SCSI Read Capacity = %ld, Lastblock = %ld";
+static CONST UBYTE ACCESS_DEBUG_TD64_1[] = "TD64 empty access check: %ld";
 #endif
 
 static void fillbuffer(UBYTE *buffer, UBYTE data, globaldata *g)
