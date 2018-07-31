@@ -1174,8 +1174,7 @@ static LONG dd_SerializeDisk(struct DosPacket *pkt, globaldata * g)
 	if (pkt->dp_Res2)
 		goto inh_error;
 
-	g->request->iotd_Req.io_Command = CMD_UPDATE;
-	DoIO((struct IORequest *)g->request);
+	UpdateAndMotorOff(g);
 	FreeBufmem(rbl, g);
 	return DOSTRUE;
 

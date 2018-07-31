@@ -288,7 +288,7 @@ void NewVolume (BOOL FORCE, globaldata *g)
 		g->currentvolume = NULL;    /* @XL */
 	}
 
-	MotorOff (g);
+	UpdateAndMotorOff(g);
 	EXIT("NewVolume");
 }
 

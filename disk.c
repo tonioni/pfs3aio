@@ -1449,6 +1449,8 @@ static BOOL ErrorRequest(BOOL write, ULONG errnum, ULONG blocknr, ULONG blocks, 
 	args[3] = blocks;
 	args[4] = (ULONG)scsierr;
 
+	UpdateAndMotorOff(g);
+
 	// Include Sense if Direct SCSI
 	if (g->tdmode == ACCESS_DS) {
 		UBYTE *p = scsierr;
@@ -2117,17 +2119,14 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 
 /*************************************************************************/
 
-/* turn drivemotor off */
-void MotorOff(globaldata *g)
+void UpdateAndMotorOff(globaldata *g)
 {
 	struct IOExtTD *request = g->request;
 
-	if(g->removable)
-	{
-		request->iotd_Req.io_Command = TD_MOTOR;
-		request->iotd_Req.io_Length  = 0;
-		request->iotd_Count = g->changecount;
+	request->iotd_Req.io_Command = CMD_UPDATE;
+	DoIO((struct IORequest *)request);
 
-		DoIO((struct IORequest*)request);
-	}
+	request->iotd_Req.io_Command = TD_MOTOR;
+	request->iotd_Req.io_Length  = 0;
+	DoIO((struct IORequest*)request);
 }

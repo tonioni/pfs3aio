@@ -19,7 +19,7 @@ ULONG RawRead(UBYTE * , ULONG , ULONG , globaldata * );
 
 ULONG RawWrite(UBYTE * , ULONG , ULONG , globaldata * );
 
-void MotorOff(globaldata * );
+void UpdateAndMotorOff(globaldata * );
 
 void UpdateCache (globaldata *g);
 void FlushDataCache (globaldata *g);

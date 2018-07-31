@@ -267,8 +267,7 @@ BOOL UpdateDisk (globaldata *g)
 			volume->rootblockchangeflag = FALSE;
 
 			/* make sure update is really done */
-			g->request->iotd_Req.io_Command = CMD_UPDATE;
-			DoIO((struct IORequest *)g->request);
+			UpdateAndMotorOff(g);
 			success = TRUE;
 		}
 		else

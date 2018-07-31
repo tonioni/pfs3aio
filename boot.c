@@ -382,9 +382,7 @@ void __saveds EntryPoint (void)
 						}
 						else
 						{
-							g->request->iotd_Req.io_Command = CMD_UPDATE;
-							DoIO((struct IORequest *)g->request);
-							MotorOff(g);
+							UpdateAndMotorOff(g);
 							g->timeron = FALSE;
 							for (idle = HeadOf(&g->idlelist); idle->next; idle = idle->next)
 								Signal (idle->task, 1L<<idle->cleansignal);
@@ -479,8 +477,7 @@ void __saveds EntryPoint (void)
 			}
 
 			/* Make sure any disk buffers have been flushed to disk */
-			g->request->iotd_Req.io_Command = CMD_UPDATE;
-			DoIO((struct IORequest *)g->request);
+			UpdateAndMotorOff(g);
 
 			/* Mark the reset handler as done (system might reboot right after) */
 			HandshakeResetHandler(g);
