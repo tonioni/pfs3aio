@@ -1014,11 +1014,9 @@ BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 	g->ErrorMsg = NoErrorMsg;   // prevent readerrormsg
 
 #if ACCESS_DETECT
-	/* detect best access mode, td32, td64, nsd or directscsi */
-	if (g->tdmode == ACCESS_UNDETECTED) {
-		if (!detectaccessmode((UBYTE*)*rootblock, g))
-			goto nrd_error;
-	}
+	/* Detect best access mode, TD32, TD64, NSD or DirectSCSI */
+	if (!detectaccessmode((UBYTE*)*rootblock, g))
+		goto nrd_error;
 #endif
 
 	error = RawRead((UBYTE *)*rootblock, 1, BOOTBLOCK1, g);

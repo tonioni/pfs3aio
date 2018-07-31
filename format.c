@@ -301,6 +301,11 @@ static ULONG MakeBootBlock (globaldata *g)
 	if (!(bbl = AllocBufmem (2 * BLOCKSIZE, g)))
 		return ERROR_NO_FREE_STORE;
 
+#if ACCESS_DETECT
+	if (!detectaccessmode((UBYTE*)bbl, g))
+		return ERROR_OBJECT_TOO_LARGE;
+#endif
+
 	memset (bbl, 0, 2*BLOCKSIZE);
 	bbl->disktype = ID_PFS_DISK;
 	error = RawWrite ((UBYTE *)bbl, 2, BOOTBLOCK1, g);

@@ -251,9 +251,7 @@ Removed because of problems with Phase 5 boards
 	g->blockshift = i;
 	g->directsize = 16*1024>>i;
 
-#if ACCESS_DETECT
-	g->tdmode = ACCESS_UNDETECTED;
-#else
+#if ACCESS_DETECT == 0
 #define DE(x) g->dosenvec->de_##x
 	g->tdmode = ACCESS_STD;
 	if ((DE(HighCyl)+1)*DE(BlocksPerTrack)*DE(Surfaces) >= (1UL << (32-BLOCKSHIFT))) {
