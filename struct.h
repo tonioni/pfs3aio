@@ -476,7 +476,7 @@ struct reftable
 };
 
 #define DATACACHELEN 32
-#define DATACACHEMASK 0x1f
+#define DATACACHEMASK (DATACACHELEN - 1)
 
 #define MarkDataDirty(i) (g->dc.ref[i].dirty = 1)
 
