@@ -1964,15 +1964,22 @@ static BOOL testread_td2(UBYTE *buffer, globaldata *g)
 
 #if TD64
 	if (g->tdmode == ACCESS_TD64) {
-		UBYTE err;
+		BYTE err;
 		io->iotd_Req.io_Command = TD_READ64;
 		io->iotd_Req.io_Length = 0;
 		io->iotd_Req.io_Data = 0;
 		io->iotd_Req.io_Offset = 0;
 		io->iotd_Req.io_Actual = 0;
 		err = DoIO((struct IORequest*)io);
-		if (err != 0 && err != IOERR_BADLENGTH && err != IOERR_BADADDRESS)
+		if (err != 0 && err != IOERR_BADLENGTH && err != IOERR_BADADDRESS) {
+#if DETECTDEBUG
+			ULONG args[1];
+			args[0] = (LONG)err;
+			g->ErrorMsg = _NormalErrorMsg;
+			(g->ErrorMsg)(ACCESS_DEBUG_TD64_1, args, 1, g);
+#endif
 			return FALSE;
+		}
 	}
 #endif
 
