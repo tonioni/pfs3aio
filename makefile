@@ -4,9 +4,9 @@ NOWTIME := "\"$(shell date "+%T")\""
 
 CC=/opt/amiga/bin/m68k-amigaos-gcc
 
-LIBS=-nostdlib -lnix -lamiga -lgcc -lnix13 -lnix -s
+LIBS=-nostdlib -lamiga -lgcc -lnix13 -lnix -s
 
-CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -msmall-code \
+CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -msmall-code -s \
 	-DMIN_LIB_VERSION=33 -DKSWRAPPER=1 \
 	-DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
 	-DLARGE_FILE_SIZE=0 -DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
