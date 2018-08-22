@@ -890,19 +890,49 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	if (newfileoffset > oldfilesize)
 	{
 		blockstofill = totalblocks;
-		bytestowrite = totalblocks<<BLOCKSHIFT;
 	}
 	else
+	{
 		blockstofill = bytestowrite>>BLOCKSHIFT;
+	}
 
 	while (blockstofill && !*error)
 	{
+		UBYTE *lastpart = NULL;
+		UBYTE *writeptr;
+
 		if (blockstofill + anodeoffset >= chnode->an.clustersize)
 			t = chnode->an.clustersize - anodeoffset;   /* t is # blocks to write now */
 		else
 			t = blockstofill;
+		
+		writeptr = dataptr;
+		// last write, writing to end of file and last block won't be completely filled?
+		// all this just to prevent out of bounds memory read access.
+		if (t == blockstofill && (bytestowrite & BLOCKSIZEMASK) && newfileoffset > oldfilesize)
+		{
+			// limit indirect to max 2 * DIRECTSIZE
+			if (t > 2 * DIRECTSIZE) {
+				// > 2 * DIRECTSIZE: write only last partial block indirectly
+				t--;
+			} else {
+				// indirect write last block(s), including final partial block.
+				if (!(lastpart = AllocBufmem(t<<BLOCKSHIFT, g)))
+				{
+					if (t == 1)
+					{
+						// no memory, do slower cached final partial block write
+						goto indirectlastwrite;
+					}
+					t /= 2;
+				} else {
+					memcpy(lastpart, dataptr, bytestowrite);
+					writeptr = lastpart;
+				}
+			}
+		}
 
-		*error = DiskWrite(dataptr, t, chnode->an.blocknr + anodeoffset, g);
+		*error = DiskWrite(writeptr, t, chnode->an.blocknr + anodeoffset, g);
 		if (!*error)
 		{
 			blockstofill  -= t;
@@ -911,12 +941,18 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 			anodeoffset   += t;
 			CorrectAnodeAC(&chnode, &anodeoffset, g);
 		}
+		
+		if (lastpart) {
+			bytestowrite = 0;
+			FreeBufmem(lastpart, g);
+		}
 	}   
 
-	/* write last block (RAW because cache direct) */
+indirectlastwrite:
+	/* write last block (RAW because cache direct), preserve block's old contents */
 	if (bytestowrite && !*error)
 	{
-	  UBYTE *lastblock;
+		UBYTE *lastblock;
 
 		slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, FALSE, g);
 		if (!*error)
