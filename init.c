@@ -362,7 +362,7 @@ static void InstallDiskChangeHandler(struct globaldata *g)
   struct IOExtTD *request;
   struct Interrupt *di;
   UBYTE *intname;
-  static const UBYTE *intext = "_interrupt";
+  static const UBYTE *const intext = "_interrupt";
 
 	intname = AllocMemR (g->mountname[0]+strlen(intext)+1, MEMF_PUBLIC, g);
 	CopyMem(g->mountname+1,intname,g->mountname[0]);
