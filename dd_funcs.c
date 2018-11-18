@@ -1744,7 +1744,7 @@ static LONG dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	{
 		/* try to locate object */
 		found = FindObject (&oi, no->objectname+1, &filefi, (ULONG *)&pkt->dp_Res2, g);
-		if (found)
+		if (found && (IsVolume(filefi) || (ULONG)filefi.file.direntry > 2))
 		{
 			no->anodenr = IsVolume(filefi) ? ANODE_ROOTDIR : filefi.file.direntry->anode;
 		}
