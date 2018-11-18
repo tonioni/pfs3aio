@@ -1734,7 +1734,11 @@ static LONG dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 			no->unparsed++;     /* make it a cstring!! */
 		}
 		else
+		{
+			FreeMemP (no->objectname, g);
+			FreeMemP (no, g);
 			return DOSFALSE;
+		}
 	}
 	else
 	{
@@ -1750,6 +1754,8 @@ static LONG dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	if (IsDelDir (oi))
 	{
 		pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+		FreeMemP (no->objectname, g);
+		FreeMemP (no, g);
 		return DOSFALSE;
 	}
 #endif
