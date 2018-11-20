@@ -509,9 +509,11 @@ void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 				if (ddblk->blk.id == DELDIRID)
 				{
 					for (i=0; i<31; i++)
+					{
 						nr = ddblk->blk.entries[i].anodenr;
 						if (nr)
 							FreeAnodesInChain(nr, g);
+					}
 				}
 			}
 			FreeLRU ((struct cachedblock *)ddblk);
