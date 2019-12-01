@@ -32,6 +32,8 @@ void FixStartupPacket(struct DosPacket *pkt, struct globaldata *g);
 #undef ErrorReport
 #undef FilePart
 #undef PathPart
+#undef UnLockDosList
+#undef AttemptLockDosList
 
 #define MakeDosEntry(name, type) W_MakeDosEntry(name, type, g)
 #define RemDosEntry(dlist) W_RemDosEntry(dlist, g)
@@ -40,6 +42,8 @@ void FixStartupPacket(struct DosPacket *pkt, struct globaldata *g);
 #define ErrorReport(code, type, arg1, device) W_ErrorReport(code, type, arg1, device, g)
 #define FilePart(path) W_FilePart(path, g)
 #define PathPart(path) W_PathPart(path, g)
+#define UnLockDosList(flags) W_UnLockDosList(flags, g)
+#define AttemptLockDosList(flags) W_AttemptLockDosList(flags, g)
 
 STRPTR W_FilePart(STRPTR path, struct globaldata *g);
 STRPTR W_PathPart(STRPTR path, struct globaldata *g);
@@ -48,6 +52,8 @@ LONG W_RemDosEntry(struct DosList *dlist, struct globaldata *g);
 void W_FreeDosEntry(struct DosList *dlist, struct globaldata *g);
 LONG W_AddDosEntry(struct DosList *list, struct globaldata *g);
 LONG W_ErrorReport(LONG code, LONG type, ULONG arg1, struct MsgPort *device, struct globaldata *g);
+void W_UnLockDosList(ULONG flags, struct globaldata *g);
+struct DosList *W_AttemptLockDosList(ULONG flags, struct globaldata *g);
 
 /* exec */
 

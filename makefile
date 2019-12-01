@@ -44,7 +44,7 @@ boot.o: boot.c
 directory.o: directory.c
 	$(CC) $(CFLAGS) -I. -c -o $@ directory.c
 
-dostohandlerinterface.o: dostohandlerinterface.c
+dostohandlerinterface.o: dostohandlerinterface.c dd_funcs.c
 	$(CC) $(CFLAGS) -I. -c -o $@ dostohandlerinterface.c
 
 disk.o: disk.c

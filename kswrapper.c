@@ -320,6 +320,28 @@ LONG W_AddDosEntry(struct DosList *dlist, struct globaldata *g)
 	return success;	
 }
 
+struct DosList *W_AttemptLockDosList(ULONG flags, struct globaldata *g)
+{
+	if (ISDOS20) {
+		struct DosList *dl = AttemptLockDosList(flags);
+		if ((ULONG)dl <= 1) // v36-v39.23 bug workaround
+			return NULL;
+		return dl;
+	} else {
+		return getdoslist(g);
+	}
+}
+
+void W_UnLockDosList(ULONG flags, struct globaldata *g)
+{
+	if (ISDOS20) {
+		UnLockDosList(flags);
+	} else {
+		freedoslist(g);
+	}
+}
+
+
 LONG W_ErrorReport(LONG code, LONG type, ULONG arg1, struct MsgPort *device, struct globaldata *g)
 {
 	if (ISDOS20 && ISEXEC20)
