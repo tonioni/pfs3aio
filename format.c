@@ -191,6 +191,13 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, ULONG *error, globaldata *g)
 		return DOSFALSE;
 	}
 
+	// Only 512, 1024, 2048 and 4096 block sizes are supported.
+	// Last two require new large partition mode.
+	if (g->geom->dg_SectorSize < 512 || g->geom->dg_SectorSize > 4096) { 
+		*error = ERROR_BAD_NUMBER;
+		return DOSFALSE;
+	}
+	
 	err = MakeBootBlock (g);
 	if (err != 0) {
 		*error = err;
@@ -365,8 +372,15 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 		return NULL;
 	}
 
-	rbl->reserved_blksize = resblocksize;
+	// Use large disk modes if block size is larger than 1024
+	if (g->geom->dg_SectorSize > resblocksize) {
+		resblocksize = g->geom->dg_SectorSize;
+		rbl->disktype = ID_PFS2_DISK;
+		NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, NULL, 1);
+	}
+
 	rescluster = resblocksize/g->geom->dg_SectorSize;
+	rbl->reserved_blksize = resblocksize;
 
 #if LARGE_FILE_SIZE
 	rbl->options |= MODE_LARGEFILE;
