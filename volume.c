@@ -371,7 +371,7 @@ static void DiskRemoveSequence(globaldata *g)
 
 BOOL SafeDiskRemoveSequence(globaldata *g)
 {
-	while (g->currentvolume) {    /* inefficiënt.. */
+	while (g->currentvolume) {    /* inefficient.. */
 		if (AttemptLockDosList(LDF_VOLUMES | LDF_WRITE)) {
 			DiskRemoveSequence(g);
 			UnLockDosList(LDF_VOLUMES | LDF_WRITE);
@@ -389,7 +389,7 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
   struct DeviceList *devlist;
   BOOL found = FALSE, added = FALSE;
   UBYTE diskname[DNSIZE];       // or should it be a DSTR??
-  ULONG locklist;
+  SIPTR locklist;
 
 	ENTER("DiskInsertSequence");
 
@@ -423,7 +423,7 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 		DB(Trace(1, "DiskInsertSequence", "found\n"));
 
 		devlist = (struct DeviceList *)doslist;
-		locklist = (ULONG)BADDR(devlist->dl_LockList);
+		locklist = (SIPTR)BADDR(devlist->dl_LockList);
 
 		/* take over volume
 		** use LOCKTOFILEENTRY(lock)->volume to get volumepointer
@@ -819,7 +819,7 @@ void UpdateCurrentDisk(globaldata *g)
 ** If volume==NULL (no disk present) then FALSE is returned (@XLII).
 ** result: requested volume present/not present TRUE/FALSE
 */
-BOOL CheckVolume(struct volumedata *volume, BOOL write, ULONG *error, globaldata *g)
+BOOL CheckVolume(struct volumedata *volume, BOOL write, SIPTR *error, globaldata *g)
 {
 	if(!volume || !g->currentvolume)
 	{

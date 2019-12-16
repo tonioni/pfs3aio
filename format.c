@@ -158,7 +158,7 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 /*                               FORMAT                               */
 /**********************************************************************/
 
-BOOL FDSFormat (DSTR diskname, LONG disktype, ULONG *error, globaldata *g)
+BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, globaldata *g)
 {
   struct rootblock *rootblock;
   struct volumedata *volume;
