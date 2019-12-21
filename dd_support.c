@@ -384,7 +384,7 @@ static void Awake (globaldata *g)
   listentry_t *le;
   struct volumedata *volume = g->currentvolume;
   struct rootblock *rootblock;
-  ULONG error;
+  SIPTR error;
 
 	if (volume)
 	{

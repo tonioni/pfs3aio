@@ -110,7 +110,7 @@ void SleepCommands (struct DosPacket *action, globaldata *g);
 
 struct functable
 {
-	LONG (*function)(struct DosPacket *, globaldata *);
+	SIPTR (*function)(struct DosPacket *, globaldata *);
 	ULONG timeout;
 };
 

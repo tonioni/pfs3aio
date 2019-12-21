@@ -208,17 +208,17 @@ extern BOOL debug;
 
 enum vctype {read, write};
 static int CheckDataCache(ULONG blocknr, globaldata *g);
-static int CachedRead(ULONG blocknr, ULONG *error, BOOL fake, globaldata *g);
-static UBYTE *CachedReadD(ULONG blknr, ULONG *err, globaldata *g);
+static int CachedRead(ULONG blocknr, SIPTR *error, BOOL fake, globaldata *g);
+static UBYTE *CachedReadD(ULONG blknr, SIPTR *err, globaldata *g);
 static int CachedWrite(UBYTE *data, ULONG blocknr, globaldata *g);
 static void ValidateCache(ULONG blocknr, ULONG numblocks, enum vctype, globaldata *g);
 static void UpdateSlot(int slotnr, globaldata *g);
-static ULONG ReadFromRollover(fileentry_t *file, UBYTE *buffer, ULONG size, ULONG *error, globaldata *g);
-static ULONG WriteToRollover(fileentry_t *file, UBYTE *buffer, ULONG size,  ULONG *error, globaldata *g);
-static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error, globaldata *g);
-static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode, ULONG *error, globaldata *g);
-static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,ULONG *error, globaldata *g);
-static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,  ULONG *error, globaldata *g);
+static ULONG ReadFromRollover(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g);
+static ULONG WriteToRollover(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g);
+static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, globaldata *g);
+static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error, globaldata *g);
+static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g);
+static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g);
 
 /**********************************************************************/
 /*                            READ & WRITE                            */
@@ -227,7 +227,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,  ULONG *e
 /**********************************************************************/
 
 ULONG ReadFromObject(fileentry_t *file, UBYTE *buffer, ULONG size,
-	ULONG *error, globaldata *g)
+	SIPTR *error, globaldata *g)
 {
 	if (!CheckReadAccess(file,error,g))
 		return -1;
@@ -252,7 +252,7 @@ ULONG ReadFromObject(fileentry_t *file, UBYTE *buffer, ULONG size,
 }
 
 ULONG WriteToObject(fileentry_t *file, UBYTE *buffer, ULONG size,
-	ULONG *error, globaldata *g)
+	SIPTR *error, globaldata *g)
 {
 	/* check write access */
 	if (!CheckWriteAccess(file, error, g))
@@ -280,7 +280,7 @@ ULONG WriteToObject(fileentry_t *file, UBYTE *buffer, ULONG size,
 		return WriteToFile(file,buffer,size,error,g);
 }
 
-SFSIZE SeekInObject(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error,
+SFSIZE SeekInObject(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error,
 	globaldata *g)
 {
 	/* check access */
@@ -306,7 +306,7 @@ SFSIZE SeekInObject(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error,
 }
 
 SFSIZE ChangeObjectSize(fileentry_t *file, SFSIZE releof, LONG mode,
-	ULONG *error, globaldata *g)
+	SIPTR *error, globaldata *g)
 {
 	/* check access */
 	if (!CheckChangeAccess(file, error, g))
@@ -346,7 +346,7 @@ SFSIZE ChangeObjectSize(fileentry_t *file, SFSIZE releof, LONG mode,
  * goto start
  */
 static ULONG ReadFromRollover(fileentry_t *file, UBYTE *buffer, ULONG size,
-	ULONG *error, globaldata *g)
+	SIPTR *error, globaldata *g)
 {
 #define direntry_m file->le.info.file.direntry
 #define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
@@ -396,7 +396,7 @@ static ULONG ReadFromRollover(fileentry_t *file, UBYTE *buffer, ULONG size,
  * Max virtualsize = filesize-1
  */
 static ULONG WriteToRollover(fileentry_t *file, UBYTE *buffer, ULONG size,
-	ULONG *error, globaldata *g)
+	SIPTR *error, globaldata *g)
 {
 #define direntry_m file->le.info.file.direntry
 #define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
@@ -463,7 +463,7 @@ static ULONG WriteToRollover(fileentry_t *file, UBYTE *buffer, ULONG size,
 #undef filesize_m
 }
 
-static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error, globaldata *g)
+static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, globaldata *g)
 {
 #define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
 #define direntry_m file->le.info.file.direntry
@@ -526,7 +526,7 @@ static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, ULONG 
 
 
 static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
- 	ULONG *error, globaldata *g)
+	SIPTR *error, globaldata *g)
 {
 #define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
 #define direntry_m file->le.info.file.direntry
@@ -602,7 +602,7 @@ static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
 ** result: #bytes read; -1 = error; 0 = eof
 */
 static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
-				ULONG *error, globaldata *g)
+				SIPTR *error, globaldata *g)
 {
 	ULONG anodeoffset, blockoffset, blockstoread;
 	ULONG fullblks, bytesleft;
@@ -767,7 +767,7 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 **   | Deextent filesize (if error)
 */
 static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
-			ULONG *error, globaldata *g)
+			SIPTR *error, globaldata *g)
 {
 	ULONG maskok, t;
 	ULONG totalblocks, oldblocksinfile;
@@ -1007,7 +1007,7 @@ wtf_error:
 **
 ** - the end of the file is 0 from end
 */
-SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error, globaldata *g)
+SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, globaldata *g)
 {
 	SFSIZE oldoffset, newoffset;
 	ULONG anodeoffset, blockoffset;
@@ -1083,7 +1083,7 @@ SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, ULONG *error, glo
 ** change other locks
 ** change direntry
 */
-SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, ULONG *error,
+SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error,
 	globaldata *g)
 {
 	listentry_t *fe;
@@ -1213,7 +1213,7 @@ static int CheckDataCache(ULONG blocknr, globaldata *g)
  * there already. return cache slotnr. errors are indicated by 'error'
  * (null = ok)
  */
-static int CachedRead(ULONG blocknr, ULONG *error, BOOL fake, globaldata *g)
+static int CachedRead(ULONG blocknr, SIPTR *error, BOOL fake, globaldata *g)
 {
 	int i;
 
@@ -1234,7 +1234,7 @@ static int CachedRead(ULONG blocknr, ULONG *error, BOOL fake, globaldata *g)
 	return i;
 }
 
-static UBYTE *CachedReadD(ULONG blknr, ULONG *err, globaldata *g)
+static UBYTE *CachedReadD(ULONG blknr, SIPTR *err, globaldata *g)
 { 
 	int i;
 
@@ -1356,7 +1356,7 @@ static void ValidateCache(ULONG blocknr, ULONG numblocks, enum vctype vctype, gl
 */
 ULONG DiskRead(UBYTE *buffer, ULONG blockstoread, ULONG blocknr, globaldata *g)
 {
-	ULONG error;
+	SIPTR error;
 	int slotnr;
 
 	DB(Trace(1, "DiskRead", "%ld blocks from %ld firstblock %ld\n",
