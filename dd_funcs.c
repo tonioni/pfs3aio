@@ -938,7 +938,7 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 
 	BCPLtoCString(newlabel, (DSTR)BARG1(pkt));
 
-	if (!CheckVolume(volume, 1, &pkt->dp_Res2, g))
+	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g))
 		return DOSFALSE;
 
 	newnamelen = strlen(newlabel) + 2;

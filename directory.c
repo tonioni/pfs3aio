@@ -453,7 +453,7 @@ BOOL GetRoot(union objectinfo * path, globaldata * g)
 /* pre: - path <> 0 and volume or directory
  * result back in path
  */
-static BOOL GetParentOf(union objectinfo *path, ULONG *error, globaldata * g)
+static BOOL GetParentOf(union objectinfo *path, SIPTR *error, globaldata * g)
 {
 	BOOL ok;
 	union objectinfo info;
@@ -467,7 +467,7 @@ static BOOL GetParentOf(union objectinfo *path, ULONG *error, globaldata * g)
  *      - dirname without path; strlen(dirname) > 0
  * result back in path
  */
-static BOOL GetDir(STRPTR dirname, union objectinfo *path, ULONG *error, globaldata * g)
+static BOOL GetDir(STRPTR dirname, union objectinfo *path, SIPTR *error, globaldata * g)
 {
 	BOOL found;
 
@@ -830,7 +830,7 @@ BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo * result, glob
  *
  * - fib_DirEntryType must be equal to fib_EntryType
  */
-BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, ULONG *error, globaldata * g)
+BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, SIPTR *error, globaldata * g)
 {
 	struct volumedata *volume;
 #if DELDIR

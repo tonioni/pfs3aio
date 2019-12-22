@@ -1,0 +1,2 @@
+
+typedef signed long SIPTR;
