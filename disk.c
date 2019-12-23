@@ -642,8 +642,8 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	bytesleft = t&BLOCKSIZEMASK;    /* # bytes in last incomplete block */
 
 	/* check mask, both at start and end */
-	t = (((ULONG)(buffer-blockoffset+BLOCKSIZE))&~g->dosenvec->de_Mask) ||
-		(((ULONG)(buffer+size-bytesleft))&~g->dosenvec->de_Mask);
+	t = (((IPTR)(buffer-blockoffset+BLOCKSIZE))&~g->dosenvec->de_Mask) ||
+		(((IPTR)(buffer+size-bytesleft))&~g->dosenvec->de_Mask);
 	t = !t;
 
 	/* read indirect if
@@ -817,8 +817,8 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	CorrectAnodeAC(&chnode,&anodeoffset,g);
 
 	/* check mask */
-	maskok = (((ULONG)(buffer-blockoffset+BLOCKSIZE))&~g->dosenvec->de_Mask) ||
-			 (((ULONG)(buffer-blockoffset+(totalblocks<<BLOCKSHIFT)))&~g->dosenvec->de_Mask);
+	maskok = (((IPTR)(buffer-blockoffset+BLOCKSIZE))&~g->dosenvec->de_Mask) ||
+			 (((IPTR)(buffer-blockoffset+(totalblocks<<BLOCKSHIFT)))&~g->dosenvec->de_Mask);
 	maskok = !maskok;
 
 	/* write indirect if
