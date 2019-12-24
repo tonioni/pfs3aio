@@ -4091,7 +4091,7 @@ static void FillDelfileFib(struct deldirentry *dde, ULONG slotnr, struct FileInf
  * Get a >valid< deldirentry starting from deldirentrynr ddnr
  * deldir is assumed present and enabled
  */
-static struct deldirentry *GetDeldirEntry(ULONG *ddnr, globaldata * g)
+static struct deldirentry *GetDeldirEntry(IPTR *ddnr, globaldata * g)
 {
 	struct crootblockextension *rext = g->currentvolume->rblkextension;
 	struct cdeldirblock *ddblk;
