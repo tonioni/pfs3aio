@@ -294,7 +294,7 @@ static struct deldirentry *SearchInDeldir(STRPTR delname, union objectinfo *resu
 static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, globaldata *g);
 static BOOL BlockTaken(struct canode *anode, globaldata *g);
 static void FillDelfileFib(struct deldirentry *dde, ULONG slotnr, struct FileInfoBlock *fib, globaldata *g);
-static struct deldirentry *GetDeldirEntry(ULONG *nr, globaldata *g);
+static struct deldirentry *GetDeldirEntry(IPTR *nr, globaldata *g);
 static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g);
 static struct cdeldirblock *GetDeldirBlock(UWORD seqnr, globaldata *g);
 #endif
@@ -845,7 +845,7 @@ BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, SIPTR *error, gl
 		volume = file->volume;
 
 	/* fill in fib */
-	fib->fib_DiskKey = (LONG)file;  // I use it as dir-block-number for ExNext
+	fib->fib_DiskKey = (IPTR)file;  // I use it as dir-block-number for ExNext
 	if (!file || IsVolumeEntry(file))
 	{
 		fib->fib_DirEntryType = \
@@ -977,7 +977,7 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib,
 #endif
 
 	/* check if same lock used */
-	if ((LONG)file != (LONG)fib->fib_DiskKey)
+	if ((IPTR)file != (IPTR)fib->fib_DiskKey)
 	{
 		DB(Trace(1, "ExamineNextFile", "Other lock!!\n"));
 		RemakeNextEntry(file, fib, g);
@@ -994,7 +994,7 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib,
 	direntry = file->nextentry.direntry;
 	if (direntry->next)
 	{
-		fib->fib_DiskKey = (LONG)file;  // I use it as dir-block-number
+		fib->fib_DiskKey = (IPTR)file;  // I use it as dir-block-number
 		FillFib(direntry, fib, g);
 	}
 	else
@@ -1368,7 +1368,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen,
 	/* check if it's the first call and if same lock is used */
 	if (ctrl->eac_LastKey == 0)
 		GetFirstEntry(object, g);
-	else if ((LONG)object != (LONG)ctrl->eac_LastKey)
+	else if ((IPTR)object != (IPTR)ctrl->eac_LastKey)
 	{
 		*error = ERROR_NO_MORE_ENTRIES;
 		return DOSFALSE;
@@ -1420,7 +1420,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen,
 	}
 
 	/* Finish up */
-	ctrl->eac_LastKey = (LONG)object;
+	ctrl->eac_LastKey = (IPTR)object;
 	ctrl->eac_Entries = j;
 
 	if (eod)
@@ -4091,7 +4091,7 @@ static void FillDelfileFib(struct deldirentry *dde, ULONG slotnr, struct FileInf
  * Get a >valid< deldirentry starting from deldirentrynr ddnr
  * deldir is assumed present and enabled
  */
-static struct deldirentry *GetDeldirEntry(ULONG *ddnr, globaldata * g)
+static struct deldirentry *GetDeldirEntry(IPTR *ddnr, globaldata * g)
 {
 	struct crootblockextension *rext = g->currentvolume->rblkextension;
 	struct cdeldirblock *ddblk;

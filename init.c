@@ -293,7 +293,7 @@ Removed because of problems with Phase 5 boards
 		return FALSE;
 
 	/* check memory against mask */
-	if (((ULONG)g->dc.data) & ~g->dosenvec->de_Mask)
+	if (((IPTR)g->dc.data) & ~g->dosenvec->de_Mask)
 		ErrorMsg (AFS_WARNING_MEMORY_MASK, NULL, g);
 
 	if (!OpenTimerDevice(&g->timeport, &g->trequest, UNIT_VBLANK, g) )

@@ -1111,7 +1111,7 @@ nrd_error:
 */
 void GetDriveGeometry(globaldata *g)
 {
-  ULONG *env = (ULONG *)g->dosenvec;
+  IPTR *env = (IPTR *)g->dosenvec;
   struct DriveGeometry *geom = g->geom;
   BOOL forceDS = (env[DE_INTERLEAVE] & DEF_SCSIDIRECT) != 0;
   BOOL SuperFloppy = (env[DE_INTERLEAVE] & DEF_SUPERFLOPPY) != 0;
@@ -1225,7 +1225,7 @@ void RequestCurrentVolumeBack(globaldata *g)
 	{
 		ready = GetCurrentRoot(&rootblock, g) && SameDisk(volume->rootblk, rootblock);
 		if(!ready)
-			ErrorReport(ABORT_BUSY, REPORT_VOLUME, (ULONG)MKBADDR(volume->devlist), NULL);
+			ErrorReport(ABORT_BUSY, REPORT_VOLUME, (IPTR)MKBADDR(volume->devlist), NULL);
 	}
 
 	if (rootblock)
