@@ -289,7 +289,8 @@ typedef union reservedblock reservedblock_t;
 #define MODE_EXTROVING     512
 #define MODE_LONGFN       1024
 #define MODE_LARGEFILE    2048
-#define MODE_MASK        (4096-1)
+#define MODE_STORED_GEOM 4096
+#define MODE_MASK        (8192-1)
 
 /* seperator used for deldirentries */
 #define DELENTRY_SEP '@'

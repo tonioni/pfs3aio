@@ -46,13 +46,16 @@
 #define max(a,b) MAX(a,b)
 #endif
 
-typedef unsigned long uint32;
-typedef unsigned short uint16;
-typedef unsigned char uint8;
-typedef long int32;
-typedef short int16;
-typedef char int8;
+typedef ULONG uint32;
+typedef UWORD uint16;
+typedef UBYTE uint8;
+typedef LONG int32;
+typedef WORD int16;
+typedef BYTE int8;
 typedef enum {false, true} bool;
+
+typedef LONG SIPTR;
+typedef ULONG IPTR;
 
 // last two bytes used for extended file size
 #define DELENTRYFNSIZE 16
@@ -128,7 +131,8 @@ struct cache
 	struct MinList LRUqueue;
 	struct MinList LRUpool;
 	uint32 linesize;			// linesize in blocks
-	uint32 nolines;				
+	uint32 nolines;
+	uint32 blocksize;
 	struct cacheline *cachelines;
 };
 
@@ -138,7 +142,7 @@ extern struct cache cache;
  * Blocks
  **************************************/
 
-enum mode {check=0, build, repair, search, unformat, done};
+enum mode {check=0, info, build, repair, search, unformat, done};
 extern enum mode mode;
 
 /* mode for cached block can be:
@@ -223,6 +227,7 @@ extern bool aborting;
 #define SSF_FIX       		2		/* fix errors? */
 #define SSF_ANALYSE   		4		/* analyse volume, count things etc ? */
 #define SSF_UNFORMAT		8		/* undo fast format */
+#define SSF_INFO			256		/* show status information */
 
 /* option flags
  */
@@ -301,10 +306,14 @@ typedef struct {
 	/* initialise size */
 	uint32 firstblock;		/* abs blocknr, first and last block */
 	uint32 lastblock;
+	uint32 firstblocknative;
+	uint32 lastblocknative;
 	uint32 disksize;			/* disksize in blocks */
+	uint32 disksizenative;
 	uint32 lastreserved;		/* rel blocknr, last reserved block */
 	uint32 blocksize;		/* physical blocksize in bytes */
 	int16 blockshift;
+	int16 blocklogshift;	
 	uint32 rescluster;
 
 	/* info
@@ -456,7 +465,7 @@ void enterblock(uint32 blocknr);
 void exitblock(void);
 
 /* device.c */
-error_t InitCache(uint32 linesize, uint32 nolines);
+error_t InitCache(uint32 linesize, uint32 nolines, uint32 blocksize);
 error_t c_GetBlock(uint8 *data, uint32 bloknr, uint32 bytes);
 error_t c_WriteBlock(uint8 *data, uint32 bloknr, uint32 bytes);
 void UpdateCache(void);

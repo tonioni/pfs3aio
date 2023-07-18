@@ -1,0 +1,6 @@
+*.o
+*.map
+*.out
+*.info
+pfsdoctor*
+

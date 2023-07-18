@@ -29,6 +29,7 @@ static BOOL noninteractive = FALSE;
 FILE *logfh = NULL;
 static BOOL directscsi = FALSE;
 static BOOL inhibited = FALSE;
+static BOOL progressmark;
 
 static const char *accessmodes[] = { "", "Standard", "Direct SCSI", "TD64", "NSD" };
 
@@ -36,8 +37,17 @@ void dummyMsg(char *message)
 {
 }
 
+static void clearProgress(void)
+{
+	if (progressmark) {
+		printf("\n");
+		progressmark = 0;
+	}
+}
+
 void guiMsg(const char *format, ...)
 {
+	clearProgress();
 	va_list parms;
 	va_start (parms, format);
 	vprintf (format, parms);
@@ -50,6 +60,7 @@ void guiUpdateStats(void)
 
 void guiStatus(int level, char *message, long maxval)
 {
+	clearProgress();
 	if (!message)
 		return;
 	printf("%s %ld...\n", message, maxval);
@@ -57,10 +68,14 @@ void guiStatus(int level, char *message, long maxval)
 
 void guiProgress(int level, long progress)
 {
+	printf(".");
+	fflush(stdout);
+	progressmark = 1;
 }
 
 int guiAskUser(char *message, char *okstr, char *cancelstr)
 {
+	clearProgress();
 	char ch = 0;
 	for (;;) {
 		printf("%s\n", message);
@@ -146,12 +161,23 @@ static BOOL OpenVolume(void)
 	cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
 	volume.firstblock = volume.dosenvec->de_LowCyl * cylsectors;
 	volume.lastblock = (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1;
-	b = volume.blocksize = volume.dosenvec->de_SizeBlock << 2;
+	b = volume.dosenvec->de_SectorPerBlock;
+	volume.blocklogshift = 0;
+	while (b > 1) {
+		volume.blocklogshift++;
+		b >>= 1;		
+	}
+	b = volume.blocksize = (volume.dosenvec->de_SizeBlock << 2) << volume.blocklogshift;
 	for (i=-1; b; i++)
 		b >>= 1;
 	volume.blockshift = i;
 	volume.rescluster = 0;
-	volume.disksize = volume.lastblock - volume.firstblock + 1;
+	volume.disksizenative = volume.lastblock - volume.firstblock + 1;
+	volume.firstblocknative = volume.firstblock;
+	volume.lastblocknative = volume.lastblock;
+	volume.firstblock >>= volume.blocklogshift;
+	volume.lastblock >>= volume.blocklogshift;
+	volume.disksize = volume.disksizenative >> volume.blocklogshift;
 	volume.lastreserved = volume.disksize - 256;	/* temp value, calculated later */
 
 	volume.status = guiStatus;
@@ -180,9 +206,9 @@ static BOOL OpenVolume(void)
 		return FALSE;
 	}
 
-	InitCache(64, 32);		/* make this configurable ? */
+	InitCache(64, 32, volume.blocksize);		/* make this configurable ? */
 
-	detectbuf = AllocVec(volume.blocksize, MEMF_PUBLIC);
+	detectbuf = AllocVec(MAXRESBLOCKSIZE, MEMF_PUBLIC);
 	if (!detectbuf) {
 		printf("Could not allocated %ld byte buffer.\n", volume.blocksize);
 		return FALSE;
@@ -244,18 +270,73 @@ static void CloseVolume(void)
 	volume.port = NULL;
 }
 
-#define TEMPLATE "DEVICE/A,CHECK/S,REPAIR/S,SEARCH/S,UNFORMAT/S,VERBOSE/S,NONINTERACTIVE/S,LOGFILE/K,DIRECTSCSI/S"
+#define TEMPLATE "DEVICE/A,INFO/S,CHECK/S,REPAIR/S,SEARCH/S,UNFORMAT/S,VERBOSE/S,NONINTERACTIVE/S,LOGFILE/K,DIRECTSCSI/S"
 
 #define ARGS_DEVICE 0
-#define ARGS_CHECK 1
-#define ARGS_REPAIR 2
-#define ARGS_SEARCH 3
-#define ARGS_UNFORMAT 4
-#define ARGS_VERBOSE 5
-#define ARGS_NONINTER 6
-#define ARGS_LOGFILE 7
-#define ARGS_DIRECTSCSI 8
-#define ARGS_SIZE 9
+#define ARGS_INFO 1
+#define ARGS_CHECK 2
+#define ARGS_REPAIR 3
+#define ARGS_SEARCH 4
+#define ARGS_UNFORMAT 5
+#define ARGS_VERBOSE 6
+#define ARGS_NONINTER 7
+#define ARGS_LOGFILE 8
+#define ARGS_DIRECTSCSI 9
+#define ARGS_SIZE 10
+
+
+#if 0
+
+#if 0
+static const ULONG schijf[][2] =
+{ 
+	{20480,20},
+	{51200,30},
+	{512000,40},
+	{1048567,50},
+	{10000000,70},
+	{0xffffffff,80}
+};
+#else
+static const ULONG schijf[][2] =
+{ 
+	{20480,20},			// 10M
+	{51200,30},			// 25M
+	{512000,60},		// 256M
+	{1048567,80},		// 512M
+	{10000000,150},		// 5G
+	{100000000,500},	// 50G
+	{1000000000,2000},	// 500G
+	{0xffffffff,4000}
+};
+#endif
+
+#define MAXNUMRESERVED (4096 + 255*1024*8)
+
+static ULONG CalcNumReserved (ULONG total, ULONG resblocksize, ULONG sectorsize)
+{
+  ULONG temp, taken, i;
+
+  	// temp is the number of reserved blocks if the whole disk is
+  	// taken. taken is the actual number of reserved blocks we take.
+	temp = total;
+	temp /= (resblocksize/512);
+	temp *= (sectorsize/512);
+	taken = 0;
+
+	for (i=0; temp > schijf[i][0]; i++)
+	{
+		taken += schijf[i][0]/schijf[i][1];
+		temp -= schijf[i][0];
+	}
+	taken += temp/schijf[i][1];
+	taken += 10;
+	taken = min(MAXNUMRESERVED, taken);
+	taken = (taken + 31) & ~0x1f;		/* multiple of 32 */
+
+	return taken;
+}
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -264,6 +345,20 @@ int main(int argc, char *argv[])
 	int cnt = 0;
 	uint32 opties;
 
+#if 0
+	ULONG v = 64;
+	for (uint32 i = 1024; i > 0; i <<= 1) {
+		ULONG b = v;//CalcNumReserved(i, 4096, 4096);
+		v += v * ((i < 512 * 1024) ? 6 : 2) / 8;
+		if (i >= 1024 * 1024) {
+			printf("%luG: %lu\n", i / (1024 * 1024), b);		
+		} else {
+			printf("%luM: %lu\n", i / 1024, b);
+		}
+	}
+	return 0;
+#endif
+
 	if (!(rdarg = ReadArgs (TEMPLATE, args, NULL)))
 	{
 		PrintFault (ERROR_REQUIRED_ARG_MISSING, "pfsdoctor");
@@ -271,6 +366,9 @@ int main(int argc, char *argv[])
 	}
 
 	strcpy(targetdevice.name, (char*)args[ARGS_DEVICE]);
+	if (targetdevice.name[0] && targetdevice.name[strlen(targetdevice.name) - 1] == ':') {
+		targetdevice.name[strlen(targetdevice.name) - 1] = 0;
+	}
 
 	if (args[ARGS_VERBOSE])
 		verbose = TRUE;
@@ -294,17 +392,21 @@ int main(int argc, char *argv[])
 		mode = unformat;
 		cnt++;
 	}
+	if (args[ARGS_INFO]) {
+		mode = info;
+		cnt++;
+	}
 	
 	if (args[ARGS_DIRECTSCSI]) {
 		directscsi = TRUE;
 	}
 	
 	if (cnt == 0) {
-		printf("CHECK, REPAIR, SEARCH or UNFORMAT required.\n");
+		printf("INFO, CHECK, REPAIR, SEARCH or UNFORMAT required.\n");
 		return RETURN_FAIL;
 	}
 	if (cnt > 1) {
-		printf("Only one command (CHECK, REPAIR, SEARCH, UNFORMAT) parameter allowed.\n");
+		printf("Only one command (INFO, CHECK, REPAIR, SEARCH, UNFORMAT) parameter allowed.\n");
 		return RETURN_FAIL;
 	}
 	
@@ -320,6 +422,8 @@ int main(int argc, char *argv[])
 		opties = SSF_FIX|SSF_ANALYSE|SSF_GEN_BMMASK;
 	else if (mode == unformat)
 		opties = SSF_UNFORMAT|SSF_FIX|SSF_ANALYSE|SSF_GEN_BMMASK;
+	else if (mode == info)
+		opties = SSF_INFO;		
 	else
 		opties = SSF_CHECK|SSF_ANALYSE|SSF_GEN_BMMASK;
 		

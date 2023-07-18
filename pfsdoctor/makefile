@@ -1,5 +1,5 @@
 
-CC=m68k-amigaos-gcc
+CC=/opt/amiga/bin/m68k-amigaos-gcc
 
 LIBS=-lamiga -lgcc -lnix13 -s
 

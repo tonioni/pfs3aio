@@ -71,6 +71,7 @@ struct
 	int pass;
 	BOOL verbose;
 	BOOL unformat;
+	BOOL info;
 
 	enum {syntax, resbitmap, mainbitmap, anodebitmap, finished} stage;
 
@@ -201,8 +202,9 @@ static error_t mainStandardScan(uint32 flags)
 	ss.flags = flags;
 	ss.stage = syntax;
 	ss.pass = stats.pass = 1;
-	ss.verbose = flags & SSF_VERBOSE;
-	ss.unformat = flags & SSF_UNFORMAT;
+	ss.verbose = (flags & SSF_VERBOSE) != 0;
+	ss.unformat = (flags & SSF_UNFORMAT) != 0;
+	ss.info = (flags & SSF_INFO) != 0;
 
 	InitFullScan();
 
@@ -244,6 +246,11 @@ static error_t mainStandardScan(uint32 flags)
 	volume.showmsg(bericht);
 	volume.showmsg("\n");
 
+	if (ss.info) {
+		exitStandardScan(e_none);
+		return e_none;
+	}
+
 	/* stage 1 */
 	volume.progress(0, 30);
 	while (ss.stage != finished && ss.pass < MAX_PASS)
@@ -252,12 +259,12 @@ static error_t mainStandardScan(uint32 flags)
 		sprintf(bericht, "Starting pass %d\n", ss.pass);
 		volume.showmsg(bericht);
 		volume.updatestats();
-		if (mode == check && stats.numerrors > 0)
+		if ((mode == check  || mode == info) && stats.numerrors > 0)
 			break;
 		error = ss_CheckDirTree();
 		if ((error != e_none) || aborting)
 			return exitStandardScan(error);
-		if (mode == check)
+		if (mode == check || mode == info)
 			break;
 		ss.pass++; 
 	}
@@ -591,11 +598,38 @@ static error_t GetRootBlock(void)
 		adderror("rootblock could not be loaded");
 		return error;
 	}
+	if (!IsRootBlock(rbl) && volume.blocklogshift)
+	{
+		// Check if we have pre-20.0 pfs3 that has ignored >512 block size
+		InitCache(0, 0, volume.blocksize >> volume.blocklogshift);
+		volume.blocksize >>= volume.blocklogshift;
+		volume.blockshift -= volume.blocklogshift;
+		if (!(c_GetBlock ((uint8 *)rbl, ROOTBLOCK + volume.firstblocknative, volume.blocksize)))
+		{
+			if (IsRootBlock(rbl))
+			{
+				volume.showmsg("Rootblock found using 512 block size (block size was %lu)\n", volume.blocksize << volume.blocklogshift);
+				volume.firstblock = volume.firstblocknative;
+				volume.lastblock = volume.lastblocknative;
+				volume.disksize = volume.disksizenative;
+				volume.lastreserved = volume.disksize - 256;
+				volume.blocklogshift = 0;
+				goto rootfound;
+
+			}
+		}
+		volume.blocksize <<= volume.blocklogshift;
+		volume.blockshift += volume.blocklogshift;
+	}
+rootfound:;
 
 	// check rootblock type
 	if (!IsRootBlock(rbl))
 	{
 		adderror("not an AFS, PFS-II or PFS-III disk");
+		if (ss.info) {
+			return e_none;
+		}
 		okuser = volume.askuser("Rootblock not found.\n"
 			"Select ok to search for misplaced rootblock.", "ok", "cancel");
 
@@ -614,12 +648,12 @@ static error_t GetRootBlock(void)
 				"mountlist", "CONTINUE", NULL);
 
 			freq = AllocAslRequestTags(ASL_FileRequest, ASLFR_SleepWindow, TRUE, 
-				ASLFR_TitleText, "Select mountfile", ASLFR_InitialFile, "mountme",
-				ASLFR_InitialDrawer, "df0:", ASLFR_DoSaveMode, TRUE, TAG_DONE);
+				ASLFR_TitleText, (IPTR)"Select mountfile", ASLFR_InitialFile, (IPTR)"mountme",
+				ASLFR_InitialDrawer, (IPTR)"df0:", ASLFR_DoSaveMode, TRUE, TAG_DONE);
 
 			do
 			{
-				if (AslRequestTags(freq, ASLFR_Window, CheckRepairWnd, TAG_DONE))
+				if (AslRequestTags(freq, ASLFR_Window, (IPTR)CheckRepairWnd, TAG_DONE))
 				{
 					t = stpcpy(mfname, freq->fr_Drawer);
 					t = stpcpy(t, freq->fr_File);
@@ -658,6 +692,10 @@ static error_t GetRootBlock(void)
 	
 	error = CheckRootBlock();
 
+	if (ss.info) {
+		return e_none;
+	}
+
 	switch (error)
 	{
 		case e_none:
@@ -678,12 +716,12 @@ static error_t GetRootBlock(void)
 				"mountlist", "CONTINUE", NULL);
 
 			freq = AllocAslRequestTags(ASL_FileRequest, ASLFR_SleepWindow, TRUE, 
-				ASLFR_TitleText, "Select mountfile", ASLFR_InitialFile, "mountme",
-				ASLFR_InitialDrawer, "df0:", ASLFR_DoSaveMode, TRUE, TAG_DONE);
+				ASLFR_TitleText, (IPTR)"Select mountfile", ASLFR_InitialFile, (IPTR)"mountme",
+				ASLFR_InitialDrawer, (IPTR)"df0:", ASLFR_DoSaveMode, TRUE, TAG_DONE);
 
 			do
 			{
-				if (AslRequestTags(freq, ASLFR_Window, CheckRepairWnd, TAG_DONE))
+				if (AslRequestTags(freq, ASLFR_Window, (IPTR)CheckRepairWnd, TAG_DONE))
 				{
 					t = stpcpy(mfname, freq->fr_Drawer);
 					t = stpcpy(t, freq->fr_File);
@@ -790,7 +828,7 @@ static error_t CheckRootBlock(void)
 	modemask = MODE_HARDDISK + MODE_SPLITTED_ANODES + MODE_DIR_EXTENSION
 			 + MODE_DELDIR + MODE_SIZEFIELD + MODE_EXTENSION + MODE_DATESTAMP
 			 + MODE_SUPERINDEX + MODE_SUPERDELDIR + MODE_EXTROVING + MODE_LONGFN
-			 + MODE_LARGEFILE;
+			 + MODE_LARGEFILE + MODE_STORED_GEOM;
 
 	if (rbl->options & ~modemask)
 	{
@@ -801,7 +839,7 @@ static error_t CheckRootBlock(void)
 	// check the fields
 	if (!rbl->diskname[0])
 	{
-		if (mode == check)
+		if (mode == check || mode == info)
 			adderror("Volume has no name");
 		else
 		{
@@ -817,7 +855,9 @@ static error_t CheckRootBlock(void)
 	volume.showmsg("Checking disk ");
 	volume.showmsg(volume.diskname);
 	volume.showmsg("\n");
+	volume.showmsg("Option mask: %08lx\n", rbl->options);
 	volume.showmsg("Reserved blocksize: %lu\n", rbl->reserved_blksize);
+	volume.showmsg("Reserved block cluster: %lu\n", rbl->rblkcluster);
 
 	resblocksize = 1024;
 	if (rbl->disktype == ID_PFS2_DISK) {
@@ -829,6 +869,9 @@ static error_t CheckRootBlock(void)
 			resblocksize = 2048;
 			if (volume.disksize > MAXDISKSIZE2K)
 				resblocksize = 4096;
+		}
+		if (volume.blocksize > resblocksize) {
+			resblocksize = volume.blocksize;	
 		}
 	} else {
 		if (volume.disksize > MAXDISKSIZE1K) {
@@ -851,10 +894,19 @@ static error_t CheckRootBlock(void)
 
 	volume.rescluster = resblocksize / volume.blocksize;
 
+	volume.showmsg("First reserved block: %lu\n", rbl->firstreserved);
+	volume.showmsg("Last reserved block: %lu\n", rbl->lastreserved);
+	uint32 blocks = (rbl->lastreserved - rbl->firstreserved + 1) / volume.rescluster;
+	volume.showmsg("Reserved blocks: %lu\n", blocks);
+	volume.showmsg("Free reserved blocks: %lu\n", rbl->reserved_free);
+	volume.showmsg("Free blocks: %lu\n", rbl->blocksfree);
+	volume.showmsg("Always free blocks: %lu\n", rbl->alwaysfree);
+	volume.showmsg("Total blocks: %lu\n", rbl->disksize);
+
 	// size must match, else repartition
 	if (rbl->options & MODE_SIZEFIELD)
 	{
-		if(rbl->disksize != volume.disksize)
+		if(rbl->disksize != volume.disksizenative)
 		{
 			int32 difference;
 
@@ -862,18 +914,21 @@ static error_t CheckRootBlock(void)
 			 * in RDB, otherwise assume mistake in rootblock
 			 */
 			adderror("Wrong disksize");
-			volume.showmsg("Rootblock size: %lu, driver reported size: %lu\n", rbl->disksize, volume.disksize);
-			difference = abs((int32)rbl->disksize - (int32)volume.disksize);
-			if (difference < volume.disksize/10)
+			volume.showmsg("Rootblock size: %lu, driver reported size: %lu\n", rbl->disksize, volume.disksizenative);
+			difference = abs((int32)rbl->disksize - (int32)volume.disksizenative);
+			if (difference < volume.disksizenative/10)
 			{
 				error = e_repartition;
 			}
-			else if (mode != check)
+			else if (mode != check && mode != info)
 			{
-				rbl->disksize = volume.disksize;
+				rbl->disksize = volume.disksizenative;
 				dirty = true;
 				fixederror("set disksize");
 			}
+		} else if((rbl->disksize >> volume.blocklogshift) != volume.disksize) {
+			adderror("Wrong logical block calculated disksize");
+			volume.showmsg("Rootblock logical block calculated size: %lu, driver reported size: %lu\n", rbl->disksize >> volume.blocklogshift, volume.disksize);
 		}
 	}
 
@@ -953,7 +1008,7 @@ static error_t GetRext(void)
 	{
 		rbl->options |= MODE_EXTENSION;
 		volume.writeblock((cachedblock_t *)&rext);
-		if (mode == check)
+		if (mode == check || mode == info)
 			adderror("MODE_EXTENSION is disabled");
 		else
 			fixederror("MODE_EXTENSION was disabled");
@@ -965,7 +1020,7 @@ static error_t GetRext(void)
 		if (rext.data->fnsize < 30 || rext.data->fnsize > 108)
 		{
 			sprintf(bericht, "Illegal filename size of %d", rext.data->fnsize);
-			if (mode == check)
+			if (mode == check || mode == info)
 				adderror(bericht);
 			else
 			{
@@ -995,7 +1050,7 @@ static error_t GetRext(void)
 		rext.data->postponed_op[2] ||
 		rext.data->postponed_op[3])
 	{
-		if (mode == check)
+		if (mode == check || mode == info)
 			adderror("Rootblock extension TBD not empty");
 		else
 		{
@@ -1007,6 +1062,8 @@ static error_t GetRext(void)
 			fixederror("Rootblock extension TBD not empty");
 		}
 	}
+	
+	volume.showmsg("Max file name length: %lu\n", rext.data->fnsize);
 
 	exitblock();
 	return e_none;
@@ -1069,7 +1126,7 @@ static error_t RepairBootBlock(void)
 	// check bootblock type
 	if (bootbl.data->bootblock.disktype != ID_PFS_DISK)
 	{
-		if (mode == check)
+		if (mode == check || mode == info)
 			adderror("Bootblock has wrong ID");
 		else
 		{
@@ -1162,7 +1219,7 @@ static error_t RepairDeldir(void)
 
 			if (rbl->deldir)
 			{
-				if (mode == check)
+				if (mode == check || mode == info)
 					adderror("Reference to old deldir");
 				else
 				{
@@ -1176,7 +1233,7 @@ static error_t RepairDeldir(void)
 		{
 			if (!rbl->deldir)
 			{
-				if (mode == check)
+				if (mode == check || mode == info)
 					adderror("Deldir enabled, but missing");
 				else
 				{
@@ -1211,7 +1268,7 @@ static error_t RepairDeldir(void)
 	{
 		if (rext.data->deldirsize)
 		{
-			if (mode == check)
+			if (mode == check || mode == info)
 				adderror("Deldir size incorrect");
 			else
 			{
@@ -1236,7 +1293,7 @@ static error_t RepairDeldir(void)
 
 		if (rbl->deldir)
 		{
-			if (mode == check)
+			if (mode == check || mode == info)
 				adderror("Illegal deldir reference");
 			else
 			{
@@ -1307,7 +1364,7 @@ static bool dd_CheckBlock(uint32 bloknr, int seqnr)
 			{
 				if (!GetAnode (&delnode, ddnr, false) || IsAnodeUsed(ddnr))
 				{
-					if (mode == check)
+					if (mode == check || mode == info)
 						adderror("Delfile anode error");
 					else
 					{
@@ -1325,7 +1382,7 @@ static bool dd_CheckBlock(uint32 bloknr, int seqnr)
 			if (!FileSizeCheck(size, high, blocks))
 			{
 				sprintf(bericht, "Delfile anode %#lx error", dde->anodenr);
-				if (mode == check)
+				if (mode == check || mode == info)
 					adderror(bericht);
 				else
 				{
@@ -1419,7 +1476,7 @@ static void fixedfileerror(char *errortxt,...)
 		volume.showmsg(objectname);
 		volume.showmsg("\n");
 	}
-	if (mode == check)
+	if (mode == check || mode == info)
 		adderror(txt);
 	else
 		fixederror(txt);
@@ -2532,8 +2589,8 @@ static error_t InitReservedBitmap(void)
 	if (rbl->rblkcluster != cluster)
 	{
 		rbl->rblkcluster = cluster;
-		if (mode == check)
-		fixederror("Wrong rootblock cluster size");
+		if (mode == check || mode == info)
+			fixederror("Wrong rootblock cluster size");
 	}
 	
 	volume.resbitmap = bg_InitBitmap(rbl->firstreserved, rbl->lastreserved, volume.rescluster);
@@ -2662,7 +2719,7 @@ static error_t RepairReservedBitmap(void)
 	if (bitmap->id != BMBLKID)
 	{
 		/* this is also done at BUILD ROOTBLOCK */
-		if (mode == check)
+		if (mode == check || mode == info)
 			adderror("Reserved bitmap id is wrong");
 		else
 			fixederror("Reserved bitmap id was wrong");
@@ -2721,21 +2778,21 @@ static error_t RepairReservedBitmap(void)
 	if (nuba > 0)
 	{
 		sprintf(bericht, "%lu reserved blocks not used but allocated", nuba);
-		if (mode == check)
+		if (mode == check || mode == info)
 			fixederror(bericht);
 	}
 
 	if (ubna > 0)
 	{
 		sprintf(bericht, "%lu reserved blocks used but not allocated", ubna);
-		if (mode == check)
+		if (mode == check || mode == info)
 			fixederror(bericht);
 	}
 
 	// check blocks free
 	if (lrb->reserved_free != blocksfree && !aborting)
 	{
-		if (mode == check)
+		if (mode == check || mode == info)
 			fixederror("Wrong number of reserved blocks free");
 		lrb->reserved_free = blocksfree;
 		dirty = true;
@@ -2854,7 +2911,8 @@ static error_t RepairMainBitmap(void)
 	// check blocks free
 	if (rbl->blocksfree != blocksfree)
 	{
-		fixederror("Wrong number of blocks free");
+		sprintf(bericht, "Wrong number of blocks free (%lu <> %lu)\n", rbl->blocksfree, blocksfree);
+		fixederror(bericht);
 		rbl->blocksfree = blocksfree;
 		dirty = true;
 	}
@@ -2881,6 +2939,7 @@ static error_t RepairAnodeBitmap(void)
 	bitmap_t *gbm = volume.anodebitmap;
 	error_t error;
 	uint32 nuba=0, ubna=0;
+	uint32 progress = (gbm->stop - gbm->start) / 70;
 
 	if (ss.verbose)
 		volume.showmsg("Checking anode bitmap\n");
@@ -2888,7 +2947,7 @@ static error_t RepairAnodeBitmap(void)
 
 	for (i=gbm->start; i<=gbm->stop; i++)
 	{
-		if (!(i%32))
+		if ((i % progress) == 0)
 		{
 			if (aborting)
 				break;

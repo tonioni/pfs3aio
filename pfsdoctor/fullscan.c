@@ -250,21 +250,35 @@ error_t BuildRootBlock(rootblock_t *rbl)
 	rbl->disktype = ID_PFS_DISK;
 	rbl->options = MODE_HARDDISK | MODE_SPLITTED_ANODES | MODE_DIR_EXTENSION |
 			MODE_SIZEFIELD | MODE_DATESTAMP | MODE_EXTROVING;
+
 #if LARGE_FILE_SIZE
 	rbl->options |= MODE_LARGEFILE;
 	rbl->disktype = ID_PFS2_DISK;
 #endif
 
 	rbl->disksize = volume.disksize;
-	if (volume.disksize > MAXSMALLDISK) {
-		rbl->options |= MODE_SUPERINDEX;
+
+	resblocksize = 1024;
+	if (rbl->disktype == ID_PFS2_DISK) {
+		if (volume.disksize > MAXDISKSIZE4K) {
+			adderror("Too large (>1.6TB) partition size");
+			return e_options_error;
+		}
 		if (volume.disksize > MAXDISKSIZE1K) {
-			rbl->disktype = ID_PFS2_DISK;
 			resblocksize = 2048;
 			if (volume.disksize > MAXDISKSIZE2K)
 				resblocksize = 4096;
 		}
+		if (volume.blocksize > resblocksize) {
+			resblocksize = volume.blocksize;	
+		}
+	} else {
+		if (volume.disksize > MAXDISKSIZE1K) {
+			adderror("Too large (>104GB) partition size");
+			return e_options_error;
+		}
 	}
+
 	volume.rescluster = resblocksize / volume.blocksize;
 	rbl->reserved_blksize = resblocksize;
 	

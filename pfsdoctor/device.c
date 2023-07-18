@@ -69,22 +69,27 @@ struct cache cache;
  * cachelines: 8-16-32-64-128
  * size = linesize * nolines * blocksize
  */
-error_t InitCache(uint32 linesize, uint32 nolines)
+error_t InitCache(uint32 linesize, uint32 nolines, uint32 blocksize)
 {
 	int i;
 
+	FreeCache();
+	if (linesize && nolines) {
+		cache.linesize = linesize;
+		cache.nolines = nolines;
+	}
+	if (blocksize) {
+		cache.blocksize = blocksize;
+	}
 	/* allocate memory for the cache */
-	if (!(cache.cachelines = pfscalloc(nolines, sizeof(struct cacheline))))
+	if (!(cache.cachelines = pfscalloc(cache.nolines, sizeof(struct cacheline))))
 		return e_out_of_memory;
-	
-	cache.linesize = linesize;
-	cache.nolines = nolines;
 	NewList((struct List *)&cache.LRUqueue);
 	NewList((struct List *)&cache.LRUpool);
-	for (i=0; i<nolines; i++)
+	for (i=0; i<cache.nolines; i++)
 	{
 		cache.cachelines[i].blocknr = CL_UNUSED;	/* a bloknr that is never used */
-		cache.cachelines[i].data = AllocBufMem(linesize*volume.blocksize);
+		cache.cachelines[i].data = AllocBufMem(cache.linesize * cache.blocksize);
 		if (cache.cachelines[i].data)
 		{
 			MinAddHead(&cache.LRUpool, &cache.cachelines[i]);
@@ -630,7 +635,7 @@ static BOOL testread_td(UBYTE *buffer)
 
 BOOL DetectAccessmode(UBYTE *buffer, BOOL scsidirectfirst)
 {
-	BOOL inside4G = volume.lastblock < (0x80000000ul >> (BLOCKSHIFT - 1));
+	BOOL inside4G = volume.lastblocknative < (0x80000000ul >> (BLOCKSHIFT - volume.blocklogshift - 1));
 
 	if (scsidirectfirst) {
 		volume.accessmode = ACCESS_DS;
@@ -638,7 +643,7 @@ BOOL DetectAccessmode(UBYTE *buffer, BOOL scsidirectfirst)
 			return TRUE;
 	}
 
-	if (volume.lastblock < 262144) {
+	if (volume.lastblocknative < 262144) {
 		/* Don't bother with tests if small enough (<128M) */
 		volume.accessmode = ACCESS_STD;
 		return TRUE;
@@ -653,8 +658,6 @@ BOOL DetectAccessmode(UBYTE *buffer, BOOL scsidirectfirst)
 		/* It failed, we may have 1G limit A590 pre-7.0 ROM or CDTV SCSI, try DS */
 		if (testread_ds(buffer))
 			return TRUE;
-		volume.accessmode = ACCESS_STD;
-		return FALSE;
 	}
 	/* outside of first 4G, must use TD64, NSD or DS */
 	volume.accessmode = ACCESS_NSD;
