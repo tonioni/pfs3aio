@@ -1193,6 +1193,33 @@ SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error,
 /*                           CACHE STUFF                              */
 /**********************************************************************/
 
+void FreeDataCache(globaldata *g)
+{
+	FreeVec(g->dc.ref);
+	FreeVec(g->dc.data);
+	g->dc.ref = NULL;
+	g->dc.data = NULL;
+}
+
+BOOL InitDataCache(globaldata *g)
+{
+	FreeDataCache(g);
+	/* data cache */
+	g->dc.size = DATACACHELEN;
+	g->dc.mask = DATACACHEMASK;
+	g->dc.roving = 0;
+	g->dc.ref = AllocMemR(DATACACHELEN * sizeof(struct reftable), MEMF_CLEAR, g);
+	g->dc.data = AllocMemR(DATACACHELEN * BLOCKSIZE, g->dosenvec->de_BufMemType, g);
+	if (!g->dc.ref || !g->dc.data)
+		return FALSE;
+
+	/* check memory against mask */
+	if (((IPTR)g->dc.data) & ~g->dosenvec->de_Mask)
+		ErrorMsg(AFS_WARNING_MEMORY_MASK, NULL, g);
+		
+	return TRUE;
+}
+
 /* check datacache. return cache slotnr or -1
  * if not found
  */
@@ -1537,9 +1564,11 @@ retry:
 	/* chop in maxtransfer chunks */
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
 	maxtransfer = min(65535, maxtransfer); // SCSI READ/WRITE(10) max transfer
+	blocks <<= g->blocklogshift;
+	blocknr <<= g->blocklogshift;
 	while (blocks > 0)
 	{
-		transfer = min(blocks,maxtransfer);
+		transfer = min(blocks, maxtransfer);
 		*((UWORD *)&cmdbuf[0]) = write ? 0x2a00 : 0x2800;
 		*((ULONG *)&cmdbuf[2]) = blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer << 8;
@@ -1705,7 +1734,7 @@ ULONG RawWrite(UBYTE *buffer, ULONG blocks, ULONG blocknr, globaldata *g)
 #if ACCESS_DETECT
 
 #if DETECTDEBUG
-static CONST UBYTE ACCESS_DEBUG1[] = "%s:%ld\nfirstblock=%ld\nlastblock=%ld\nblockshift=%ld\nblocksize=%ld\ninside4G=%ld";
+static CONST UBYTE ACCESS_DEBUG1[] = "%s:%ld\nfirstblock=%ld\nlastblock=%ld\nblockshift=%ld/%ld\nblocksize=%ld/%ld\ninside4G=%ld";
 static CONST UBYTE ACCESS_DEBUG2[] = "Test %ld = %ld";
 static CONST UBYTE ACCESS_DEBUG3[] = "SCSI Read Capacity = %ld, Lastblock = %ld";
 static CONST UBYTE ACCESS_DEBUG_TD64_1[] = "TD64 empty access check: %ld";
@@ -1919,12 +1948,12 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 #if DETECTDEBUG
 		ULONG args[2];
 		args[0] = capacity;
-		args[1] = g->lastblock;
+		args[1] = g->lastblocknative + (1 << g->blocklogshift);
 		g->ErrorMsg = _NormalErrorMsg;
 		(g->ErrorMsg)(ACCESS_DEBUG3, args, 1, g);
 #endif
 
-		if (g->lastblock > capacity) {
+		if (g->lastblocknative + (1 << g->blocklogshift) - 1 > capacity) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand capacity smaller than last block\n");
 #endif
@@ -1933,9 +1962,9 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 		fillbuffer(buffer, cnt, g);
 		/* Read(10) */
 		*((UWORD *)&cmdbuf[0]) = 0x2800;
-		*((ULONG *)&cmdbuf[2]) = g->lastblock;
-		*((ULONG *)&cmdbuf[6]) = 1 << 8;
-		if (!DoSCSICommand(buffer, 1 << BLOCKSHIFT, 1 << BLOCKSHIFT, cmdbuf, 10, SCSIF_READ, g)) {
+		*((ULONG *)&cmdbuf[2]) = g->lastblocknative;
+		*((ULONG *)&cmdbuf[6]) = 1 << (8 + g->blocklogshift);
+		if (!DoSCSICommand(buffer, BLOCKSIZE, BLOCKSIZE, cmdbuf, 10, SCSIF_READ, g)) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand Read(10) failed\n");
 #endif
@@ -2025,10 +2054,10 @@ static BOOL testread_td2(UBYTE *buffer, globaldata *g)
 		io->iotd_Req.io_Command = CMD_READ;
 		io->iotd_Req.io_Length  = BLOCKSIZE;
 		io->iotd_Req.io_Data    = buffer;
-		io->iotd_Req.io_Offset  = g->lastblock << BLOCKSHIFT;
+		io->iotd_Req.io_Offset  = g->lastblocknative << BLOCKNATIVESHIFT;
 		io->iotd_Req.io_Actual  = 0;
 		if (g->tdmode >= ACCESS_TD64) {
-			io->iotd_Req.io_Actual  = g->lastblock >> (32 - BLOCKSHIFT);
+			io->iotd_Req.io_Actual  = g->lastblocknative >> (32 - BLOCKNATIVESHIFT);
 			io->iotd_Req.io_Command = g->tdmode == ACCESS_NSD ? NSCMD_TD_READ64 : TD_READ64;
 		}
 		if (DoIO((struct IORequest*)io) != 0)
@@ -2067,7 +2096,7 @@ static BOOL testread_td(UBYTE *buffer, globaldata *g)
 BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 {
 	UBYTE name[FNSIZE];
-	BOOL inside4G = g->lastblock < (0x80000000ul >> (BLOCKSHIFT - 1));
+	BOOL inside4G = g->lastblocknative < (0x80000000ul >> (BLOCKNATIVESHIFT - 1));
 	ULONG *env = (ULONG *)g->dosenvec;
 	BOOL disableNSD = (env[DE_INTERLEAVE] & DEF_DISABLENSD) != 0;
 	BOOL forceDS = (env[DE_INTERLEAVE] & DEF_SCSIDIRECT) != 0;
@@ -2075,19 +2104,21 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 	BCPLtoCString(name, (UBYTE *)BADDR(g->startup->fssm_Device));
 
 #if DETECTDEBUG
-	ULONG args[8];
+	ULONG args[10];
 	args[0] = (ULONG)name;
 	args[1] = g->startup->fssm_Unit;
-	args[2] = g->firstblock;
-	args[3] = g->lastblock;
-	args[4] = BLOCKSHIFT;
-	args[5] = BLOCKSIZE;
-	args[6] = inside4G;
+	args[2] = g->firstblocknative;
+	args[3] = g->lastblocknative;
+	args[4] = BLOCKNATIVESHIFT;
+	args[5] = BLOCKSHIFT;
+	args[6] = BLOCKNATIVESIZE;
+	args[7] = BLOCKSIZE;
+	args[8] = inside4G;
 	g->ErrorMsg = _NormalErrorMsg;
 	(g->ErrorMsg)(ACCESS_DEBUG1, args, 1, g);
 
-	DebugPutHex("firstblock", g->firstblock);
-	DebugPutHex("lastblock", g->lastblock);
+	DebugPutHex("firstblock", g->firstblocknative);
+	DebugPutHex("lastblock", g->lastblocknative);
 	DebugPutHex("inside4G", inside4G);
 	DebugPutHex("maxtransfer", g->maxtransfermax);
 #endif
@@ -2110,7 +2141,6 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 	}
 
 	if (inside4G) {
-		ULONG args[3];
 		/* inside first 4G? Try standard CMD_READ first. */
 		g->tdmode = ACCESS_STD;
 		if (testread_td(buffer, g))
@@ -2121,14 +2151,6 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 		if (testread_ds(buffer, g))
 			return TRUE;
 #endif
-		g->tdmode = ACCESS_STD;
-		/* Both failed. Panic! */
-		args[0] = g->lastblock;
-		args[1] = (ULONG)name;
-		args[2] = g->startup->fssm_Unit;
-		g->ErrorMsg = _NormalErrorMsg;
-		(g->ErrorMsg)(AFS_ERROR_32BIT_ACCESS_ERROR, args, 1, g);
-		return FALSE;
 	}
 	/* outside of first 4G, must use TD64, NSD or DS */
 #if NSD
@@ -2155,6 +2177,16 @@ BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 	g->ErrorMsg = _NormalErrorMsg;
 	(g->ErrorMsg)(ACCESS_DEBUG2, args, 1, g);
 #endif
+
+	if (inside4G) {
+		ULONG args[3];
+		/* Both failed. Panic! */
+		args[0] = g->lastblocknative;
+		args[1] = (ULONG)name;
+		args[2] = g->startup->fssm_Unit;
+		g->ErrorMsg = _NormalErrorMsg;
+		(g->ErrorMsg)(AFS_ERROR_32BIT_ACCESS_ERROR, args, 1, g);
+	}
 
 	g->tdmode = ACCESS_STD;
 	return FALSE;

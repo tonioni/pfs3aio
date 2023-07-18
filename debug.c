@@ -13,7 +13,7 @@ void serout(const char *s)
 		*serper = 10;
 	}
 
-	volatile UWORD *serdatr = (UWORD*)0xdff016;
+	volatile UWORD *serdatr = (UWORD*)0xdff018;
 	volatile UWORD *serdat = (UWORD*)0xdff030;
 	while (*s) {
 		for (;;) {

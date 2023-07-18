@@ -14,7 +14,7 @@ _PFS3Resident:
 	dc.w 0x4afc
 	dc.l _PFS3Resident
 	dc.l _PFS3ResidentEnd
-	dc.b 1,19,0,78
+	dc.b 1,20,0,78
 	dc.l _shortname
 	dc.l _version+6
 	dc.l _ResidentAddToFSResource

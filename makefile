@@ -12,8 +12,8 @@ CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregpar
 	-DLARGE_FILE_SIZE=0 -DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
 	-DMULTIUSER=0 -DPROTECTION=0 -DVERSION23=1 -DROLLOVER=1 \
 	-DLIMIT_MAXTRANSFER=0x20000 -DUNSAFEQUIT=1 \
-	-include extratypes.h \
-	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME)
+	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME) \
+	-DDETECTDEBUG=0
 
 OBJS = startup.o boot.o init.o assroutines.o messages.o volume.o lock.o dostohandlerinterface.o anodes.o directory.o lru.o disk.o \
 	update.o allocation.o CheckAccess.o diskchange.o resethandler.o kswrapper.o format.o fsresource.o end.o

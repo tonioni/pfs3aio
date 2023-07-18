@@ -37,7 +37,7 @@
 #include "versionhistory.doc"
 
 CONST UBYTE AFS_WARNING_MEMORY_MASK[]         = "WARNING:\nAllocated memory doesn't match memorymask";
-CONST UBYTE AFS_WARNING_EXPERIMENTAL_DISK[]   = "WARNING:\nExperimental >104G partition size support enabled";
+CONST UBYTE AFS_WARNING_EXPERIMENTAL_DISK[]   = "WARNING:\nExperimental >104G partition / block size support enabled.\n(PBS=%lu,LBS=%lu,RBS=%lu)";
 #if LARGE_FILE_SIZE
 CONST UBYTE AFS_WARNING_EXPERIMENTAL_FILE[]   = "WARNING:\nExperimental >4G file size support enabled";
 #endif

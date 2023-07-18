@@ -601,8 +601,8 @@ struct volumedata *MakeVolumeData (struct rootblock *rootblock, globaldata *g)
 	volume->diskstate       = ID_VALIDATED;
 
 	/* these could be put in rootblock @@ see also HD version */
-	volume->numblocks       = g->geom->dg_TotalSectors;
-	volume->bytesperblock   = g->geom->dg_SectorSize;
+	volume->numblocks       = g->geom->dg_TotalSectors >> g->blocklogshift;
+	volume->bytesperblock   = BLOCKSIZE;
 	volume->rescluster      = rootblock->reserved_blksize / volume->bytesperblock;
 
 	/* Calculate minimum fake block size that keeps total block count less than 16M.
@@ -611,7 +611,7 @@ struct volumedata *MakeVolumeData (struct rootblock *rootblock, globaldata *g)
 	 * than 16M blocks with 512 block size. Used only in ACTION_INFO.
 	 */
 	g->infoblockshift = 0;
-	if (DOSBase->dl_lib.lib_Version < 50) {
+	if (g->largeDiskSafeOS) {
 		UWORD blockshift = 0;
 		ULONG bpb = volume->bytesperblock;
 		while (bpb > 512) {
@@ -966,6 +966,26 @@ static LONG NoErrorMsg(CONST_STRPTR melding, APTR arg, ULONG dummy, globaldata *
 static void UpdateDosEnvec(globaldata *g);
 #endif
 
+// if we have original geometry: simply copy it over
+static void GetExtBlockGeometry(struct rootblock *rootblock, ULONG rblsize, globaldata *g)
+{
+	struct rootblockextension *rext;
+	ULONG *env = (ULONG *)g->dosenvec;
+	
+	if (g->trackdisk || env[DE_LOWCYL] != 0 || !(rootblock->options & MODE_EXTENSION) || !(rootblock->options & MODE_STORED_GEOM))
+		return;
+
+	rext = AllocBufmemR(rblsize << BLOCKSHIFT, g);
+	if (RawRead((UBYTE *)rext, rblsize, rootblock->extension, g) != 0) {
+		int minlen = env[0] > rext->dosenvec[0] ? rext->dosenvec[0] : env[0];
+		if (minlen > 10)
+			minlen = 10; // de_SizeBlock to de_HighCyl
+		memcpy(&env[1], &rext->dosenvec[1], minlen * sizeof(ULONG));
+		GetDriveGeometry(g);
+	}
+	FreeBufmem(rext, g);
+}
+
 static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 {
   BOOL changestate;
@@ -1065,6 +1085,9 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 				error = RawRead((UBYTE *)*rootblock, rblsize, ROOTBLOCK, g);
 			}
 
+			// override env with data from rbext if available and superfloppy mode
+			GetExtBlockGeometry(*rootblock, rblsize, g);
+
 			/* size check */
 			if (((*rootblock)->options & MODE_SIZEFIELD) &&
 				(g->geom->dg_TotalSectors != (*rootblock)->disksize))
@@ -1104,6 +1127,79 @@ nrd_error:
 	}
 }
 
+static void SetPartitionLimits(globaldata *g)
+{
+	g->firstblocknative = g->dosenvec->de_LowCyl * g->geom->dg_CylSectors;
+	g->lastblocknative = (g->dosenvec->de_HighCyl + 1) * g->geom->dg_CylSectors;
+	g->firstblock = g->firstblocknative >> g->blocklogshift;
+	g->lastblock = g->lastblocknative >> g->blocklogshift;
+	g->lastblocknative -= 1 << g->blocklogshift;
+	g->lastblock--;
+	
+	g->maxtransfermax = 0x7ffffffe;
+#if LIMIT_MAXTRANSFER
+	if (g->scsidevice) {
+		struct Library *d;
+		Forbid();
+		d = (struct Library*)FindName(&SysBase->DeviceList, "scsi.device");
+		if (d && d->lib_Version >= 36 && d->lib_Version < OS_VERSION_SAFE_LARGE_DISK) {
+			/* A600/A1200/A4000 ROM scsi.device ATA spec max transfer bug workaround */
+			g->maxtransfermax = LIMIT_MAXTRANSFER;
+		}
+		Permit();
+	}
+#endif
+}
+
+void CalculateBlockSize(globaldata *g, ULONG blocksize)
+{
+	ULONG t;
+	WORD i;
+	ULONG bs;
+
+	bs = g->dosenvec->de_SizeBlock << 2;
+	if (!blocksize) {
+		blocksize = bs * (UWORD)g->dosenvec->de_SectorPerBlock;
+		if (blocksize >= 4096) {
+			blocksize = 4096;
+		} else if (blocksize >= 2048) {
+			blocksize = 2048;
+		}
+		if (blocksize < bs) {
+			blocksize = bs;
+		}
+	}	
+    g->blocksize_phys = bs;
+    g->blocksize = blocksize;
+    g->blocklogshift = 0;
+    while (bs < g->blocksize) {
+    	bs <<= 1;
+    	g->blocklogshift++;
+    }
+    
+	t = BLOCKSIZE;
+	for (i=-1; t; i++)
+		t >>= 1;
+	g->blockshift = i;
+	g->directsize = 16*1024>>i;
+
+#if ACCESS_DETECT == 0
+#define DE(x) g->dosenvec->de_##x
+	g->tdmode = ACCESS_STD;
+	if ((DE(HighCyl)+1)*DE(BlocksPerTrack)*DE(Surfaces) >= (1UL << (32-BLOCKSHIFT))) {
+#if TD64
+		g->tdmode = ACCESS_TD64;
+#elif NSD
+		g->tdmode = ACCESS_NSD;
+#elif SCSIDIRECT
+		g->tdmode = ACCESS_DS;
+#endif
+	}
+#undef DE
+#endif
+
+	SetPartitionLimits(g);
+}
 
 /* Get drivegeometry from diskdevice.
 ** If TD_GETGEOMETRY fails the DOSENVEC values are taken
@@ -1119,7 +1215,7 @@ void GetDriveGeometry(globaldata *g)
 #ifdef TRACKDISK
 	if(g->trackdisk)
 	{
-	  struct IOExtTD *request = g->request;
+		struct IOExtTD *request = g->request;
 		request->iotd_Req.io_Data = geom;
 		request->iotd_Req.io_Command = TD_GETGEOMETRY;
 		request->iotd_Req.io_Length = sizeof(struct DriveGeometry);
@@ -1131,8 +1227,9 @@ void GetDriveGeometry(globaldata *g)
 #endif
 
 	if (forceDS && SuperFloppy) {
-		if (get_scsi_geometry(g))
+		if (get_scsi_geometry(g)) {
 			goto gotgeom;
+		}
 	}
 
 	geom->dg_SectorSize     = env[DE_SIZEBLOCK] << 2;
@@ -1150,24 +1247,10 @@ gotgeom:
 	if (SuperFloppy)
 		UpdateDosEnvec(g);
 
-	g->firstblock = g->dosenvec->de_LowCyl * geom->dg_CylSectors;
-	g->lastblock = (g->dosenvec->de_HighCyl + 1) *  geom->dg_CylSectors - 1;
-	g->maxtransfermax = 0x7ffffffe;
-#if LIMIT_MAXTRANSFER
-	if (g->scsidevice) {
-		struct Library *d;
-		Forbid();
-		d = (struct Library*)FindName(&SysBase->DeviceList, "scsi.device");
-		if (d && d->lib_Version >= 36 && d->lib_Version < 50) {
-			/* A600/A1200/A4000 ROM scsi.device ATA spec max transfer bug workaround */
-			g->maxtransfermax = LIMIT_MAXTRANSFER;
-		}
-		Permit();
-	}
-#endif
+	SetPartitionLimits(g);
+
 	DB(Trace(1,"GetDriveGeometry","firstblk %lu lastblk %lu\n",g->firstblock,g->lastblock));
 }
-
 
 #ifdef TRACKDISK
 /* UpdateDosEnvec

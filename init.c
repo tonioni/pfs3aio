@@ -127,6 +127,7 @@
 #include "directory_protos.h"
 #include "lru_protos.h"
 #include "allocation_protos.h"
+#include "disk_protos.h"
 
 #include "kswrapper.h"
 
@@ -156,7 +157,6 @@ static void DoPostponed (struct volumedata *volume, globaldata *g);
 void AddToFSResource(ULONG, BPTR, struct ExecBase*);
 #endif
 
-
 /**********************************************************************/
 /*                             INITIALIZE                             */
 /*                             INITIALIZE                             */
@@ -173,8 +173,7 @@ BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm,
 BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm,
 	struct DeviceNode *devnode, globaldata *g)
 {
-  LONG i;
-  ULONG t;
+	LONG i;
 
 	ENTER("Initialize");
 	g->ErrorMsg = _NormalErrorMsg;
@@ -244,27 +243,7 @@ Removed because of problems with Phase 5 boards
 		return FALSE;
 	}
 
-    g->blocksize = g->dosenvec->de_SizeBlock << 2;
-	t = BLOCKSIZE;
-	for (i=-1; t; i++)
-		t >>= 1;
-	g->blockshift = i;
-	g->directsize = 16*1024>>i;
-
-#if ACCESS_DETECT == 0
-#define DE(x) g->dosenvec->de_##x
-	g->tdmode = ACCESS_STD;
-	if ((DE(HighCyl)+1)*DE(BlocksPerTrack)*DE(Surfaces) >= (1UL << (32-BLOCKSHIFT))) {
-#if TD64
-		g->tdmode = ACCESS_TD64;
-#elif NSD
-		g->tdmode = ACCESS_NSD;
-#elif SCSIDIRECT
-		g->tdmode = ACCESS_DS;
-#endif
-	}
-#undef DE
-#endif
+	CalculateBlockSize(g, 0);
 
 	if (!(g->geom = AllocMemP (sizeof(struct DriveGeometry), g)))
 		return FALSE;
@@ -283,18 +262,9 @@ Removed because of problems with Phase 5 boards
 	/* mode now always big */
 	g->harddiskmode = TRUE;
 
-	/* data cache */
-	g->dc.size = DATACACHELEN;
-	g->dc.mask = DATACACHEMASK;
-	g->dc.roving = 0;
-	g->dc.ref = AllocMemR (DATACACHELEN * sizeof(struct reftable), MEMF_CLEAR, g);
-	g->dc.data = AllocMemR (DATACACHELEN * BLOCKSIZE, g->dosenvec->de_BufMemType, g);
-	if (!g->dc.ref || !g->dc.data)
+	if (!InitDataCache(g)) {
 		return FALSE;
-
-	/* check memory against mask */
-	if (((IPTR)g->dc.data) & ~g->dosenvec->de_Mask)
-		ErrorMsg (AFS_WARNING_MEMORY_MASK, NULL, g);
+	}
 
 	if (!OpenTimerDevice(&g->timeport, &g->trequest, UNIT_VBLANK, g) )
 		return FALSE;
@@ -496,7 +466,6 @@ void HandshakeResetHandler(struct globaldata *g)
 		DoIO((APTR) ioreq);
 
 		ioreq->io_Message.mn_ReplyPort = 0;
-		SetSignal(0, g->resethandlersignal);
 #endif
 	}
 }

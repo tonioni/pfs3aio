@@ -161,8 +161,8 @@ BOOL debug=FALSE;
 #include "kswrapper.h"
 
 /* protos */
-// extern void __saveds EntryWithNewStack(void);
-void __saveds EntryPoint(void);
+// extern void SAVEDS EntryWithNewStack(void);
+void SAVEDS EntryPoint(void);
 void NormalCommands(struct DosPacket *, globaldata *);
 void HandleSleepMsg (globaldata *g);
 void ReturnPacket(struct DosPacket *, struct MsgPort *, globaldata *);
@@ -222,7 +222,7 @@ static UBYTE debugbuf[120];
 /*                                MAIN                                */
 /**********************************************************************/
 
-void __saveds EntryPoint (void)
+void SAVEDS EntryPoint (void)
 {
 	/* globals */
 	struct globaldata *g;
@@ -247,6 +247,7 @@ void __saveds EntryPoint (void)
 		Wait (0);
 	}
 	g->g_SysBase = SysBase;
+	g->largeDiskSafeOS = SysBase->LibNode.lib_Version >= OS_VERSION_SAFE_LARGE_DISK;
 
 	/* open libs */
 	IntuitionBase = (APTR)OpenLibrary ("intuition.library", MIN_LIB_VERSION);
@@ -661,8 +662,7 @@ static void Quit (globaldata *g)
 
 	FreeVec (g->mountname);
 	FreeMemP (g->geom, g);
-	FreeVec (g->dc.ref);
-	FreeVec (g->dc.data);
+	FreeDataCache(g);
 	DeallocLRU(g);
 	if (alloc_data.reservedtobefreed)
 		FreeMem (alloc_data.reservedtobefreed, sizeof(*alloc_data.reservedtobefreed) * alloc_data.rtbf_size);

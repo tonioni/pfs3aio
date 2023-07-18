@@ -1,3 +1,3 @@
 
-typedef signed long SIPTR;
-typedef unsigned long IPTR;
+typedef LONG SIPTR;
+typedef ULONG IPTR;

@@ -837,7 +837,7 @@
 **	   1.0: Initial release
 **
 *********************************************************************************/
-#define REVISION "19.2"
+#define REVISION "20.0"
 #ifndef REVDATE
 #define REVDATE  "10.02.2018"
 #endif
@@ -845,10 +845,10 @@
 #define REVTIME  "18:02:53"
 #endif
 #define AUTHOR   "Michiel Pelt"
-#define VERNUM   19
-#define REVNUM   2
+#define VERNUM   20
+#define REVNUM   0
 
-#define RELNUM  "6.2"
+#define RELNUM  "7.0"
 
 #if MULTIUSER
 #define E1 "mu"

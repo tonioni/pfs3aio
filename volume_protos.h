@@ -26,3 +26,5 @@ void GetDriveGeometry(globaldata * );
 
 void RequestCurrentVolumeBack(globaldata *g);
 BOOL CheckCurrentVolumeBack(globaldata *g);
+
+void CalculateBlockSize(globaldata *g, ULONG);

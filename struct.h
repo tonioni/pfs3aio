@@ -122,6 +122,10 @@
 #include <devices/scsidisk.h>
 #endif
 
+#ifndef _EXTRATYPESH
+#include "extratypes.h"
+#endif
+
 #ifndef DEF_SCSIDIRECT
 // Always choose SCSI Direct. Never use TD_GETGEOMETRY.
 #define DEF_SCSIDIRECT (1 << 16)
@@ -130,6 +134,8 @@
 // Never use NSD
 #define DEF_DISABLENSD (1 << 18)
 #endif
+
+#define OS_VERSION_SAFE_LARGE_DISK 47
 
 /****************************************************************************/
 /* Useful macros to handle various compiler dependecies                     */
@@ -151,6 +157,7 @@
 /* For SAS/C use amiga.lib assembly memory pool routines                    */
 /****************************************************************************/
 #ifdef __SASC
+#define SAVEDS __saveds
 #ifndef KSWRAPPER
 void * __asm AsmCreatePool(register __d0 ULONG,
                            register __d1 ULONG,
@@ -227,6 +234,9 @@ int stcu_d(char *out, unsigned int val);
 #define memcpy(d,s,n)  CopyMem(s,d,n)
 #endif
 
+#ifndef SAVEDS
+#define SAVEDS
+#endif
 
 /****************************************************************************/
 /* New actions (packets)                                                    */
@@ -518,8 +528,8 @@ struct globaldata
 	DSTR  mountname;                    /* <4A> DSTR mountname                  */
 
 	/* partition info (volume dependent) %7 */
-	ULONG firstblock;                   /* first and last block of partition    */
-	ULONG lastblock;
+	ULONG firstblock, firstblocknative; /* first and last block of partition    */
+	ULONG lastblock, lastblocknative;
 	ULONG maxtransfermax;
 	UWORD infoblockshift;
 	UWORD dummy_1;
@@ -570,9 +580,11 @@ struct globaldata
 	UBYTE supermode;					/* flag: supermode? (104 bmi blocks)	*/
 	UBYTE tdmode;						/* ACCESS_x mode					*/
 	UBYTE largefile;					/* >4G file size support                */
-	ULONG blocksize;                    /* g->dosenvec->de_SizeBlock << 2       */
+	ULONG blocksize;                    /* logical blocksize                    */
+	ULONG blocksize_phys;               /* g->dosenvec->de_SizeBlock << 2       */
 	UWORD blockshift;                   /* 2 log van block size                 */
 	UWORD fnsize;						/* filename size (18+)					*/
+	UWORD blocklogshift;                /* blocksize_phys << blocklogshift == blocksize */
 	ULONG directsize;                   /* number of blocks after which direct  */
 										/* access is preferred (config)         */
 
@@ -620,6 +632,7 @@ struct globaldata
 	LONG   resethandlersigbit;
 	ULONG  resethandlersignal;
 	struct Interrupt *resethandlerinterrupt;
+	BOOL largeDiskSafeOS;
 #ifdef KSWRAPPER
 	BOOL v37DOS;
 	BOOL v37EXEC;
@@ -1023,6 +1036,8 @@ typedef struct lockentry
 #define BLOCKSIZEMASK (g->blocksize - 1)
 #define BLOCKSHIFT (g->blockshift)
 #define DIRECTSIZE (g->directsize)
+#define BLOCKNATIVESIZE (g->blocksize >> g->blocklogshift)
+#define BLOCKNATIVESHIFT (g->blockshift - g->blocklogshift)
 
 #ifndef ACTION_CHANGE_FILE_POSITION64
 /* OS4 64-bit filesize packets */

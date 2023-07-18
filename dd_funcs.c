@@ -1635,7 +1635,7 @@ static SIPTR dd_InhibitOff(struct DosPacket *pkt, globaldata * g)
 }
 
 
-static SIPTR dd_Format(struct DosPacket *pkt, globaldata * g)
+static SIPTR dd_PFSFormat(struct DosPacket *pkt, ULONG rsblocks, globaldata * g)
 {
 	/* argumenten stemmen NIET met de dosmanual overeen */
 	// ARG1 = BSTR Name of device (with trailing ':')
@@ -1663,9 +1663,13 @@ static SIPTR dd_Format(struct DosPacket *pkt, globaldata * g)
 	}
 
 	/* format disk */
-	return FDSFormat((DSTR)BADDR(pkt->dp_Arg1), pkt->dp_Arg2, &pkt->dp_Res2, g);
+	return FDSFormat((DSTR)BADDR(pkt->dp_Arg1), pkt->dp_Arg2, &pkt->dp_Res2, rsblocks, g);
 }
 
+static SIPTR dd_Format(struct DosPacket *pkt, globaldata * g)
+{
+	return dd_PFSFormat(pkt, 0, g);
+}
 
 /**********************
 * Notify stuff

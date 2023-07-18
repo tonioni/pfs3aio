@@ -86,6 +86,10 @@
 #include <stddef.h>
 #endif
 
+#ifndef _EXTRATYPESH
+#include "extratypes.h"
+#endif
+
 /* limits */
 #define MAXSMALLBITMAPINDEX 4
 #define MAXBITMAPINDEX 103
@@ -450,6 +454,7 @@ struct rootblockextension
 	UWORD dd_creationtick;
 	UWORD not_used_3;
 	ULONG deldir[32];			/* 32 deldir blocks					*/
+	ULONG dosenvec[17];			/* DosEnvec when formatted          */
 };
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -583,6 +588,8 @@ struct lru_cachedblock
 #define MODE_EXTROVING 512
 #define MODE_LONGFN 1024
 #define MODE_LARGEFILE 2048
+// Geometry when formatted. "Superfloppy" removable support.
+#define MODE_STORED_GEOM 4096
 
 /* direntry macros */
 // comment: de is struct direntry *

@@ -1,6 +1,4 @@
 
-#define DETECTDEBUG 0
-
 #ifdef KSWRAPPER
 
 #ifndef __SASC

@@ -145,7 +145,7 @@
  */
 static void ShowVersion (globaldata *g);
 static ULONG MakeBootBlock(globaldata *g);
-static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g);
+static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g);
 static void MakeBitmap (globaldata *g);
 static void MakeRootDir (globaldata *g);
 static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize);
@@ -158,7 +158,7 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 /*                               FORMAT                               */
 /**********************************************************************/
 
-BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, globaldata *g)
+BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, globaldata *g)
 {
   struct rootblock *rootblock;
   struct volumedata *volume;
@@ -183,6 +183,13 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, globaldata *g)
 
 	/* update dos envec and geom */
 	GetDriveGeometry (g);
+
+	ULONG *env = (ULONG*)g->dosenvec;
+
+	// logical blocksize = size_block * sectors per block
+	ULONG cbs = (env[DE_SIZEBLOCK] << 2) * env[DE_SECSPERBLK];
+	CalculateBlockSize(g, cbs);
+
 	ShowVersion (g);
 
 	/* issue 00118: disk cannot exceed MAX_DISK_SIZE */
@@ -193,18 +200,26 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, globaldata *g)
 
 	// Only 512, 1024, 2048 and 4096 block sizes are supported.
 	// Last two require new large partition mode.
-	if (g->geom->dg_SectorSize < 512 || g->geom->dg_SectorSize > 4096) { 
+	if (g->geom->dg_SectorSize < 512 || g->geom->dg_SectorSize > 4096 || cbs > 4096) { 
 		*error = ERROR_BAD_NUMBER;
 		return DOSFALSE;
 	}
 	
+	// block size might have changed
+	// (formatting old pfs3 partition that ignored DE_SECSPERBLK)
+	// reallocate data cache
+	if (!InitDataCache(g)) {
+		*error = ERROR_NO_FREE_STORE;
+		return DOSFALSE;	
+	}
+
 	err = MakeBootBlock (g);
 	if (err != 0) {
 		*error = err;
  		return DOSFALSE;
 	}
 
-	if (!(rootblock = MakeRootBlock (diskname, g))) {
+	if (!(rootblock = MakeRootBlock (diskname, rsblocks, g))) {
 		*error = ERROR_NO_FREE_STORE;
 		return DOSFALSE;
 	}
@@ -325,22 +340,56 @@ static ULONG MakeBootBlock (globaldata *g)
  * including reserved bitmap
  * (will be written by Update and freed by FreeVolumeRes.)
  */
-static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
+static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 {
-  struct rootblock *rbl;
-  struct DateStamp time;
-  ULONG numreserved;
-  ULONG rescluster;
-  ULONG resblocksize;
+	struct rootblock *rbl;
+	struct DateStamp time;
+	ULONG numreserved;
+	ULONG rescluster;
+	ULONG resblocksize;
+	ULONG options = 0, disktype = ID_PFS_DISK;
+	ULONG *env = (ULONG*)g->dosenvec;
 
-	/* allocate max size possible */
+	g->supermode = 0;
+
+	// determine reserved blocksize and logical blocksize
+	resblocksize = 1024;
+	if (g->geom->dg_TotalSectors > MAXSMALLDISK)
+	{
+		options |= MODE_SUPERINDEX;
+		g->supermode = 1;
+		if (g->geom->dg_TotalSectors > MAXDISKSIZE1K) {
+			resblocksize = 2048;
+			if (g->geom->dg_TotalSectors > MAXDISKSIZE2K) {
+				resblocksize = 4096;
+			}
+		}
+	}
+
+	// resblocksize is always at least same as logical block size
+	if (resblocksize < g->blocksize_phys) {
+		resblocksize = g->blocksize_phys;
+	}
+	if (g->blocksize > resblocksize) {
+		resblocksize = g->blocksize;
+	}
+
+	// resblock size > 1024 or logical block > 512: new format type
+	if (resblocksize > 1024 || g->blocklogshift) {
+		disktype = ID_PFS2_DISK;
+	}
+	// max supported resblock size is 4096
+	if (resblocksize > 4096) {
+		resblocksize = 4096;
+	}
+
 	if (!(rbl = AllocBufmem (BLOCKSIZE, g)))
 		return NULL;
 
 	memset (rbl, 0, BLOCKSIZE);
 	DateStamp (&time);
 
-	rbl->disktype = ID_PFS_DISK;
+	rbl->disktype = disktype;
 #ifdef SIZEFIELD
 	rbl->options = MODE_HARDDISK | MODE_SPLITTED_ANODES | MODE_DIR_EXTENSION |
 				   MODE_SIZEFIELD | MODE_DATESTAMP | MODE_EXTROVING |
@@ -350,21 +399,11 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 	rbl->options = MODE_HARDDISK | MODE_SPLITTED_ANODES | MODE_DIR_EXTENSION |
 				   MODE_DATESTAMP | MODE_EXTROVING | MODE_LONGFN;
 #endif
+	rbl->options |= options;
 
-	// determine reserved blocksize
-	resblocksize = 1024;
-	if (g->geom->dg_TotalSectors > MAXSMALLDISK)
-	{
-		rbl->options |= MODE_SUPERINDEX;
-		g->supermode = 1;
-		if (g->geom->dg_TotalSectors > MAXDISKSIZE1K) {
-			resblocksize = 2048;
-			if (g->geom->dg_TotalSectors > MAXDISKSIZE2K) {
-				resblocksize = 4096;
-			}
-			rbl->disktype = ID_PFS2_DISK;
-			NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, NULL, 1);
-		}
+	// Store geometry if partition only drive or new format type
+	if (env[DE_LOWCYL] == 0 || disktype == ID_PFS2_DISK) {
+		rbl->options |= MODE_STORED_GEOM;
 	}
 
 	if (!InitLRU(g, resblocksize)) {
@@ -372,14 +411,18 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 		return NULL;
 	}
 
-	// Use large disk modes if block size is larger than 1024
-	if (g->geom->dg_SectorSize > resblocksize) {
-		resblocksize = g->geom->dg_SectorSize;
-		rbl->disktype = ID_PFS2_DISK;
-		NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, NULL, 1);
+	// show experimental warning if new format
+	if (rbl->disktype == ID_PFS2_DISK) {
+		g->supermode = 1;
+		rbl->options |= MODE_SUPERINDEX;
+		ULONG args[3];
+		args[0] = g->blocksize_phys;
+		args[1] = BLOCKSIZE;
+		args[2] = resblocksize;
+		NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, args, 1);
 	}
 
-	rescluster = resblocksize/g->geom->dg_SectorSize;
+	rescluster = resblocksize/BLOCKSIZE;
 	rbl->reserved_blksize = resblocksize;
 
 #if LARGE_FILE_SIZE
@@ -393,16 +436,24 @@ static rootblock_t *MakeRootBlock (DSTR diskname, globaldata *g)
 	rbl->creationminute = (UWORD)time.ds_Minute;
 	rbl->creationtick = (UWORD)time.ds_Tick;
 	rbl->protection	= 0xf0;
-	numreserved = CalcNumReserved (g, resblocksize);
+	if (rsblocks == 0) {
+		numreserved = CalcNumReserved (g, resblocksize);
+	} else {
+		numreserved = (rsblocks + 31) & ~31;
+		if (numreserved < 32) {
+			numreserved = 32;
+		}
+	}
 	rbl->firstreserved = 2;
 	rbl->lastreserved = rescluster*numreserved + rbl->firstreserved - 1;
 	rbl->reserved_free = numreserved;
-	rbl->blocksfree = g->geom->dg_TotalSectors - rescluster*numreserved - rbl->firstreserved;
+	rbl->blocksfree = (g->geom->dg_TotalSectors >> g->blocklogshift) - rescluster*numreserved - rbl->firstreserved;
 	rbl->alwaysfree = rbl->blocksfree/20;
 	// rbl->roving_ptr = 0;
 
 	memcpy(rbl->diskname, diskname, min(*diskname+1, DNSIZE));
 	MakeReservedBitmap(&rbl, numreserved, g);	// sets reserved_free & rblkcluster too
+
 	return rbl;
 }
 
@@ -451,7 +502,13 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 	// rext->blk.volume_date[2] = 0;
 	// rext->blk.tobedone currently zero 
 	// rext->reserved_roving initially zero
-	rext->blk.fnsize				= g->fnsize = 32;
+	rext->blk.fnsize			= 32;
+
+	// Store geometry
+	ULONG *env = (ULONG*)g->dosenvec;
+	int size = env[0] > 16 ? 16 : env[0];
+	rext->blk.dosenvec[0] = size;
+	memcpy(&rext->blk.dosenvec[1], &env[1], size * sizeof(ULONG));
 
 	g->dirty = TRUE;
 	return rext;
@@ -476,38 +533,20 @@ static void MakeRootDir (globaldata *g)
 	blk = MakeDirBlock (blocknr, anodenr, anodenr, 0, g);
 }
 
-static const ULONG schijf[][2] =
-{ 
-	{20480,20},
-	{51200,30},
-	{512000,40},
-	{1048567,50},
-	{10000000,70},
-	{0xffffffff,80}
-};
-
 // returns number of reserved blocks needed
 // TODO: this method is 2T limited
 static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize)
 {
-  ULONG temp, taken, i;
+	ULONG temp, taken;
 
-  	// temp is the number of reserved blocks if the whole disk is
-  	// taken. taken is the actual number of reserved blocks we take.
-	temp = g->geom->dg_TotalSectors * (g->geom->dg_SectorSize/512);
-	temp /= (resblocksize/512);
-	taken = 0;
-
-	for (i=0; temp > schijf[i][0]; i++)
-	{
-		taken += schijf[i][0]/schijf[i][1];
-		temp -= schijf[i][0];
+	temp = g->geom->dg_TotalSectors;
+	taken = 64;
+	for (ULONG i = 1024; i && i < temp; i <<= 1) {
+		taken += taken * ((i < 512 * 1024) ? 6 : 2) / 8;
 	}
-	taken += temp/schijf[i][1];
-	taken += 10;
+	taken >>= (g->blockshift - 9);
 	taken = min(MAXNUMRESERVED, taken);
 	taken = (taken + 31) & ~0x1f;		/* multiple of 32 */
-
 	return taken;
 }
 
