@@ -188,7 +188,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 
 	// logical blocksize = size_block * sectors per block
 	ULONG cbs = (env[DE_SIZEBLOCK] << 2) * env[DE_SECSPERBLK];
-	CalculateBlockSize(g, cbs);
+	CalculateBlockSize(g, 0, cbs);
 
 	ShowVersion (g);
 
@@ -540,12 +540,18 @@ static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize)
 	ULONG temp, taken;
 
 	temp = g->geom->dg_TotalSectors;
-	taken = 64;
-	for (ULONG i = 1024; i && i < temp; i <<= 1) {
-		taken += taken * ((i < 512 * 1024) ? 6 : 2) / 8;
+	taken = 32;
+	for (ULONG i = 2048; i && i / 2 < temp; i <<= 1) {
+		UWORD m = 14;
+		if (i >= 64 * 1024 * 2048) {
+			m = 5;
+		} else if (i >= 512 * 2048) {
+			m = 7;
+		}
+		taken += taken * m / 16;
 	}
 	taken >>= (g->blockshift - 9);
-	taken = min(MAXNUMRESERVED, taken);
+	taken = min(MAXNUMRESERVED, taken - 1);
 	taken = (taken + 31) & ~0x1f;		/* multiple of 32 */
 	return taken;
 }

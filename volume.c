@@ -986,12 +986,24 @@ static void GetExtBlockGeometry(struct rootblock *rootblock, ULONG rblsize, glob
 	FreeBufmem(rext, g);
 }
 
+static WORD IsRBBlock(UBYTE *rbpt)
+{
+	struct rootblock *rootblock = (struct rootblock*)rbpt;
+	if (rootblock->disktype != ID_PFS_DISK && rootblock->disktype != ID_PFS2_DISK)
+		return 0;
+	if (rootblock->options == 0 || rootblock->reserved_blksize == 0)
+		return -1; // boot block
+	return 1; // root block
+}
+
 static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 {
   BOOL changestate;
   ULONG error;
   struct IOExtTD *request = g->request;
   int rblsize;
+  struct rootblock *rbp;
+  UBYTE *rbpt;
 
 	ENTER("GetCurrentRoot");
 
@@ -1047,7 +1059,9 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 	}
 
 	/* check if disk is PFS disk */
-	*rootblock = AllocBufmemR (BLOCKSIZE, g);
+	*rootblock = AllocBufmemR (BLOCKSIZE * 2, g);
+	rbp = *rootblock;
+	rbpt = (UBYTE*)rbp;
 	g->ErrorMsg = NoErrorMsg;   // prevent readerrormsg
 
 #if ACCESS_DETECT
@@ -1056,61 +1070,111 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 		goto nrd_error;
 #endif
 
-	error = RawRead((UBYTE *)*rootblock, 1, BOOTBLOCK1, g);
-	g->ErrorMsg = _NormalErrorMsg;
-
-	if (!error)
+	// check if pre-v20 partition has >512 block size,
+	// if detected, set block size to 512.
+	WORD bsfix = 0;
+	for (UWORD rbcnt = 0; rbcnt < 2; rbcnt++)
 	{
-		if ((*rootblock)->disktype == ID_PFS_DISK || (*rootblock)->disktype == ID_PFS2_DISK)
+		if (rbcnt == 1)
 		{
-			g->disktype = ID_PFS_DISK;
-			error = RawRead((UBYTE *)*rootblock, 1, ROOTBLOCK, g);
-			if (!error)
-			{
-				/* check size and read all rootblock blocks */
-				// 17.10: with 1024 byte blocks rblsize can be 1!
-				rblsize = (*rootblock)->rblkcluster;
-				if (rblsize < 1 || rblsize > 521)
-					goto nrd_error;
-
-				// original PFS_DISK with PFS2_DISK features -> don't mount
-				if ((*rootblock)->disktype == ID_PFS_DISK && (((*rootblock)->options & MODE_LARGEFILE) || ((*rootblock)->reserved_blksize > 1024)))
-					goto nrd_error;
-
-				if (!InitLRU(g, (*rootblock)->reserved_blksize))
-					goto nrd_error;
-
-				FreeBufmem(*rootblock, g);
-				*rootblock = AllocBufmemR (rblsize << BLOCKSHIFT, g);
-				error = RawRead((UBYTE *)*rootblock, rblsize, ROOTBLOCK, g);
-			}
-
-			// override env with data from rbext if available and superfloppy mode
-			GetExtBlockGeometry(*rootblock, rblsize, g);
-
-			/* size check */
-			if (((*rootblock)->options & MODE_SIZEFIELD) &&
-				(g->geom->dg_TotalSectors != (*rootblock)->disksize))
-			{
-				goto nrd_error;
-			}
-
-			return DOSTRUE;
+			bsfix = -1;
 		}
+		// Read boot block
+		error = RawRead(rbpt + BLOCKSIZE, 1, BOOTBLOCK1, g);
+		if (error)
+		{
+			goto end_error;
+		}
+		// Read root block
+		error = RawRead(rbpt, 1, ROOTBLOCK, g);
+		if (error)
+		{
+			goto end_error;
+		}
+		if (IsRBBlock(rbpt) > 0 && IsRBBlock(rbpt + BLOCKSIZE))
+		{
+			if (rbcnt == 1)
+			{
+				bsfix = 1;
+			}
+			break;
+		}
+		// Recheck with 512 byte block size if blocksize >512
+		if (g->dosenvec->de_SectorPerBlock <= 1)
+		{
+			goto nrd_error;
+		}
+		CalculateBlockSize(g, 1, 0);			
+	}
+	if (bsfix < 0) {
+		CalculateBlockSize(g, 1, 0);
+		goto nrd_error;
+	} else if (bsfix > 0) {
+		if (!InitDataCache(g))
+		{
+			goto nrd_error;
+		}
+	}
+
+	g->ErrorMsg = _NormalErrorMsg;
+	g->disktype = ID_PFS_DISK;
+
+	/* check size and read all rootblock blocks */
+	// 17.10: with 1024 byte blocks rblsize can be 1!
+	rblsize = rbp->rblkcluster;
+	if (rblsize < 1 || rblsize > 521)
+	{
+		goto nrd_error;
+	}
+
+	// original PFS_DISK with PFS2_DISK features -> don't mount
+	if (rbp->disktype == ID_PFS_DISK && ((rbp->options & MODE_LARGEFILE) || (rbp->reserved_blksize > 1024)))
+	{
+		goto nrd_error;
+	}
+
+	if (!InitLRU(g, rbp->reserved_blksize))
+	{
+		goto nrd_error;
+	}
+
+	FreeBufmem(rbpt, g);
+	*rootblock = AllocBufmemR (rblsize << BLOCKSHIFT, g);
+	rbp = *rootblock;
+	rbpt = (UBYTE*)rbp;
+
+	error = RawRead(rbpt, rblsize, ROOTBLOCK, g);
+	if (error)
+	{
+		goto nrd_error;
+	}
+
+	// override env with data from rbext if available and superfloppy mode
+	GetExtBlockGeometry(rbp, rblsize, g);
+
+	/* size check */
+	if ((rbp->options & MODE_SIZEFIELD) && (g->geom->dg_TotalSectors != rbp->disksize))
+	{
+		goto nrd_error;
+	}
+
+	return DOSTRUE;
 
 nrd_error:
-		g->disktype = ID_NOT_REALLY_DOS;
-		CreateInputEvent(TRUE, g);
-		FreeBufmem (*rootblock, g);
-		*rootblock = NULL;
-		return DOSFALSE;
-	}
-	else if (error == TDERR_DiskChanged)
+	g->ErrorMsg = _NormalErrorMsg;
+	g->disktype = ID_NOT_REALLY_DOS;
+	CreateInputEvent(TRUE, g);
+	FreeBufmem (rbpt, g);
+	*rootblock = NULL;
+	return DOSFALSE;
+
+end_error:
+	if (error == TDERR_DiskChanged)
 	{
 		if ((g->disktype == ID_NOT_REALLY_DOS) || (g->disktype == ID_UNREADABLE_DISK))
 			CreateInputEvent(FALSE, g);
 		g->disktype = ID_NO_DISK_PRESENT;
-		FreeBufmem (*rootblock, g);
+		FreeBufmem (rbpt, g);
 		*rootblock = NULL;
 		return DOSFALSE;
 	}
@@ -1121,7 +1185,7 @@ nrd_error:
 
 		g->disktype = ID_UNREADABLE_DISK;
 		CreateInputEvent(TRUE, g);
-		FreeBufmem (*rootblock, g);
+		FreeBufmem (rbpt, g);
 		*rootblock = NULL;
 		return DOSFALSE;
 	}
@@ -1138,11 +1202,13 @@ static void SetPartitionLimits(globaldata *g)
 	
 	g->maxtransfermax = 0x7ffffffe;
 #if LIMIT_MAXTRANSFER
-	if (g->scsidevice) {
+	if (g->scsidevice)
+	{
 		struct Library *d;
 		Forbid();
 		d = (struct Library*)FindName(&SysBase->DeviceList, "scsi.device");
-		if (d && d->lib_Version >= 36 && d->lib_Version < OS_VERSION_SAFE_LARGE_DISK) {
+		if (d && d->lib_Version >= 36 && d->lib_Version < OS_VERSION_SAFE_LARGE_DISK) 
+		{
 			/* A600/A1200/A4000 ROM scsi.device ATA spec max transfer bug workaround */
 			g->maxtransfermax = LIMIT_MAXTRANSFER;
 		}
@@ -1151,35 +1217,50 @@ static void SetPartitionLimits(globaldata *g)
 #endif
 }
 
-void CalculateBlockSize(globaldata *g, ULONG blocksize)
+void CalculateBlockSize(globaldata *g, ULONG spb, ULONG blocksize)
 {
 	ULONG t;
 	WORD i;
 	ULONG bs;
 
+	if (!spb)
+	{
+		spb = g->dosenvec->de_SectorPerBlock;
+		if (!spb)
+		{
+			spb = 1;
+		}
+	}
 	bs = g->dosenvec->de_SizeBlock << 2;
-	if (!blocksize) {
-		blocksize = bs * (UWORD)g->dosenvec->de_SectorPerBlock;
-		if (blocksize >= 4096) {
+	if (!blocksize)
+	{
+		blocksize = bs * spb;
+		if (blocksize >= 4096)
+		{
 			blocksize = 4096;
-		} else if (blocksize >= 2048) {
+		} else if (blocksize >= 2048)
+		{
 			blocksize = 2048;
 		}
-		if (blocksize < bs) {
+		if (blocksize < bs)
+		{
 			blocksize = bs;
 		}
 	}	
     g->blocksize_phys = bs;
     g->blocksize = blocksize;
     g->blocklogshift = 0;
-    while (bs < g->blocksize) {
+    while (bs < g->blocksize)
+   	{
     	bs <<= 1;
     	g->blocklogshift++;
     }
     
 	t = BLOCKSIZE;
 	for (i=-1; t; i++)
+	{
 		t >>= 1;
+	}
 	g->blockshift = i;
 	g->directsize = 16*1024>>i;
 

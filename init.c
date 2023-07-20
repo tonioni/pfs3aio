@@ -243,7 +243,7 @@ Removed because of problems with Phase 5 boards
 		return FALSE;
 	}
 
-	CalculateBlockSize(g, 0);
+	CalculateBlockSize(g, 0, 0);
 
 	if (!(g->geom = AllocMemP (sizeof(struct DriveGeometry), g)))
 		return FALSE;
