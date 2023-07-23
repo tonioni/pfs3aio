@@ -303,6 +303,12 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 			action->dp_Res1 = dd_SetFileSize(action, g);
 			break;
 
+#if LARGE_FILE_SIZE
+		case ACTION_SET_LARGEFILE:
+			action->dp_Res1 = dd_SetLargeFile(action, g);
+			break;
+#endif
+
 #if EXTENDED_PACKETS_OS4
 		case ACTION_CHANGE_FILE_POSITION64:
 			dd_ChangeFilePosition64(action, g);
@@ -409,6 +415,7 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 			break;
 
 		case ACTION_SET_FNSIZE:
+		case ACTION_SET_LARGEFILE:
 		case ACTION_FINDINPUT:      // Open(.., MODE_OLDFILE)
 		case ACTION_FINDOUTPUT:     // Open(.., MODE_NEWFILE)
 		case ACTION_FINDUPDATE:     // Open(.., MODE_READWRITE)

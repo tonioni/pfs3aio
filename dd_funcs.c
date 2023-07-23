@@ -109,6 +109,7 @@ static SIPTR dd_RemoveDirEntry(struct DosPacket *pkt, globaldata * g);
 static SIPTR dd_Sleep(struct DosPacket *pkt, globaldata * g);
 static SIPTR dd_UpdateAnode(struct DosPacket *pkt, globaldata * g);
 static SIPTR dd_SetFileSize(struct DosPacket *pkt, globaldata *g);
+static SIPTR dd_SetLargeFile(struct DosPacket *pkt, globaldata *g);
 #if ROLLOVER
 static SIPTR dd_MakeRollover(struct DosPacket *pkt, globaldata * g);
 static SIPTR dd_SetRollover(struct DosPacket *pkt, globaldata *g);
@@ -2130,6 +2131,50 @@ static SIPTR dd_SetFileSize(struct DosPacket *pkt, globaldata *g)
 	pkt->dp_Res2 = ERROR_NO_DISK;
 	return DOSFALSE;
 }
+
+#if LARGE_FILE_SIZE
+
+/* set >2G file size. failure codes:
+ * ACTION_BAD_NUMBER = grootte illegaal of kleiner dan huidig
+ */
+static SIPTR dd_SetLargeFile(struct DosPacket *pkt, globaldata *g)
+{
+	// ACTION_SET_LONGFILE 2223
+	// ARG1 = MODE_PFS2_DISK
+	// ARG2 = 1 = enable
+	// RES1 = success
+	// RES2 = failure code / current state
+
+	if (!dd_CheckCustomPacket(pkt->dp_Arg1))
+		return DOSFALSE;
+
+	if (pkt->dp_Arg2 && pkt->dp_Arg2 != 1)
+	{
+		pkt->dp_Res2 = ERROR_BAD_NUMBER;
+		return DOSFALSE;
+	}
+
+	if (g->currentvolume && g->currentvolume->rootblk && g->currentvolume->rblkextension)
+	{
+		if (pkt->dp_Arg2)
+		{
+			if (g->currentvolume->rootblk->disktype != ID_PFS2_DISK) {
+				pkt->dp_Res2 = ERROR_BAD_NUMBER;
+				return DOSFALSE;
+			}
+			g->rootblock->options |= MODE_LARGEFILE;
+			g->dirty = TRUE;
+			g->largefile = TRUE;
+		}
+		pkt->dp_Res2 = (g->rootblock->options & MODE_LARGEFILE) != 0;
+		return DOSTRUE;
+	}
+
+	pkt->dp_Res2 = ERROR_NO_DISK;
+	return DOSFALSE;
+}
+
+#endif
 
 #if defined(__MORPHOS__)
 static LONG dd_MorphOSQueryAttr(struct DosPacket *pkt, globaldata *g)

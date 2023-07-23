@@ -793,7 +793,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	newfileoffset = file->offset + size;
 
 	/* Check if too large (QUAD) or overflowed (ULONG)? */
-	if (newfileoffset > MAX_FILE_SIZE || newfileoffset < file->offset) {
+	if (newfileoffset > MAX_FILE_SIZE || newfileoffset < file->offset || (LARGE_FILE_SIZE && newfileoffset > MAXFILESIZE32 && !g->largefile)) {
 		*error = ERROR_DISK_FULL;
 		return -1;
 	}
@@ -1124,7 +1124,7 @@ SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error,
 	}
 
 	/* < 0 check still needed because QUAD is signed */
-	if (abseof < 0 || abseof > MAX_FILE_SIZE)
+	if (abseof < 0 || abseof > MAX_FILE_SIZE || (LARGE_FILE_SIZE && abseof > MAXFILESIZE32 && !g->largefile))
 	{
 		*error = ERROR_SEEK_ERROR;
 		return -1;

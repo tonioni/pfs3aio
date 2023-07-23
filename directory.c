@@ -3561,7 +3561,7 @@ FSIZE GetDEFileSize(struct direntry *direntry, globaldata *g)
 	else {
 		struct extrafields extrafields;
 		GetExtraFields(direntry, &extrafields);
-		return direntry->fsize | ((FSIZE)extrafields.fsizex << 32);
+		return ((FSIZE)direntry->fsize) | ((FSIZE)extrafields.fsizex << 32);
 	}
 #endif
 }
@@ -3604,7 +3604,7 @@ FSIZE GetDDFileSize(struct deldirentry *dde, globaldata *g)
 		return dde->fsize;
 #if LARGE_FILE_SIZE
 	else
-		return dde->fsize | ((FSIZE)dde->fsizex << 32);
+		return ((FSIZE)dde->fsize) | ((FSIZE)dde->fsizex << 32);
 #endif
 }
 
@@ -3620,8 +3620,10 @@ void SetDDFileSize(struct deldirentry *dde, FSIZE size, globaldata *g)
 {
 	dde->fsize = (ULONG)size;
 #if LARGE_FILE_SIZE
-	if (!LARGE_FILE_SIZE || !g->largefile)
+	if (!LARGE_FILE_SIZE || !g->largefile) {
+		dde->fsizex = 0;
 		return;
+	}
 	dde->fsizex = (UWORD)(size >> 32);
 #endif
 }

@@ -425,7 +425,7 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 	rescluster = resblocksize/BLOCKSIZE;
 	rbl->reserved_blksize = resblocksize;
 
-#if LARGE_FILE_SIZE
+#if LARGE_FILE_SIZE > 1
 	rbl->options |= MODE_LARGEFILE;
 	rbl->disktype = ID_PFS2_DISK;
 	NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_FILE, NULL, 1);
