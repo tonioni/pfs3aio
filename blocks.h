@@ -612,9 +612,7 @@ struct lru_cachedblock
 #define MAXDELDIR 31
 #endif /* DELDIR */
 
-#if ROLLOVER
 #define ST_ROLLOVERFILE -16
-#endif
 
 /* predefined anodes */
 #define ANODE_EOF			0
