@@ -196,7 +196,7 @@ static const struct functable functiontable1000[] =
 	{NotKnown, 0},
 	{dd_ExamineAll, 1},       /* ACTION_EXAMINE_ALL 1033 */
 	{dd_Examine, 1},          /* ACTION_EXAMINE_FH 1034 */
-	{NotYetImplemented, 0},   /* ACTION_EXAMINE_ALL_END 1035 */
+	{dd_ExamineAllEnd, 1},    /* ACTION_EXAMINE_ALL_END 1035 */
 	{dd_SetProperty, 1},      /* ACTION_SET_OWNER 1036 */
 };
 

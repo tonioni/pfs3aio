@@ -1350,6 +1350,37 @@ static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
 						   &pkt->dp_Res2, g);
 }
 
+static SIPTR dd_ExamineAllEnd(struct DosPacket *pkt, globaldata * g)
+{
+	// ARG1 = BPTR Lock on directory to examine
+	// ARG2 = APTR Buffer to store resultsobject to be changed
+	// ARG3 = LONG Length (in bytes) of buffer (arg2)
+	// ARG4 = LONG Type of request
+	// ARG5 = APTR (!!) Control structure to store information
+	
+	listentry_t *listentry;
+	
+#ifdef KSWRAPPER
+	if (!g->v37DOS)
+		return DOSFALSE;
+#endif
+
+	listentry = ListEntryFromLock(pkt->dp_Arg1);
+	if (listentry)
+	{
+		if (!CheckVolume(listentry->volume, 0, &pkt->dp_Res2, g))
+			return DOSFALSE;
+	}
+	else if (!g->currentvolume)
+	{
+		pkt->dp_Res2 = ERROR_NO_DISK;
+		return DOSFALSE;
+	}
+
+	// no need to free anything
+	return TRUE;
+}
+
 static SIPTR dd_ExamineAll(struct DosPacket *pkt, globaldata * g)
 {
 	// ARG1 = BPTR Lock on directory to examine
