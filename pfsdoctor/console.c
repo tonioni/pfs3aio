@@ -177,7 +177,7 @@ static BOOL OpenVolume(void)
 	volume.lastblocknative = volume.lastblock;
 	volume.firstblock >>= volume.blocklogshift;
 	volume.lastblock >>= volume.blocklogshift;
-	volume.disksize = volume.lastblock - volume.firstblock + 1;
+	volume.disksize = volume.disksizenative >> volume.blocklogshift;
 	volume.lastreserved = volume.disksize - 256;	/* temp value, calculated later */
 
 	volume.status = guiStatus;
