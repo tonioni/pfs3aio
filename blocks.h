@@ -626,6 +626,6 @@ struct lru_cachedblock
 #define ANODE_USERFIRST		6
 
 /* Max size reported in DOS ULONG size fields */
-#define MAXFILESIZE32 0x7fffffff
+#define MAXFILESIZE32 0xffffffff
 
 #endif /* _BLOCKS_H */
