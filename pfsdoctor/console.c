@@ -177,7 +177,7 @@ static BOOL OpenVolume(void)
 	volume.lastblocknative = volume.lastblock;
 	volume.firstblock >>= volume.blocklogshift;
 	volume.lastblock >>= volume.blocklogshift;
-	volume.disksize = volume.disksizenative >> volume.blocklogshift;
+	volume.disksize = volume.lastblock - volume.firstblock + 1;
 	volume.lastreserved = volume.disksize - 256;	/* temp value, calculated later */
 
 	volume.status = guiStatus;
@@ -287,7 +287,6 @@ static void CloseVolume(void)
 
 #if 0
 
-#if 0
 static const ULONG schijf[][2] =
 { 
 	{20480,20},
@@ -297,19 +296,6 @@ static const ULONG schijf[][2] =
 	{10000000,70},
 	{0xffffffff,80}
 };
-#else
-static const ULONG schijf[][2] =
-{ 
-	{20480,20},			// 10M
-	{51200,30},			// 25M
-	{512000,60},		// 256M
-	{1048567,80},		// 512M
-	{10000000,150},		// 5G
-	{100000000,500},	// 50G
-	{1000000000,2000},	// 500G
-	{0xffffffff,4000}
-};
-#endif
 
 #define MAXNUMRESERVED (4096 + 255*1024*8)
 
@@ -346,14 +332,22 @@ int main(int argc, char *argv[])
 	uint32 opties;
 
 #if 0
-	ULONG v = 64;
-	for (uint32 i = 1024; i > 0; i <<= 1) {
-		ULONG b = v;//CalcNumReserved(i, 4096, 4096);
-		v += v * ((i < 512 * 1024) ? 6 : 2) / 8;
-		if (i >= 1024 * 1024) {
-			printf("%luG: %lu\n", i / (1024 * 1024), b);		
+	ULONG taken = 32;
+	for (uint32 i = 2048; i ; i <<= 1) {
+		ULONG taken2 = CalcNumReserved(i, 1024, 512);
+		UWORD m;
+		if (i >= 512 * 2048) {
+			m = 9;
 		} else {
-			printf("%luM: %lu\n", i / 1024, b);
+			m = 14;
+		}
+		taken += taken * m / 16;
+		ULONG outtaken = min(MAXNUMRESERVED, taken - 1);
+		outtaken = (outtaken + 31) & ~0x1f;		/* multiple of 32 */
+		if (i >= 1024 * 2048) {
+			printf("%luG: %lu %lu\n", i / (1024 * 2048), outtaken, taken2);		
+		} else {
+			printf("%luM: %lu %lu\n", i / 2048, outtaken, taken2);
 		}
 	}
 	return 0;

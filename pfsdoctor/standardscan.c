@@ -920,7 +920,7 @@ static error_t CheckRootBlock(void)
 			{
 				error = e_repartition;
 			}
-			else if (mode != check && mode != info)
+			else if (mode != check)
 			{
 				rbl->disksize = volume.disksizenative;
 				dirty = true;
@@ -1064,6 +1064,10 @@ static error_t GetRext(void)
 	}
 	
 	volume.showmsg("Max file name length: %lu\n", rext.data->fnsize);
+	if (rbl->options & MODE_LARGEFILE)
+	{
+		volume.showmsg("Large file size support active\n");
+	}
 
 	exitblock();
 	return e_none;
@@ -1381,7 +1385,7 @@ static bool dd_CheckBlock(uint32 bloknr, int seqnr)
 			size = GetDDFileSize(dde, &high);
 			if (!FileSizeCheck(size, high, blocks))
 			{
-				sprintf(bericht, "Delfile anode %#lx error", dde->anodenr);
+				sprintf(bericht, "Delfile anode %lx error", dde->anodenr);
 				if (mode == check || mode == info)
 					adderror(bericht);
 				else
