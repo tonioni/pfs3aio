@@ -337,7 +337,7 @@ int main(int argc, char *argv[])
 		ULONG taken2 = CalcNumReserved(i, 1024, 512);
 		UWORD m;
 		if (i >= 512 * 2048) {
-			m = 9;
+			m = 10;
 		} else {
 			m = 14;
 		}

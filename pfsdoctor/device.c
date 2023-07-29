@@ -42,6 +42,7 @@
 #include "doctor.h"
 
 #define BLOCKSHIFT (volume.blockshift)
+#define BLOCKNATIVESHIFT (volume.blockshift-volume.blocklogshift)
 
 /**************************************
  * Proto
@@ -282,6 +283,10 @@ retry_read:
 	{
 		io_transfer = min(io_length, volume.dosenvec->de_MaxTransfer);
 		io_transfer &= ~(volume.blocksize-1);
+		if (!io_transfer)
+		{
+			return e_read_error;
+		}
 		request = volume.request;
 		request->iotd_Req.io_Command = CMD_READ;
 		request->iotd_Req.io_Length  = io_transfer;
@@ -327,15 +332,23 @@ retry_read:
 	if(blocknr == -1)   // blocknr of uninitialised anode
 		return 1;
 
+	blocks <<= volume.blocklogshift;
+	blocknr <<= volume.blocklogshift;
+
 	/* chop in maxtransfer chunks */
 	maxtransfer = volume.dosenvec->de_MaxTransfer >> volume.blockshift;
 	while (blocks > 0)
 	{
 		transfer = min(blocks,maxtransfer);
+		transfer &= ~7;
+		if (!transfer)
+		{
+			return e_read_error;
+		}
 		*((UWORD *)&cmdbuf[0]) = 0x2800;
 		*((ULONG *)&cmdbuf[2]) = blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer<<8;
-		if (!DoSCSICommand(buffer,transfer<<BLOCKSHIFT,cmdbuf,10,SCSIF_READ))
+		if (!DoSCSICommand(buffer,transfer<<BLOCKNATIVESHIFT,cmdbuf,10,SCSIF_READ))
 		{
 			volume.showmsg("READ ERROR\n");
 			if (!retry--)
@@ -343,7 +356,7 @@ retry_read:
 
 			goto retry_read;
 		}
-		buffer += transfer<<BLOCKSHIFT;
+		buffer += transfer<<BLOCKNATIVESHIFT;
 		blocks -= transfer;
 		blocknr += transfer;
 	}
