@@ -1565,6 +1565,9 @@ retry:
 	maxtransfer = min(g->maxtransfermax, g->dosenvec->de_MaxTransfer) >> BLOCKSHIFT;
 	maxtransfer = min(65535, maxtransfer); // SCSI READ/WRITE(10) max transfer
 	maxtransfer &= ~7;
+	if (!maxtransfer) {
+		return ERROR_BAD_NUMBER;
+	}
 	blocks <<= g->blocklogshift;
 	blocknr <<= g->blocklogshift;
 	while (blocks > 0)
@@ -1634,6 +1637,9 @@ retry:
 	{
 		io_transfer = min(io_length, min(g->maxtransfermax, g->dosenvec->de_MaxTransfer));
 		io_transfer &= ~BLOCKSIZEMASK;
+		if (!io_transfer) {
+			return ERROR_BAD_NUMBER;
+		}
 		request = g->request;
 		request->iotd_Req.io_Command = write ? CMD_WRITE : CMD_READ;
 		request->iotd_Req.io_Length  = io_transfer;
