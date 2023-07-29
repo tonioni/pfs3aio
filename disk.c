@@ -1574,7 +1574,7 @@ retry:
 		*((ULONG *)&cmdbuf[2]) = blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer << 8;
 		PROFILE_OFF();
-		if (!DoSCSICommand(buffer, transfer << BLOCKSHIFT, 0, cmdbuf, 10, write ? SCSIF_WRITE : SCSIF_READ, g))
+		if (!DoSCSICommand(buffer, transfer << BLOCKNATIVESHIFT, 0, cmdbuf, 10, write ? SCSIF_WRITE : SCSIF_READ, g))
 		{
 			PROFILE_ON();
 			if (ErrorRequest(write, g->scsicmd.scsi_Status, blocknr, transfer, g))
@@ -1582,7 +1582,7 @@ retry:
 			return ERROR_NOT_A_DOS_DISK;
 		}
 		PROFILE_ON();
-		buffer += transfer << BLOCKSHIFT;
+		buffer += transfer << BLOCKNATIVESHIFT;
 		blocks -= transfer;
 		blocknr += transfer;
 	}
