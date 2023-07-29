@@ -544,7 +544,7 @@ static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize)
 	for (ULONG i = 2048; i && i / 2 < temp; i <<= 1) {
 		UWORD m = 14;
 		if (i >= 512 * 2048) {
-			m = 9;
+			m = 10;
 		}
 		taken += taken * m / 16;
 	}
