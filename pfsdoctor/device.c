@@ -597,8 +597,8 @@ static BOOL testread_td(UBYTE *buffer)
 	UBYTE cnt;
 
 	if (volume.accessmode == ACCESS_NSD) {
-    	struct NSDeviceQueryResult nsdqr;
-    	UWORD *cmdcheck;
+		struct NSDeviceQueryResult nsdqr;
+		UWORD *cmdcheck;
 		nsdqr.SizeAvailable  = 0;
 		nsdqr.DevQueryFormat = 0;
 		io->iotd_Req.io_Command = NSCMD_DEVICEQUERY;
@@ -618,7 +618,7 @@ static BOOL testread_td(UBYTE *buffer)
 			return FALSE;
 	}
 	if (volume.accessmode == ACCESS_TD64) {
-		UBYTE err;
+		BYTE err;
 		io->iotd_Req.io_Command = TD_READ64;
 		io->iotd_Req.io_Length = 0;
 		io->iotd_Req.io_Data = 0;
@@ -639,6 +639,8 @@ static BOOL testread_td(UBYTE *buffer)
 			io->iotd_Req.io_Command = volume.accessmode == ACCESS_NSD ? NSCMD_TD_READ64 : TD_READ64;
 		}
 		if (DoIO((struct IORequest*)io) != 0)
+			return FALSE;
+		if (io->iotd_Req.io_Actual != BLOCKSIZE)
 			return FALSE;
 		if (testbuffer(buffer, cnt))
 			return TRUE;
