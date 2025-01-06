@@ -496,6 +496,10 @@ void SAVEDS EntryPoint (void)
 			/* Make sure any disk buffers have been flushed to disk */
 			UpdateAndMotorOff(g);
 
+			// Enable write protect
+			g->softprotect = 1;
+			g->protectkey = ~0;
+
 			/* Mark the reset handler as done (system might reboot right after) */
 			HandshakeResetHandler(g);
 		}
