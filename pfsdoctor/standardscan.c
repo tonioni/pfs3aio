@@ -906,7 +906,7 @@ static error_t CheckRootBlock(void)
 	// size must match, else repartition
 	if (rbl->options & MODE_SIZEFIELD)
 	{
-		if(rbl->disksize != volume.disksizenative)
+		if(rbl->disksize != volume.fulldisksizenative)
 		{
 			int32 difference;
 
@@ -914,15 +914,15 @@ static error_t CheckRootBlock(void)
 			 * in RDB, otherwise assume mistake in rootblock
 			 */
 			adderror("Wrong disksize");
-			volume.showmsg("Rootblock size: %lu, driver reported size: %lu\n", rbl->disksize, volume.disksizenative);
-			difference = abs((int32)rbl->disksize - (int32)volume.disksizenative);
-			if (difference < volume.disksizenative/10)
+			volume.showmsg("Rootblock size: %lu, driver reported size: %lu\n", rbl->disksize, volume.fulldisksizenative);
+			difference = abs((int32)rbl->disksize - (int32)volume.fulldisksizenative);
+			if (difference < volume.fulldisksizenative / 10)
 			{
 				error = e_repartition;
 			}
 			else if (mode != check)
 			{
-				rbl->disksize = volume.disksizenative;
+				rbl->disksize = volume.fulldisksizenative;
 				dirty = true;
 				fixederror("set disksize");
 			}

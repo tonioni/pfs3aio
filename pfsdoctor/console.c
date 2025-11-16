@@ -161,18 +161,25 @@ static BOOL OpenVolume(void)
 	cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
 	volume.firstblock = volume.dosenvec->de_LowCyl * cylsectors;
 	volume.lastblock = (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1;
+	volume.fulldisksizenative = volume.lastblock - volume.firstblock + 1;
 	b = volume.dosenvec->de_SectorPerBlock;
 	volume.blocklogshift = 0;
 	while (b > 1) {
 		volume.blocklogshift++;
 		b >>= 1;		
 	}
+
+	volume.firstblock += (1 << volume.blocklogshift) - 1;
+	volume.firstblock &= ~((1 << volume.blocklogshift) - 1);
+	volume.lastblock &= ~((1 << volume.blocklogshift) - 1);
+
 	b = volume.blocksize = (volume.dosenvec->de_SizeBlock << 2) << volume.blocklogshift;
 	for (i=-1; b; i++)
 		b >>= 1;
 	volume.blockshift = i;
+
 	volume.rescluster = 0;
-	volume.disksizenative = volume.lastblock - volume.firstblock + 1;
+	volume.disksizenative = volume.fulldisksizenative;
 	volume.firstblocknative = volume.firstblock;
 	volume.lastblocknative = volume.lastblock;
 	volume.firstblock >>= volume.blocklogshift;
@@ -190,13 +197,18 @@ static BOOL OpenVolume(void)
 	BCPLtoCString(volume.execdevice, (UBYTE *)BADDR(volume.fssm->fssm_Device));
 	volume.execunit = volume.fssm->fssm_Unit;
 
-	if (verbose) {
+	BOOL unaligned = (volume.dosenvec->de_LowCyl * cylsectors) & ((1 << volume.blocklogshift) - 1);
+
+	if (verbose || unaligned) {
 		UBYTE name[FNSIZE];
 		BCPLtoCString(name, (UBYTE *)BADDR(volume.fssm->fssm_Device));
 		volume.showmsg("Device: %s:%lu\n", name, volume.fssm->fssm_Unit);
-		volume.showmsg("Firstblock: %lu\n", volume.firstblock);
-		volume.showmsg("Lastblock : %lu\n", volume.lastblock);
+		volume.showmsg("Firstblock: %lu (%lu)\n", volume.firstblock, volume.dosenvec->de_LowCyl * cylsectors);
+		volume.showmsg("Lastblock : %lu (%lu)\n", volume.lastblock, (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1);
 		volume.showmsg("Blocksize : %lu\n", volume.blocksize);
+		if (unaligned) {
+			volume.showmsg("WARNING: Partition start is not logical block size aligned.\n");
+		}
 	}
 
 	/* open device */

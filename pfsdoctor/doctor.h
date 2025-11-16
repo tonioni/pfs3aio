@@ -310,6 +310,7 @@ typedef struct {
 	uint32 lastblocknative;
 	uint32 disksize;			/* disksize in blocks */
 	uint32 disksizenative;
+	uint32 fulldisksizenative;
 	uint32 lastreserved;		/* rel blocknr, last reserved block */
 	uint32 blocksize;		/* physical blocksize in bytes */
 	int16 blockshift;
