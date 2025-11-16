@@ -1195,6 +1195,10 @@ static void SetPartitionLimits(globaldata *g)
 {
 	g->firstblocknative = g->dosenvec->de_LowCyl * g->geom->dg_CylSectors;
 	g->lastblocknative = (g->dosenvec->de_HighCyl + 1) * g->geom->dg_CylSectors;
+	// align to block size if partition was not already block size aligned
+	g->firstblocknative += (1 << g->blocklogshift) - 1;
+	g->firstblocknative &= ~((1 << g->blocklogshift) - 1);
+	g->lastblocknative &= ~((1 << g->blocklogshift) - 1);
 	g->firstblock = g->firstblocknative >> g->blocklogshift;
 	g->lastblock = g->lastblocknative >> g->blocklogshift;
 	g->lastblocknative -= 1 << g->blocklogshift;
