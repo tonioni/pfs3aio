@@ -422,7 +422,7 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 		NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, args, 1);
 	}
 
-	rescluster = resblocksize/BLOCKSIZE;
+	rescluster = resblocksize >> BLOCKSHIFT;
 	rbl->reserved_blksize = resblocksize;
 
 #if LARGE_FILE_SIZE > 1
@@ -548,7 +548,7 @@ static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize)
 		}
 		taken += taken * m / 16;
 	}
-	taken >>= (g->blockshift - 9);
+	taken /= resblocksize / 1024;
 	taken = min(MAXNUMRESERVED, taken - 1);
 	taken = (taken + 31) & ~0x1f;		/* multiple of 32 */
 	return taken;
@@ -560,6 +560,7 @@ static void MakeReservedBitmap (struct rootblock **rbl, ULONG numreserved, globa
   struct bitmapblock *bmb;
   struct rootblock *newrootblock;
   ULONG *bitmap, numblocks, i, last, cluster, rescluster;
+  ULONG resblksize = (*rbl)->reserved_blksize;
 
 	/* calculate number of 1024 byte blocks */
 	numblocks = 1;
@@ -567,11 +568,11 @@ static void MakeReservedBitmap (struct rootblock **rbl, ULONG numreserved, globa
 		numblocks++;
 
 	// convert to number of reserved blocks and allocate
-	numblocks = (1024*numblocks + (*rbl)->reserved_blksize - 1) / ((*rbl)->reserved_blksize);
+	numblocks = (1024*numblocks +  resblksize - 1) / resblksize;
 	(*rbl)->reserved_free -= numblocks;
 
 	// convert to number of sectors
-	rescluster = ((*rbl)->reserved_blksize) / BLOCKSIZE;
+	rescluster = resblksize >> BLOCKSHIFT;
 	cluster = (*rbl)->rblkcluster = rescluster * numblocks;
 
 	/* reallocate rootblock */
