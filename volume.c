@@ -1193,6 +1193,12 @@ end_error:
 
 static void SetPartitionLimits(globaldata *g)
 {
+	/* g->geom is not allocated yet when called from the early
+	 * CalculateBlockSize() in Initialize(); the limits are recomputed
+	 * via GetDriveGeometry() once the geometry is known.
+	 */
+	if (!g->geom)
+		return;
 	g->firstblocknative = g->dosenvec->de_LowCyl * g->geom->dg_CylSectors;
 	g->lastblocknative = (g->dosenvec->de_HighCyl + 1) * g->geom->dg_CylSectors;
 	// align to block size if partition was not already block size aligned
