@@ -9,6 +9,17 @@
 	.globl _version
 
 	bra.s _entrypoint
+	dc.w 0			/* pad: the fake segment needs longword alignment */
+
+	/* Fake segment published in FileSystem.resource (fse_SegList =
+	 * MKBADDR(_PFS3FakeSeg)). It must precede _PFS3Resident: C:Version
+	 * identifies a handler by scanning its seglist forward for the
+	 * romtag. CreateProc enters a seglist at BADDR+4, hence the bra
+	 * to the real entrypoint. */
+	.globl _PFS3FakeSeg
+_PFS3FakeSeg:
+	dc.l 0			/* next segment: end of list */
+	bra.w _entrypoint	/* seglist entry point (BADDR+4) */
 
 _PFS3Resident:
 	dc.w 0x4afc
@@ -18,10 +29,6 @@ _PFS3Resident:
 	dc.l _shortname
 	dc.l _version+6
 	dc.l _ResidentAddToFSResource
-
-	/* fake segment */
-	dc.l 0
-	dc.l 16
 
 _entrypoint:
 
