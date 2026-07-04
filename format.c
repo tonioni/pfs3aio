@@ -415,10 +415,14 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 	if (rbl->disktype == ID_PFS2_DISK) {
 		g->supermode = 1;
 		rbl->options |= MODE_SUPERINDEX;
-		ULONG args[3];
+		ULONG args[7];
 		args[0] = g->blocksize_phys;
 		args[1] = BLOCKSIZE;
 		args[2] = resblocksize;
+		args[3] = g->firstblocknative;
+		args[4] = g->firstblock;
+		args[5] = g->lastblocknative;
+		args[6] = g->lastblock;
 		NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_DISK, args, 1);
 	}
 
