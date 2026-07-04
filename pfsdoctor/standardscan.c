@@ -609,11 +609,16 @@ static error_t GetRootBlock(void)
 			if (IsRootBlock(rbl))
 			{
 				volume.showmsg("Rootblock found using 512 block size (block size was %lu)\n", volume.blocksize << volume.blocklogshift);
+				ULONG cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
+				volume.blocklogshift = 0;
+				volume.firstblocknative = volume.dosenvec->de_LowCyl * cylsectors;
+				volume.lastblocknative = (volume.dosenvec->de_HighCyl + 1) * cylsectors;
+				volume.fulldisksizenative = volume.lastblocknative - volume.firstblocknative;
 				volume.firstblock = volume.firstblocknative;
+				volume.lastblocknative--;
 				volume.lastblock = volume.lastblocknative;
 				volume.disksize = volume.disksizenative;
 				volume.lastreserved = volume.disksize - 256;
-				volume.blocklogshift = 0;
 				goto rootfound;
 
 			}
@@ -2796,8 +2801,10 @@ static error_t RepairReservedBitmap(void)
 	// check blocks free
 	if (lrb->reserved_free != blocksfree && !aborting)
 	{
-		if (mode == check || mode == info)
-			fixederror("Wrong number of reserved blocks free");
+		if (mode == check || mode == info) {
+			sprintf(bericht, "Wrong number of reserved blocks free (%lu <> %lu)", lrb->reserved_free, blocksfree);
+			fixederror(bericht);
+		}
 		lrb->reserved_free = blocksfree;
 		dirty = true;
 	}

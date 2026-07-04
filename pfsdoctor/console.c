@@ -159,9 +159,11 @@ static BOOL OpenVolume(void)
 	volume.dosenvec = (struct DosEnvec *)BADDR(volume.fssm->fssm_Environ);
 	strcpy(volume.devicename, targetdevice.name);
 	cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
+
 	volume.firstblock = volume.dosenvec->de_LowCyl * cylsectors;
-	volume.lastblock = (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1;
-	volume.fulldisksizenative = volume.lastblock - volume.firstblock + 1;
+	volume.lastblock = (volume.dosenvec->de_HighCyl + 1) * cylsectors;
+	volume.fulldisksizenative = volume.lastblock - volume.firstblock;
+
 	b = volume.dosenvec->de_SectorPerBlock;
 	volume.blocklogshift = 0;
 	while (b > 1) {
@@ -169,22 +171,26 @@ static BOOL OpenVolume(void)
 		b >>= 1;		
 	}
 
+	volume.disksize = volume.fulldisksizenative >> volume.blocklogshift;
+
 	volume.firstblock += (1 << volume.blocklogshift) - 1;
 	volume.firstblock &= ~((1 << volume.blocklogshift) - 1);
+	volume.lastblock -= 1 << volume.blocklogshift;
 	volume.lastblock &= ~((1 << volume.blocklogshift) - 1);
 
 	b = volume.blocksize = (volume.dosenvec->de_SizeBlock << 2) << volume.blocklogshift;
 	for (i=-1; b; i++)
 		b >>= 1;
 	volume.blockshift = i;
-
 	volume.rescluster = 0;
-	volume.disksizenative = volume.fulldisksizenative;
+
+	volume.disksizenative = volume.lastblock - volume.firstblock;
 	volume.firstblocknative = volume.firstblock;
-	volume.lastblocknative = volume.lastblock;
+	volume.lastblocknative = volume.lastblock + (1 << volume.blocklogshift) - 1;
+
 	volume.firstblock >>= volume.blocklogshift;
 	volume.lastblock >>= volume.blocklogshift;
-	volume.disksize = volume.disksizenative >> volume.blocklogshift;
+
 	volume.lastreserved = volume.disksize - 256;	/* temp value, calculated later */
 
 	volume.status = guiStatus;
@@ -203,9 +209,14 @@ static BOOL OpenVolume(void)
 		UBYTE name[FNSIZE];
 		BCPLtoCString(name, (UBYTE *)BADDR(volume.fssm->fssm_Device));
 		volume.showmsg("Device: %s:%lu\n", name, volume.fssm->fssm_Unit);
-		volume.showmsg("Firstblock: %lu (%lu)\n", volume.firstblock, volume.dosenvec->de_LowCyl * cylsectors);
-		volume.showmsg("Lastblock : %lu (%lu)\n", volume.lastblock, (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1);
+		volume.showmsg("Firstblock: %lu (%lu), %lu\n", volume.firstblocknative, volume.dosenvec->de_LowCyl * cylsectors, volume.firstblock);
+		volume.showmsg("Lastblock : %lu (%lu), %lu\n", volume.lastblocknative, (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1, volume.lastblock);
 		volume.showmsg("Blocksize : %lu\n", volume.blocksize);
+		volume.showmsg("Partitionsize : %lu (%lu)\n", volume.disksize, volume.disksizenative);
+		if ((volume.disksizenative >> volume.blocklogshift) != volume.disksize) {
+			volume.showmsg("WARNING: Partition total number of blocks is not block size aligned (%lu != %lu).\n",
+				volume.disksize, (volume.disksizenative >> volume.blocklogshift));
+		}
 		if (unaligned) {
 			volume.showmsg("WARNING: Partition start is not logical block size aligned.\n");
 		}
