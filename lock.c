@@ -383,7 +383,6 @@ BOOL _ChangeAccessMode(listentry_t *file, LONG mode, SIPTR *error, globaldata *g
 	// -I- make dosmode compatible with listtype-mode
 	switch(mode)
 	{
-		case MODE_READWRITE:
 		case MODE_NEWFILE:
 		case EXCLUSIVE_LOCK:
 
