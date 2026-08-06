@@ -163,16 +163,39 @@ static struct cacheline *c_GetCacheLine(uint32 bloknr)
 
 	if (!cl)
 	{
-		if (IsMinListEmpty(&cache.LRUpool))
+		uint32 tries;
+
+		/* Find a line to reuse. A dirty line must be written out first;
+		 * if that write fails the line is the only copy of its contents,
+		 * so it is kept cached and dirty (moved to the head, to be
+		 * retried by UpdateCache) and another line is tried instead.
+		 */
+		for (tries = cache.nolines; tries > 0; tries--)
 		{
+			if (!IsMinListEmpty(&cache.LRUpool))
+			{
+				cl = HeadOf(&cache.LRUpool);
+				break;
+			}
+
 			cl = (struct cacheline *)cache.LRUqueue.mlh_TailPred;
-			if (cl->dirty)
-				error = volume.writerawblocks(cl->data, cache.linesize, cl->blocknr);
+			if (!cl->dirty)
+				break;
+
+			error = volume.writerawblocks(cl->data, cache.linesize, cl->blocknr);
+			if (!error)
+			{
+				cl->dirty = false;
+				break;
+			}
+
+			MinRemove(cl);
+			MinAddHead(&cache.LRUqueue, cl);
+			cl = NULL;
 		}
-		else
-		{
-			cl = HeadOf(&cache.LRUpool);
-		}
+
+		if (!cl)
+			return NULL;
 
 		error = volume.getrawblocks(cl->data, cache.linesize, bloknr);
 		if (error)
