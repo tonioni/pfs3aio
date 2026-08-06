@@ -102,7 +102,7 @@ int guiAskUser(char *message, char *okstr, char *cancelstr)
 static BOOL OpenVolume(void)
 {
 	struct DosList *dl;
-	ULONG cylsectors, b;
+	ULONG cylsectors, partitionend, b;
 	BOOL t;
 	int i;
 	UBYTE *detectbuf;
@@ -160,18 +160,26 @@ static BOOL OpenVolume(void)
 	strcpy(volume.devicename, targetdevice.name);
 	cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
 
+	/* saturate instead of wrapping at 2^32 sectors (2TB with 512 byte
+	 * sectors): a wrapped partition end turns every derived value
+	 * (lastblock, partition size, the access mode test read) into
+	 * garbage. Losing the last partial block is the safe direction.
+	 */
+	if (cylsectors && (volume.dosenvec->de_HighCyl + 1) > 0xFFFFFFFFUL / cylsectors)
+		partitionend = 0xFFFFFFFFUL;
+	else
+		partitionend = (volume.dosenvec->de_HighCyl + 1) * cylsectors;
+
 	volume.firstblock = volume.dosenvec->de_LowCyl * cylsectors;
-	volume.lastblock = (volume.dosenvec->de_HighCyl + 1) * cylsectors;
+	volume.lastblock = partitionend;
 	volume.fulldisksizenative = volume.lastblock - volume.firstblock;
 
 	b = volume.dosenvec->de_SectorPerBlock;
 	volume.blocklogshift = 0;
 	while (b > 1) {
 		volume.blocklogshift++;
-		b >>= 1;		
+		b >>= 1;
 	}
-
-	volume.disksize = volume.fulldisksizenative >> volume.blocklogshift;
 
 	volume.firstblock += (1 << volume.blocklogshift) - 1;
 	volume.firstblock &= ~((1 << volume.blocklogshift) - 1);
@@ -190,6 +198,14 @@ static BOOL OpenVolume(void)
 
 	volume.firstblock >>= volume.blocklogshift;
 	volume.lastblock >>= volume.blocklogshift;
+
+	/* usable blocks, derived from the aligned limits. Deriving it from
+	 * the raw partition size counts one block too many whenever the
+	 * partition start is not a multiple of the logical block size (with
+	 * 255x63 geometry and 4K blocks, 7 out of 8 LowCyl values): that
+	 * phantom block past lastblock can never be read or written.
+	 */
+	volume.disksize = volume.lastblock - volume.firstblock + 1;
 
 	volume.lastreserved = volume.disksize - 256;	/* temp value, calculated later */
 
@@ -210,12 +226,12 @@ static BOOL OpenVolume(void)
 		BCPLtoCString(name, (UBYTE *)BADDR(volume.fssm->fssm_Device));
 		volume.showmsg("Device: %s:%lu\n", name, volume.fssm->fssm_Unit);
 		volume.showmsg("Firstblock: %lu (%lu), %lu\n", volume.firstblocknative, volume.dosenvec->de_LowCyl * cylsectors, volume.firstblock);
-		volume.showmsg("Lastblock : %lu (%lu), %lu\n", volume.lastblocknative, (volume.dosenvec->de_HighCyl + 1) * cylsectors - 1, volume.lastblock);
+		volume.showmsg("Lastblock : %lu (%lu), %lu\n", volume.lastblocknative, partitionend - 1, volume.lastblock);
 		volume.showmsg("Blocksize : %lu\n", volume.blocksize);
 		volume.showmsg("Partitionsize : %lu (%lu)\n", volume.disksize, volume.disksizenative);
-		if ((volume.disksizenative >> volume.blocklogshift) != volume.disksize) {
+		if (volume.fulldisksizenative != (volume.disksize << volume.blocklogshift)) {
 			volume.showmsg("WARNING: Partition total number of blocks is not block size aligned (%lu != %lu).\n",
-				volume.disksize, (volume.disksizenative >> volume.blocklogshift));
+				volume.disksize, (volume.fulldisksizenative >> volume.blocklogshift));
 		}
 		if (unaligned) {
 			volume.showmsg("WARNING: Partition start is not logical block size aligned.\n");
