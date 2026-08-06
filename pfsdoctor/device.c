@@ -326,29 +326,44 @@ error_t dev_GetBlocksDS(uint8 *buffer, int32 blocks, uint32 blocknr)
 {
 	uint8  cmdbuf[10];
 	uint32 transfer, maxtransfer;
+	uint8  *io_buffer;
+	uint32 io_blocks, io_blocknr;
 	int retry = 4;
 
-retry_read:
 	if(blocknr == -1)   // blocknr of uninitialised anode
 		return 1;
 
-	blocks <<= volume.blocklogshift;
-	blocknr <<= volume.blocklogshift;
-
-	/* chop in maxtransfer chunks */
-	maxtransfer = volume.dosenvec->de_MaxTransfer >> volume.blockshift;
-	while (blocks > 0)
+	/* chop in maxtransfer chunks. maxtransfer is in NATIVE sectors,
+	 * like the transfer loop below: computing it in logical blocks made
+	 * every transfer fail when MaxTransfer < 8 logical blocks (e.g.
+	 * 0x4000 with 4K blocks), and needlessly limited chunks to
+	 * 1/2^blocklogshift of MaxTransfer. The ~7 alignment keeps chunks a
+	 * multiple of the logical block size (blocklogshift <= 3).
+	 */
+	maxtransfer = volume.dosenvec->de_MaxTransfer >> BLOCKNATIVESHIFT;
+	maxtransfer = min(65535, maxtransfer);	// SCSI READ/WRITE(10) max transfer
+	maxtransfer &= ~7;
+	if (!maxtransfer)
 	{
-		transfer = min(blocks,maxtransfer);
-		transfer &= ~7;
-		if (!transfer)
-		{
-			return e_read_error;
-		}
+		return e_read_error;
+	}
+
+retry_read:
+	/* Convert to native blocks in work variables only, so that a retry
+	 * restarts from the unmodified arguments. Retrying with the loop
+	 * variables would apply blocklogshift twice and resume from a
+	 * half-advanced position.
+	 */
+	io_buffer = buffer;
+	io_blocks = blocks << volume.blocklogshift;
+	io_blocknr = blocknr << volume.blocklogshift;
+	while (io_blocks > 0)
+	{
+		transfer = min(io_blocks,maxtransfer);
 		*((UWORD *)&cmdbuf[0]) = 0x2800;
-		*((ULONG *)&cmdbuf[2]) = blocknr;
+		*((ULONG *)&cmdbuf[2]) = io_blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer<<8;
-		if (!DoSCSICommand(buffer,transfer<<BLOCKNATIVESHIFT,cmdbuf,10,SCSIF_READ))
+		if (!DoSCSICommand(io_buffer,transfer<<BLOCKNATIVESHIFT,cmdbuf,10,SCSIF_READ))
 		{
 			volume.showmsg("READ ERROR\n");
 			if (!retry--)
@@ -356,9 +371,9 @@ retry_read:
 
 			goto retry_read;
 		}
-		buffer += transfer<<BLOCKNATIVESHIFT;
-		blocks -= transfer;
-		blocknr += transfer;
+		io_buffer += transfer<<BLOCKNATIVESHIFT;
+		io_blocks -= transfer;
+		io_blocknr += transfer;
 	}
 
 	return e_none;
@@ -373,21 +388,38 @@ error_t dev_WriteBlocksDS(uint8 *buffer, int32 blocks, uint32 blocknr)
 {
 	UBYTE cmdbuf[10];
 	ULONG transfer, maxtransfer;
+	uint8 *io_buffer;
+	uint32 io_blocks, io_blocknr;
 	int retry = 4;
 
-retry_write:
 	if(blocknr == -1)
 		return 1;
 
-	/* chop in maxtransfer chunks */
-	maxtransfer = volume.dosenvec->de_MaxTransfer >> volume.blockshift;
-	while (blocks > 0)
+	/* chop in maxtransfer chunks, in NATIVE sectors (see dev_GetBlocksDS) */
+	maxtransfer = volume.dosenvec->de_MaxTransfer >> BLOCKNATIVESHIFT;
+	maxtransfer = min(65535, maxtransfer);	// SCSI READ/WRITE(10) max transfer
+	maxtransfer &= ~7;
+	if (!maxtransfer)
 	{
-		transfer = min(blocks,maxtransfer);
+		return e_write_error;
+	}
+
+retry_write:
+	/* The CDB addresses native sectors and asks for 'transfer' of them:
+	 * passing the logical blocknr and the length of the whole request
+	 * sent every write of a large block size volume to blocklogshift
+	 * times too low an LBA, over an unrelated part of the disk.
+	 */
+	io_buffer = buffer;
+	io_blocks = blocks << volume.blocklogshift;
+	io_blocknr = blocknr << volume.blocklogshift;
+	while (io_blocks > 0)
+	{
+		transfer = min(io_blocks,maxtransfer);
 		*((UWORD *)&cmdbuf[0]) = 0x2a00;
-		*((ULONG *)&cmdbuf[2]) = blocknr;
+		*((ULONG *)&cmdbuf[2]) = io_blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer<<8;
-		if (!DoSCSICommand(buffer,blocks<<BLOCKSHIFT,cmdbuf,10,SCSIF_WRITE))
+		if (!DoSCSICommand(io_buffer,transfer<<BLOCKNATIVESHIFT,cmdbuf,10,SCSIF_WRITE))
 		{
 			volume.showmsg("WRITE ERROR\n");
 			if (!retry--)
@@ -395,9 +427,9 @@ retry_write:
 
 			goto retry_write;
 		}
-		buffer += transfer<<BLOCKSHIFT;
-		blocks -= transfer;
-		blocknr += transfer;
+		io_buffer += transfer<<BLOCKNATIVESHIFT;
+		io_blocks -= transfer;
+		io_blocknr += transfer;
 	}
 
 	return e_none;
