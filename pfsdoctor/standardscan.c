@@ -612,12 +612,20 @@ static error_t GetRootBlock(void)
 				ULONG cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
 				volume.blocklogshift = 0;
 				volume.firstblocknative = volume.dosenvec->de_LowCyl * cylsectors;
-				volume.lastblocknative = (volume.dosenvec->de_HighCyl + 1) * cylsectors;
+				/* saturate instead of wrapping at 2^32 sectors, see OpenVolume() */
+				if (cylsectors && (volume.dosenvec->de_HighCyl + 1) > 0xFFFFFFFFUL / cylsectors)
+					volume.lastblocknative = 0xFFFFFFFFUL;
+				else
+					volume.lastblocknative = (volume.dosenvec->de_HighCyl + 1) * cylsectors;
 				volume.fulldisksizenative = volume.lastblocknative - volume.firstblocknative;
 				volume.firstblock = volume.firstblocknative;
 				volume.lastblocknative--;
 				volume.lastblock = volume.lastblocknative;
-				volume.disksize = volume.disksizenative;
+				/* same definition as in OpenVolume(): the blocks between
+				 * the partition limits. volume.disksizenative was
+				 * computed with the discarded blocklogshift.
+				 */
+				volume.disksize = volume.lastblock - volume.firstblock + 1;
 				volume.lastreserved = volume.disksize - 256;
 				goto rootfound;
 
@@ -931,9 +939,13 @@ static error_t CheckRootBlock(void)
 				dirty = true;
 				fixederror("set disksize");
 			}
-		} else if((rbl->disksize >> volume.blocklogshift) != volume.disksize) {
-			adderror("Wrong logical block calculated disksize");
-			volume.showmsg("Rootblock logical block calculated size: %lu, driver reported size: %lu\n", rbl->disksize >> volume.blocklogshift, volume.disksize);
+		} else if(rbl->disksize != (volume.disksize << volume.blocklogshift)) {
+			/* Not an error: the partition is not a whole number of
+			 * logical blocks, so the last partial block is unusable.
+			 * volume.disksize counts the blocks between the aligned
+			 * partition limits.
+			 */
+			volume.showmsg("Partition size is not logical block size aligned: %lu usable blocks, driver reported %lu sectors\n", volume.disksize, rbl->disksize);
 		}
 	}
 

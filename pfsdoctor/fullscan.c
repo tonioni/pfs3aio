@@ -292,7 +292,12 @@ error_t BuildRootBlock(rootblock_t *rbl)
 	volume.progress(0,1);
 	rbl->reserved_free = (rbl->lastreserved - rbl->firstreserved)/volume.rescluster;
 
-	rbl->blocksfree = volume.disksize - rbl->lastreserved;
+	/* blocks 0 .. lastreserved are taken by the reserved area, so the
+	 * free count is disksize - lastreserved - 1. volume.disksize counts
+	 * the blocks that really exist between the partition limits; using
+	 * the raw partition size handed out a block past the end.
+	 */
+	rbl->blocksfree = volume.disksize - rbl->lastreserved - 1;
 	rbl->alwaysfree = rbl->blocksfree/20;
 
 	rbl->diskname[0] = strlen("FixedDisk");
