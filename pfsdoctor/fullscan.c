@@ -107,7 +107,14 @@ error_t AllocBuildBlocks(void)
 					break;
 
 				case IBLKID:
-					if (!(rbl->options & MODE_SUPERDELDIR))
+					/* MODE_SUPERINDEX, not MODE_SUPERDELDIR, decides
+					 * whether anode index blocks hang off a superblock
+					 * (cf. GetResBlock). Harmless while BuildRootBlock
+					 * set neither bit; with supermode rebuilt this would
+					 * store a superblock index in idx.small.indexblocks,
+					 * which overlaps idx.large.bitmapindex.
+					 */
+					if (!(rbl->options & MODE_SUPERINDEX))
 					{
 						rbl->idx.small.indexblocks[bbl->b.data->indexblock.seqnr] = blocknr;
 						c_WriteBlock((uint8 *)rbl, ROOTBLOCK + volume.firstblock, volume.blocksize);
@@ -187,32 +194,56 @@ uint32 fs_AllocResBlock(void)
  */
 error_t Repartition(uint32 bloknr)
 {
-	rootblock_t *rbl;
+	rootblock_t *nrbl;			/* not the global rbl */
 	error_t error = e_none;
 
-	if (!(rbl = (rootblock_t *)AllocBufMem (MAXRESBLOCKSIZE)))
+	if (bloknr < ROOTBLOCK)
+		return e_syntax_error;
+
+	if (!(nrbl = (rootblock_t *)AllocBufMem (MAXRESBLOCKSIZE)))
 		return e_out_of_memory;
 
-	// read rootblock 
-	error = c_GetBlock ((uint8 *)rbl, ROOTBLOCK + volume.firstblock, volume.blocksize);
+	/* Read the rootblock this call is about. Reading the standard
+	 * location instead made the misplaced-rootblock path re-read the
+	 * block whose absence started the search, so it always failed the
+	 * check below - the one caller that passes a searched-for block
+	 * number was the one that could not work.
+	 */
+	error = c_GetBlock ((uint8 *)nrbl, bloknr, volume.blocksize);
 	if (error)
 		goto ret_error;
 
-	if (!IsRootBlock(rbl) || !rbl->disksize)
+	if (!IsRootBlock(nrbl) || !(nrbl->disksize >> volume.blocklogshift))
 	{
 		error = e_syntax_error;
 		goto ret_error;
 	}
 
+	/* the size field is in native sectors, the block numbers are in
+	 * logical blocks; treating one as the other redefined the volume
+	 * 2, 4 or 8 times too large on a >512 byte block volume, putting
+	 * lastblock - and with it every bounds check - past the end of the
+	 * partition
+	 */
 	volume.firstblock = bloknr - ROOTBLOCK;
-	volume.lastblock = volume.firstblock + rbl->disksize - 1;
-	volume.disksize = rbl->disksize;
-	volume.lastreserved = rbl->lastreserved;
+	volume.disksize = nrbl->disksize >> volume.blocklogshift;
+	volume.lastblock = volume.firstblock + volume.disksize - 1;
+
+	/* the volume is now described by this rootblock, so the native
+	 * values have to follow it rather than keep describing the RDB
+	 * partition that was just rejected
+	 */
+	volume.firstblocknative = volume.firstblock << volume.blocklogshift;
+	volume.lastblocknative = ((volume.lastblock + 1) << volume.blocklogshift) - 1;
+	volume.disksizenative = (volume.lastblock - volume.firstblock) << volume.blocklogshift;
+	volume.fulldisksizenative = nrbl->disksize;
+
+	volume.lastreserved = nrbl->lastreserved;
 	volume.repartitioned = true;
 
  ret_error:
 
-	FreeBufMem(rbl);
+	FreeBufMem(nrbl);
 	return error;
 }
 
@@ -248,29 +279,61 @@ error_t BuildRootBlock(rootblock_t *rbl)
 	DateStamp (&time);
 
 	rbl->disktype = ID_PFS_DISK;
+	/* MODE_EXTENSION because BuildRext() always builds one - without the
+	 * bit the driver ignores the extension block entirely, and with it
+	 * the superindex. MODE_LONGFN so that entries with names longer than
+	 * 31 characters are not thrown away by the directory pass that comes
+	 * after this rebuild; see BuildRext() for the size.
+	 */
 	rbl->options = MODE_HARDDISK | MODE_SPLITTED_ANODES | MODE_DIR_EXTENSION |
-			MODE_SIZEFIELD | MODE_DATESTAMP | MODE_EXTROVING;
+			MODE_SIZEFIELD | MODE_DATESTAMP | MODE_EXTROVING |
+			MODE_EXTENSION | MODE_LONGFN;
 
 #if LARGE_FILE_SIZE
 	rbl->options |= MODE_LARGEFILE;
 	rbl->disktype = ID_PFS2_DISK;
 #endif
 
-	rbl->disksize = volume.disksize;
+	/* the size field holds the partition size in native sectors, which
+	 * is what the driver stores and what CheckRootBlock() compares
+	 * against; volume.disksize counts logical blocks
+	 */
+	rbl->disksize = volume.fulldisksizenative;
 
+	/* Choose the reserved block size, and with it the format, the way
+	 * the driver does when it formats a volume: the anode index needs
+	 * superblocks past MAXSMALLDISK, and larger reserved blocks past the
+	 * 1K and 2K bitmap limits. Deciding this from rbl->disktype instead
+	 * could never do anything, because it is assigned ID_PFS_DISK a few
+	 * lines up - which left this able to rebuild only the pre-20.0
+	 * format, and to reject anything over 104GB outright.
+	 */
 	resblocksize = 1024;
-	if (rbl->disktype == ID_PFS2_DISK) {
-		if (volume.disksize > MAXDISKSIZE4K) {
-			adderror("Too large (>1.6TB) partition size");
-			return e_options_error;
-		}
+	if (volume.disksize > MAXSMALLDISK) {
+		rbl->options |= MODE_SUPERINDEX;
 		if (volume.disksize > MAXDISKSIZE1K) {
 			resblocksize = 2048;
 			if (volume.disksize > MAXDISKSIZE2K)
 				resblocksize = 4096;
 		}
-		if (volume.blocksize > resblocksize) {
-			resblocksize = volume.blocksize;	
+	}
+
+	/* a reserved block is never smaller than a logical block */
+	if (volume.blocksize > resblocksize) {
+		resblocksize = volume.blocksize;
+	}
+
+	/* reserved blocks over 1024 bytes, or logical blocks over 512, mean
+	 * the new on-disk format
+	 */
+	if (resblocksize > 1024 || volume.blocklogshift) {
+		rbl->disktype = ID_PFS2_DISK;
+	}
+
+	if (rbl->disktype == ID_PFS2_DISK) {
+		if (volume.disksize > MAXDISKSIZE4K) {
+			adderror("Too large (>1.6TB) partition size");
+			return e_options_error;
 		}
 	} else {
 		if (volume.disksize > MAXDISKSIZE1K) {
@@ -604,6 +667,13 @@ error_t BuildRext(c_extensionblock_t *rext)
 	r->id = EXTENSIONID;
 	r->datestamp = rbl->datestamp;
 	r->pfs2version = (17<<16) + 99;
+	/* MODE_LONGFN is set on the rebuilt rootblock, so this has to hold a
+	 * size the driver accepts (< FNSIZE) and pfsdoctor considers legal
+	 * (30..108). The original size cannot be recovered, so take the
+	 * largest one: a smaller value would make the directory pass delete
+	 * every entry whose name is longer than it.
+	 */
+	r->fnsize = FNSIZE - 1;
 	r->root_date[0] = time.ds_Days;
 	r->root_date[1] = time.ds_Minute;
 	r->root_date[2] = time.ds_Tick;
