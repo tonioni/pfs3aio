@@ -243,7 +243,7 @@ static error_t mainStandardScan(uint32 flags)
 
 	GetPFS2Revision(bericht);
 	volume.showmsg("Disk formatted with ");
-	volume.showmsg(bericht);
+	volume.showmsg("%s", bericht);
 	volume.showmsg("\n");
 
 	if (ss.info) {
@@ -257,7 +257,7 @@ static error_t mainStandardScan(uint32 flags)
 	{
 		stats.pass = ss.pass;
 		sprintf(bericht, "Starting pass %d\n", ss.pass);
-		volume.showmsg(bericht);
+		volume.showmsg("%s", bericht);
 		volume.updatestats();
 		if ((mode == check  || mode == info) && stats.numerrors > 0)
 			break;
@@ -779,7 +779,7 @@ static bool MakeMountFile(char *fname)
 		fprintf(mf, "\tBuffers        = 300\n");
 		fprintf(mf, "\tBufMemType     = %lu\n", volume.dosenvec->de_BufMemType);
 		fprintf(mf, "\tFlags          = %lu\n", volume.fssm->fssm_Flags);
-		fprintf(mf, "\tDosType        = %#lx\n", volume.dosenvec->de_DosType);
+		fprintf(mf, "\tDosType        = 0x%lx\n", volume.dosenvec->de_DosType);
 		fprintf(mf, "\tGlobVec        = -1\n");
 		fprintf(mf, "\tInterleave     = %ld\n", volume.dosenvec->de_Interleave);
 		fprintf(mf, "\tReserved       = 2\n");
@@ -791,7 +791,7 @@ static bool MakeMountFile(char *fname)
 		fprintf(mf, "\tPriority       = 10\n");
 		fprintf(mf, "\tStackSize      = 600\n");
 		fprintf(mf, "\tMaxTransfer    = %lu\n", volume.dosenvec->de_MaxTransfer);
-		fprintf(mf, "\tMask           = %#lx\n", volume.dosenvec->de_Mask);
+		fprintf(mf, "\tMask           = 0x%lx\n", volume.dosenvec->de_Mask);
 		fclose(mf);
 		return true;
 	}
@@ -866,7 +866,7 @@ static error_t CheckRootBlock(void)
 	strncpy (volume.diskname, (char *)&rbl->diskname[1], rbl->diskname[0]);
 	volume.diskname[rbl->diskname[0]+1] = 0;
 	volume.showmsg("Checking disk ");
-	volume.showmsg(volume.diskname);
+	volume.showmsg("%s", volume.diskname);
 	volume.showmsg("\n");
 	volume.showmsg("Option mask: %08lx\n", rbl->options);
 	volume.showmsg("Reserved blocksize: %lu\n", rbl->reserved_blksize);
@@ -1200,7 +1200,7 @@ static error_t RepairDeldir(void)
 					if (ss.verbose)
 					{
 						sprintf(bericht, "DELDIR %d\n", i);
-						volume.showmsg(bericht);
+						volume.showmsg("%s", bericht);
 					}
 
 					remove = false;
@@ -1493,8 +1493,8 @@ static void fixedfileerror(char *errortxt,...)
 	if (currentobject)
 	{
 		GetObjectName();
-		volume.showmsg(currentobject->objecttype);
-		volume.showmsg(objectname);
+		volume.showmsg("%s", currentobject->objecttype);
+		volume.showmsg("%s", objectname);
 		volume.showmsg("\n");
 	}
 	if (mode == check || mode == info)
@@ -1516,8 +1516,8 @@ static void addfileerror(char *errortxt,...)
 	if (currentobject)
 	{
 		GetObjectName();
-		volume.showmsg(currentobject->objecttype);
-		volume.showmsg(objectname);
+		volume.showmsg("%s", currentobject->objecttype);
+		volume.showmsg("%s", objectname);
 		volume.showmsg("\n");
 	}
 	adderror(txt);
@@ -1556,7 +1556,7 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 		if (ss.verbose)
 		{
 			volume.showmsg("DIR ");
-			volume.showmsg(currentobject->name);
+			volume.showmsg("%s", currentobject->name);
 			volume.showmsg("\n");
 		}
 
@@ -2988,7 +2988,7 @@ static error_t RepairAnodeBitmap(void)
 			{
 				if (ss.verbose)
 				{
-					sprintf(bericht, "Anode %#lx used but not allocated", anodenr);
+					sprintf(bericht, "Anode %lx used but not allocated", anodenr);
 					fixederror(bericht);
 				}
 
@@ -3005,7 +3005,7 @@ static error_t RepairAnodeBitmap(void)
 			{
 				if (ss.verbose)
 				{
-					sprintf(bericht, "Anode %#lx not used but allocated", anodenr);
+					sprintf(bericht, "Anode %lx not used but allocated", anodenr);
 					fixederror(bericht);
 				}
 
@@ -3078,7 +3078,7 @@ static error_t AnodeUsed(uint32 nr)
 		error = bg_ItemUsed(volume.anodebitmap, nr);
 		if (error == e_double_allocation)
 		{
-			sprintf(bericht, "Anode %#lx is double allocated", nr);
+			sprintf(bericht, "Anode %lx is double allocated", nr);
 			addfileerror(bericht);
 		}
 	}
