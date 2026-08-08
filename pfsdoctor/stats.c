@@ -57,7 +57,7 @@ void adderror(char *message, ...)
 		vsprintf(msgbuffer + strlen(msgbuffer), message, parms);
 		va_end(parms);
 		strcat(msgbuffer, "\n");
-		volume.showmsg(msgbuffer);
+		volume.showmsg("%s", msgbuffer);
 	}
 	volume.updatestats();
 } 
@@ -87,7 +87,7 @@ void fixederror(char *message, ...)
 		vsprintf(msgbuffer + strlen(msgbuffer), message, parms);
 		va_end(parms);
 		strcat(msgbuffer, "\n");
-		volume.showmsg(msgbuffer);
+		volume.showmsg("%s", msgbuffer);
 	}
 	else
 		volume.showmsg("FIXED\n");
