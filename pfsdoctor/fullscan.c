@@ -194,32 +194,56 @@ uint32 fs_AllocResBlock(void)
  */
 error_t Repartition(uint32 bloknr)
 {
-	rootblock_t *rbl;
+	rootblock_t *nrbl;			/* not the global rbl */
 	error_t error = e_none;
 
-	if (!(rbl = (rootblock_t *)AllocBufMem (MAXRESBLOCKSIZE)))
+	if (bloknr < ROOTBLOCK)
+		return e_syntax_error;
+
+	if (!(nrbl = (rootblock_t *)AllocBufMem (MAXRESBLOCKSIZE)))
 		return e_out_of_memory;
 
-	// read rootblock 
-	error = c_GetBlock ((uint8 *)rbl, ROOTBLOCK + volume.firstblock, volume.blocksize);
+	/* Read the rootblock this call is about. Reading the standard
+	 * location instead made the misplaced-rootblock path re-read the
+	 * block whose absence started the search, so it always failed the
+	 * check below - the one caller that passes a searched-for block
+	 * number was the one that could not work.
+	 */
+	error = c_GetBlock ((uint8 *)nrbl, bloknr, volume.blocksize);
 	if (error)
 		goto ret_error;
 
-	if (!IsRootBlock(rbl) || !rbl->disksize)
+	if (!IsRootBlock(nrbl) || !(nrbl->disksize >> volume.blocklogshift))
 	{
 		error = e_syntax_error;
 		goto ret_error;
 	}
 
+	/* the size field is in native sectors, the block numbers are in
+	 * logical blocks; treating one as the other redefined the volume
+	 * 2, 4 or 8 times too large on a >512 byte block volume, putting
+	 * lastblock - and with it every bounds check - past the end of the
+	 * partition
+	 */
 	volume.firstblock = bloknr - ROOTBLOCK;
-	volume.lastblock = volume.firstblock + rbl->disksize - 1;
-	volume.disksize = rbl->disksize;
-	volume.lastreserved = rbl->lastreserved;
+	volume.disksize = nrbl->disksize >> volume.blocklogshift;
+	volume.lastblock = volume.firstblock + volume.disksize - 1;
+
+	/* the volume is now described by this rootblock, so the native
+	 * values have to follow it rather than keep describing the RDB
+	 * partition that was just rejected
+	 */
+	volume.firstblocknative = volume.firstblock << volume.blocklogshift;
+	volume.lastblocknative = ((volume.lastblock + 1) << volume.blocklogshift) - 1;
+	volume.disksizenative = (volume.lastblock - volume.firstblock) << volume.blocklogshift;
+	volume.fulldisksizenative = nrbl->disksize;
+
+	volume.lastreserved = nrbl->lastreserved;
 	volume.repartitioned = true;
 
  ret_error:
 
-	FreeBufMem(rbl);
+	FreeBufMem(nrbl);
 	return error;
 }
 
