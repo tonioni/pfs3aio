@@ -243,7 +243,7 @@ static error_t mainStandardScan(uint32 flags)
 
 	GetPFS2Revision(bericht);
 	volume.showmsg("Disk formatted with ");
-	volume.showmsg(bericht);
+	volume.showmsg("%s", bericht);
 	volume.showmsg("\n");
 
 	if (ss.info) {
@@ -257,7 +257,7 @@ static error_t mainStandardScan(uint32 flags)
 	{
 		stats.pass = ss.pass;
 		sprintf(bericht, "Starting pass %d\n", ss.pass);
-		volume.showmsg(bericht);
+		volume.showmsg("%s", bericht);
 		volume.updatestats();
 		if ((mode == check  || mode == info) && stats.numerrors > 0)
 			break;
@@ -866,7 +866,7 @@ static error_t CheckRootBlock(void)
 	strncpy (volume.diskname, (char *)&rbl->diskname[1], rbl->diskname[0]);
 	volume.diskname[rbl->diskname[0]+1] = 0;
 	volume.showmsg("Checking disk ");
-	volume.showmsg(volume.diskname);
+	volume.showmsg("%s", volume.diskname);
 	volume.showmsg("\n");
 	volume.showmsg("Option mask: %08lx\n", rbl->options);
 	volume.showmsg("Reserved blocksize: %lu\n", rbl->reserved_blksize);
@@ -1200,7 +1200,7 @@ static error_t RepairDeldir(void)
 					if (ss.verbose)
 					{
 						sprintf(bericht, "DELDIR %d\n", i);
-						volume.showmsg(bericht);
+						volume.showmsg("%s", bericht);
 					}
 
 					remove = false;
@@ -1493,8 +1493,8 @@ static void fixedfileerror(char *errortxt,...)
 	if (currentobject)
 	{
 		GetObjectName();
-		volume.showmsg(currentobject->objecttype);
-		volume.showmsg(objectname);
+		volume.showmsg("%s", currentobject->objecttype);
+		volume.showmsg("%s", objectname);
 		volume.showmsg("\n");
 	}
 	if (mode == check || mode == info)
@@ -1516,8 +1516,8 @@ static void addfileerror(char *errortxt,...)
 	if (currentobject)
 	{
 		GetObjectName();
-		volume.showmsg(currentobject->objecttype);
-		volume.showmsg(objectname);
+		volume.showmsg("%s", currentobject->objecttype);
+		volume.showmsg("%s", objectname);
 		volume.showmsg("\n");
 	}
 	adderror(txt);
@@ -1556,7 +1556,7 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 		if (ss.verbose)
 		{
 			volume.showmsg("DIR ");
-			volume.showmsg(currentobject->name);
+			volume.showmsg("%s", currentobject->name);
 			volume.showmsg("\n");
 		}
 
