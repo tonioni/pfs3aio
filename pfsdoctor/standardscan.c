@@ -779,7 +779,7 @@ static bool MakeMountFile(char *fname)
 		fprintf(mf, "\tBuffers        = 300\n");
 		fprintf(mf, "\tBufMemType     = %lu\n", volume.dosenvec->de_BufMemType);
 		fprintf(mf, "\tFlags          = %lu\n", volume.fssm->fssm_Flags);
-		fprintf(mf, "\tDosType        = %#lx\n", volume.dosenvec->de_DosType);
+		fprintf(mf, "\tDosType        = 0x%lx\n", volume.dosenvec->de_DosType);
 		fprintf(mf, "\tGlobVec        = -1\n");
 		fprintf(mf, "\tInterleave     = %ld\n", volume.dosenvec->de_Interleave);
 		fprintf(mf, "\tReserved       = 2\n");
@@ -791,7 +791,7 @@ static bool MakeMountFile(char *fname)
 		fprintf(mf, "\tPriority       = 10\n");
 		fprintf(mf, "\tStackSize      = 600\n");
 		fprintf(mf, "\tMaxTransfer    = %lu\n", volume.dosenvec->de_MaxTransfer);
-		fprintf(mf, "\tMask           = %#lx\n", volume.dosenvec->de_Mask);
+		fprintf(mf, "\tMask           = 0x%lx\n", volume.dosenvec->de_Mask);
 		fclose(mf);
 		return true;
 	}
@@ -2988,7 +2988,7 @@ static error_t RepairAnodeBitmap(void)
 			{
 				if (ss.verbose)
 				{
-					sprintf(bericht, "Anode %#lx used but not allocated", anodenr);
+					sprintf(bericht, "Anode %lx used but not allocated", anodenr);
 					fixederror(bericht);
 				}
 
@@ -3005,7 +3005,7 @@ static error_t RepairAnodeBitmap(void)
 			{
 				if (ss.verbose)
 				{
-					sprintf(bericht, "Anode %#lx not used but allocated", anodenr);
+					sprintf(bericht, "Anode %lx not used but allocated", anodenr);
 					fixederror(bericht);
 				}
 
@@ -3078,7 +3078,7 @@ static error_t AnodeUsed(uint32 nr)
 		error = bg_ItemUsed(volume.anodebitmap, nr);
 		if (error == e_double_allocation)
 		{
-			sprintf(bericht, "Anode %#lx is double allocated", nr);
+			sprintf(bericht, "Anode %lx is double allocated", nr);
 			addfileerror(bericht);
 		}
 	}
