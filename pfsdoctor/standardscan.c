@@ -1631,6 +1631,26 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 	return e_none;
 }
 
+/* Is there a usable entry at 'de'? The entry chain is walked by adding
+ * de->next, a byte straight off the disk, so every step has to be checked
+ * against the end of the block: a corrupt chain used to walk off the end
+ * of the block buffer and get parsed, repaired and written from there.
+ * A zero 'next' is the end-of-chain marker and always 'fits'.
+ */
+static bool DirEntryFits(struct direntry *de, c_dirblock_t *blk)
+{
+	uint8 *base = (uint8 *)blk->data;
+	uint8 *end  = base + SIZEOF_RESBLOCK;
+	uint8 *p    = (uint8 *)de;
+
+	if (p < base + offsetof(dirblock_t, entries) || p >= end)
+		return false;
+	if (!de->next)
+		return true;
+	return (p + offsetof(struct direntry, startofname) <= end) &&
+		   (p + de->next <= end);
+}
+
 static error_t RepairDirBlock(uint32 bloknr, uint32 anodenr, uint32 parent)
 {
 	c_dirblock_t dirblk;
@@ -1655,7 +1675,7 @@ static error_t RepairDirBlock(uint32 bloknr, uint32 anodenr, uint32 parent)
 	
 	entry = (struct direntry *)dirblk.data->entries;
 
-	while (entry->next)
+	while (DirEntryFits(entry, &dirblk) && entry->next)
 	{
 		if ((error = RepairDirEntry(entry, &dirblk)))
 		{
@@ -1674,6 +1694,9 @@ static error_t RepairDirBlock(uint32 bloknr, uint32 anodenr, uint32 parent)
 		else
 			entry = NEXTENTRY(entry);
 	}
+
+	if (!DirEntryFits(entry, &dirblk))
+		addfileerror("Directory entry chain runs past the end of block %lu", bloknr);
 
 	/* has to be done after main check, because an empty block can
      * arise
@@ -1827,7 +1850,20 @@ static error_t RepairFile(struct direntry *de, c_dirblock_t *parent)
 	/* bitmap gen */
 	for (anodenr = de->anode; anodenr; anodenr = filenode.next)
 	{
-		GetAnode(&filenode, anodenr, true);
+		/* On failure filenode keeps the previous anode's contents, so
+		 * ignoring the result marked the previous file's blocks used a
+		 * second time and re-read the same anodenr forever. The bitmap
+		 * being generated here is incomplete either way: invalidate it
+		 * so it is regenerated, rather than writing one built from
+		 * stale data (or dropping the entry over a transient failure).
+		 */
+		if (!GetAnode(&filenode, anodenr, true))
+		{
+			InvalidBitmap(volume.mainbitmap);
+			InvalidBitmap(volume.anodebitmap);
+			return e_none;
+		}
+
 		if ((error = AnodeUsed(anodenr)))
 			break;
 
@@ -1956,19 +1992,29 @@ static error_t RepairRollover(struct direntry *de, c_dirblock_t *dirblok)
 
 static error_t RemoveDirEntry(struct direntry *de, c_dirblock_t *dirblk)
 {
-	uint8 *dest, *source;
-	uint32 movelen;
+	uint8 *dest, *source, *base, *end;
+	uint32 entrysize, movelen;
 
+	base = (uint8 *)dirblk->data;
+	end  = base + SIZEOF_RESBLOCK;
 	dest = (uint8 *)de;
-	source = dest + de->next;
-	movelen = ((uint8 *)(dirblk->data) + SIZEOF_RESBLOCK) - dest;
-	if (movelen > 0 && movelen < SIZEOF_RESBLOCK)
-	{
-		memmove(dest, source, movelen);
-		volume.writeblock((cachedblock_t *)dirblk);
-	}
-	else
+	entrysize = de->next;
+	source = dest + entrysize;
+
+	/* the entry has to lie entirely inside the block */
+	if (!entrysize || dest < base + offsetof(dirblock_t, entries) || source > end)
 		return e_fatal_error;
+
+	/* Move only what follows the entry. The old length was the distance
+	 * from the entry to the end of the block, which read 'entrysize'
+	 * bytes of heap past the buffer and wrote them into the tail of the
+	 * block. Clear the bytes the move vacates, so the chain keeps
+	 * terminating on a zero 'next' instead of on whatever was there.
+	 */
+	movelen = end - source;
+	memmove(dest, source, movelen);
+	memset(dest + movelen, 0, entrysize);
+	volume.writeblock((cachedblock_t *)dirblk);
 
 	return e_none;
 }
@@ -2193,7 +2239,7 @@ int SearchInDir(uint32 diranodenr, uint32 target)
 			break;
 
 		de = FIRSTENTRY(&dirblk);
-		while (de->next)
+		while (DirEntryFits(de, &dirblk) && de->next)
 		{
 			if (de->anode == target)
 			{

@@ -103,6 +103,17 @@ error_t GetResBlock(cachedblock_t *blok, uint16 bloktype, uint32 seqnr, bool fix
 
 		case BMIBLKID:
 
+			/* seqnr is derived from on-disk data and indexes a fixed
+			 * size array in the rootblock, so it must be range checked
+			 * like the SBLKID case above. Without this a corrupt seqnr
+			 * read (and, in fix mode, wrote) past the end of the array.
+			 */
+			if (seqnr > MAXBITMAPINDEX)
+			{
+				pfsfree (blk.data);
+				return e_number_error;
+			}
+
 			bp = &rbl->idx.large.bitmapindex[seqnr];
 			if (!*bp)
 			{
@@ -134,6 +145,13 @@ error_t GetResBlock(cachedblock_t *blok, uint16 bloktype, uint32 seqnr, bool fix
 			}
 			else
 			{
+				/* same range check as the driver's GetAnodeBlock() */
+				if (seqnr > MAXSMALLINDEXNR)
+				{
+					pfsfree (blk.data);
+					return e_number_error;
+				}
+
 				bp = &rbl->idx.small.indexblocks[seqnr];
 			}
 			if (!*bp)
@@ -243,7 +261,8 @@ bool GetAnode(canode_t *anode, uint32 anodenr, bool fix)
 		}
 	}
 
-	if (split->offset > ANODES_PER_BLOCK)
+	/* slot ANODES_PER_BLOCK is one past the last one in the block */
+	if (split->offset >= ANODES_PER_BLOCK)
 		return false;
 
 	anode->nr = anodenr;
@@ -264,7 +283,10 @@ bool SaveAnode(canode_t *anode, uint32 nr)
 	if (GetResBlock((cachedblock_t *)&ablk, ABLKID, split->seqnr, false))
 		return false;
 
-	if (split->offset > ANODES_PER_BLOCK)
+	/* slot ANODES_PER_BLOCK is one past the last one in the block: with
+	 * 4096 byte reserved blocks it lands exactly on the end of 'buffer'
+	 */
+	if (split->offset >= ANODES_PER_BLOCK)
 		return false;
 
 	ablk.data->nodes[split->offset].clustersize = anode->clustersize;
