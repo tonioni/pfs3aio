@@ -107,7 +107,14 @@ error_t AllocBuildBlocks(void)
 					break;
 
 				case IBLKID:
-					if (!(rbl->options & MODE_SUPERDELDIR))
+					/* MODE_SUPERINDEX, not MODE_SUPERDELDIR, decides
+					 * whether anode index blocks hang off a superblock
+					 * (cf. GetResBlock). Harmless while BuildRootBlock
+					 * set neither bit; with supermode rebuilt this would
+					 * store a superblock index in idx.small.indexblocks,
+					 * which overlaps idx.large.bitmapindex.
+					 */
+					if (!(rbl->options & MODE_SUPERINDEX))
 					{
 						rbl->idx.small.indexblocks[bbl->b.data->indexblock.seqnr] = blocknr;
 						c_WriteBlock((uint8 *)rbl, ROOTBLOCK + volume.firstblock, volume.blocksize);
@@ -248,29 +255,61 @@ error_t BuildRootBlock(rootblock_t *rbl)
 	DateStamp (&time);
 
 	rbl->disktype = ID_PFS_DISK;
+	/* MODE_EXTENSION because BuildRext() always builds one - without the
+	 * bit the driver ignores the extension block entirely, and with it
+	 * the superindex. MODE_LONGFN so that entries with names longer than
+	 * 31 characters are not thrown away by the directory pass that comes
+	 * after this rebuild; see BuildRext() for the size.
+	 */
 	rbl->options = MODE_HARDDISK | MODE_SPLITTED_ANODES | MODE_DIR_EXTENSION |
-			MODE_SIZEFIELD | MODE_DATESTAMP | MODE_EXTROVING;
+			MODE_SIZEFIELD | MODE_DATESTAMP | MODE_EXTROVING |
+			MODE_EXTENSION | MODE_LONGFN;
 
 #if LARGE_FILE_SIZE
 	rbl->options |= MODE_LARGEFILE;
 	rbl->disktype = ID_PFS2_DISK;
 #endif
 
-	rbl->disksize = volume.disksize;
+	/* the size field holds the partition size in native sectors, which
+	 * is what the driver stores and what CheckRootBlock() compares
+	 * against; volume.disksize counts logical blocks
+	 */
+	rbl->disksize = volume.fulldisksizenative;
 
+	/* Choose the reserved block size, and with it the format, the way
+	 * the driver does when it formats a volume: the anode index needs
+	 * superblocks past MAXSMALLDISK, and larger reserved blocks past the
+	 * 1K and 2K bitmap limits. Deciding this from rbl->disktype instead
+	 * could never do anything, because it is assigned ID_PFS_DISK a few
+	 * lines up - which left this able to rebuild only the pre-20.0
+	 * format, and to reject anything over 104GB outright.
+	 */
 	resblocksize = 1024;
-	if (rbl->disktype == ID_PFS2_DISK) {
-		if (volume.disksize > MAXDISKSIZE4K) {
-			adderror("Too large (>1.6TB) partition size");
-			return e_options_error;
-		}
+	if (volume.disksize > MAXSMALLDISK) {
+		rbl->options |= MODE_SUPERINDEX;
 		if (volume.disksize > MAXDISKSIZE1K) {
 			resblocksize = 2048;
 			if (volume.disksize > MAXDISKSIZE2K)
 				resblocksize = 4096;
 		}
-		if (volume.blocksize > resblocksize) {
-			resblocksize = volume.blocksize;	
+	}
+
+	/* a reserved block is never smaller than a logical block */
+	if (volume.blocksize > resblocksize) {
+		resblocksize = volume.blocksize;
+	}
+
+	/* reserved blocks over 1024 bytes, or logical blocks over 512, mean
+	 * the new on-disk format
+	 */
+	if (resblocksize > 1024 || volume.blocklogshift) {
+		rbl->disktype = ID_PFS2_DISK;
+	}
+
+	if (rbl->disktype == ID_PFS2_DISK) {
+		if (volume.disksize > MAXDISKSIZE4K) {
+			adderror("Too large (>1.6TB) partition size");
+			return e_options_error;
 		}
 	} else {
 		if (volume.disksize > MAXDISKSIZE1K) {
@@ -604,6 +643,13 @@ error_t BuildRext(c_extensionblock_t *rext)
 	r->id = EXTENSIONID;
 	r->datestamp = rbl->datestamp;
 	r->pfs2version = (17<<16) + 99;
+	/* MODE_LONGFN is set on the rebuilt rootblock, so this has to hold a
+	 * size the driver accepts (< FNSIZE) and pfsdoctor considers legal
+	 * (30..108). The original size cannot be recovered, so take the
+	 * largest one: a smaller value would make the directory pass delete
+	 * every entry whose name is longer than it.
+	 */
+	r->fnsize = FNSIZE - 1;
 	r->root_date[0] = time.ds_Days;
 	r->root_date[1] = time.ds_Minute;
 	r->root_date[2] = time.ds_Tick;
