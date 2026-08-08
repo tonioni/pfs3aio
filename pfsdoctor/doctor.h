@@ -221,6 +221,11 @@ extern bool aborting;
  */
 #define MAX_PASS			7
 
+/* ceiling on the computed anode chain bound, so the multiplication that
+ * derives it cannot overflow on a very large reserved area
+ */
+#define MAX_ANODE_CHAIN		0x01000000
+
 /* options for StandardScan() (flags)
  */
 #define SSF_CHECK	  		1		/* check consistency? */

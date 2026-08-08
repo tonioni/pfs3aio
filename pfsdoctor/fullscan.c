@@ -772,7 +772,8 @@ error_t BuildBitmapBlock(c_bitmapblock_t *blk, uint32 seqnr)
 		return e_out_of_memory;
 	}
 
-	memset (bmb, 0, volume.blocksize);
+	/* the buffer is SIZEOF_RESBLOCK, not one logical block */
+	memset (bmb, 0, SIZEOF_RESBLOCK);
 	memset (bbl, 0, sizeof(*bbl));
 
 	bmb->id = BMBLKID;
