@@ -113,6 +113,7 @@ static error_t GetExtraFields(struct extrafields *extrafields, struct direntry *
 static error_t SetExtraFields(struct extrafields *extrafields, struct direntry *from, c_dirblock_t *dirblk);
 static error_t RepairLinkChain(struct direntry *de, c_dirblock_t *dirblk);
 static error_t CheckAnode(canode_t *anode, uint32 nr, bool fix);
+static uint32 MaxAnodeChain(void);
 static error_t RepairAnodeTree(void);
 static error_t RepairBitmapTree(void);
 static error_t InitReservedBitmap(void);
@@ -883,14 +884,20 @@ static error_t CheckRootBlock(void)
 			if (volume.disksize > MAXDISKSIZE2K)
 				resblocksize = 4096;
 		}
-		if (volume.blocksize > resblocksize) {
-			resblocksize = volume.blocksize;	
-		}
 	} else {
 		if (volume.disksize > MAXDISKSIZE1K) {
 			adderror("Too large (>104GB) partition size");
 			return e_options_error;
 		}
+	}
+
+	/* A reserved block is always at least one logical block: rescluster
+	 * would otherwise be 0 and every division by it trap. Only a corrupt
+	 * disktype puts a volume with >1024 byte logical blocks through the
+	 * branch above, which is exactly the case that has to be survived.
+	 */
+	if (volume.blocksize > resblocksize) {
+		resblocksize = volume.blocksize;
 	}
 
 	if (rbl->reserved_blksize != resblocksize)
@@ -1340,6 +1347,7 @@ static bool dd_CheckBlock(uint32 bloknr, int seqnr)
 	c_deldirblock_t ddblk;
 	int i, ddnr;
 	int32 blocks;
+	uint32 guard;
 	canode_t delnode;
 	struct deldirentry *dde;
 	ULONG size, high;
@@ -1381,9 +1389,10 @@ static bool dd_CheckBlock(uint32 bloknr, int seqnr)
 		/* syntax fix */
 		if (ss.stage == syntax)
 		{
+			guard = MaxAnodeChain();
 			for (ddnr = dde->anodenr; ddnr; ddnr = delnode.next)
 			{
-				if (!GetAnode (&delnode, ddnr, false) || IsAnodeUsed(ddnr))
+				if (!guard-- || !GetAnode (&delnode, ddnr, false) || IsAnodeUsed(ddnr))
 				{
 					if (mode == check || mode == info)
 						adderror("Delfile anode error");
@@ -1417,9 +1426,15 @@ static bool dd_CheckBlock(uint32 bloknr, int seqnr)
 		if (!dde->anodenr)
 			continue;
 
+		guard = MaxAnodeChain();
 		for (ddnr = dde->anodenr; ddnr; ddnr = delnode.next)
 		{
-			GetAnode(&delnode, ddnr, false);
+			/* a failed read leaves delnode holding the previous anode,
+			 * so the same ddnr would be marked used over and over
+			 */
+			if (!guard-- || !GetAnode(&delnode, ddnr, false))
+				break;
+
 			/* mark anodes as used */
 			if (ss.stage <= anodebitmap)
 				AnodeUsed(ddnr);
@@ -1545,7 +1560,7 @@ static error_t RepairDirTree(void)
 
 static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 {
-	uint32 mainanodenr, anodenr, parentanodenr;
+	uint32 mainanodenr, anodenr, parentanodenr, guard;
 	canode_t dirnode;
 	error_t error = e_none;
 
@@ -1566,8 +1581,18 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 
 	parentanodenr = parent ? parent->data->anodenr : 0;
 	mainanodenr = de ? de->anode : ANODE_ROOTDIR;
+	guard = MaxAnodeChain();
 	for (anodenr = mainanodenr; anodenr; anodenr=dirnode.next)
 	{
+		/* AnodeUsed() below would report the revisit of a looping chain,
+		 * but its result is deliberately not acted on here
+		 */
+		if (!guard--)
+		{
+			addfileerror("Directory anode chain does not end");
+			return e_remove;
+		}
+
 		/* get anode */
 		if (!GetAnode(&dirnode, anodenr, true))
 			return e_remove;
@@ -1631,6 +1656,26 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 	return e_none;
 }
 
+/* Is there a usable entry at 'de'? The entry chain is walked by adding
+ * de->next, a byte straight off the disk, so every step has to be checked
+ * against the end of the block: a corrupt chain used to walk off the end
+ * of the block buffer and get parsed, repaired and written from there.
+ * A zero 'next' is the end-of-chain marker and always 'fits'.
+ */
+static bool DirEntryFits(struct direntry *de, c_dirblock_t *blk)
+{
+	uint8 *base = (uint8 *)blk->data;
+	uint8 *end  = base + SIZEOF_RESBLOCK;
+	uint8 *p    = (uint8 *)de;
+
+	if (p < base + offsetof(dirblock_t, entries) || p >= end)
+		return false;
+	if (!de->next)
+		return true;
+	return (p + offsetof(struct direntry, startofname) <= end) &&
+		   (p + de->next <= end);
+}
+
 static error_t RepairDirBlock(uint32 bloknr, uint32 anodenr, uint32 parent)
 {
 	c_dirblock_t dirblk;
@@ -1655,7 +1700,7 @@ static error_t RepairDirBlock(uint32 bloknr, uint32 anodenr, uint32 parent)
 	
 	entry = (struct direntry *)dirblk.data->entries;
 
-	while (entry->next)
+	while (DirEntryFits(entry, &dirblk) && entry->next)
 	{
 		if ((error = RepairDirEntry(entry, &dirblk)))
 		{
@@ -1674,6 +1719,9 @@ static error_t RepairDirBlock(uint32 bloknr, uint32 anodenr, uint32 parent)
 		else
 			entry = NEXTENTRY(entry);
 	}
+
+	if (!DirEntryFits(entry, &dirblk))
+		addfileerror("Directory entry chain runs past the end of block %lu", bloknr);
 
 	/* has to be done after main check, because an empty block can
      * arise
@@ -1786,7 +1834,7 @@ static error_t RepairFile(struct direntry *de, c_dirblock_t *parent)
 	struct extrafields extra;
 	canode_t filenode;
 	error_t error;
-	uint32 anodenr, bl;
+	uint32 anodenr, bl, guard;
 	ULONG size, high;
 
 	stats.numfiles++;
@@ -1805,8 +1853,15 @@ static error_t RepairFile(struct direntry *de, c_dirblock_t *parent)
 		}
 		
 		blokken = 0;
+		guard = MaxAnodeChain();
 		for (anodenr = de->anode; anodenr; anodenr = filenode.next)
 		{
+			if (!guard--)
+			{
+				addfileerror("File anode chain does not end");
+				return e_remove;
+			}
+
 			if ((error = CheckAnode(&filenode, anodenr, true)))
 				return e_remove;
 
@@ -1827,7 +1882,20 @@ static error_t RepairFile(struct direntry *de, c_dirblock_t *parent)
 	/* bitmap gen */
 	for (anodenr = de->anode; anodenr; anodenr = filenode.next)
 	{
-		GetAnode(&filenode, anodenr, true);
+		/* On failure filenode keeps the previous anode's contents, so
+		 * ignoring the result marked the previous file's blocks used a
+		 * second time and re-read the same anodenr forever. The bitmap
+		 * being generated here is incomplete either way: invalidate it
+		 * so it is regenerated, rather than writing one built from
+		 * stale data (or dropping the entry over a transient failure).
+		 */
+		if (!GetAnode(&filenode, anodenr, true))
+		{
+			InvalidBitmap(volume.mainbitmap);
+			InvalidBitmap(volume.anodebitmap);
+			return e_none;
+		}
+
 		if ((error = AnodeUsed(anodenr)))
 			break;
 
@@ -1954,21 +2022,54 @@ static error_t RepairRollover(struct direntry *de, c_dirblock_t *dirblok)
  * Helper functions
  */
 
+/* Upper bound on the length of an anode chain: a chain cannot have more
+ * links than there are anodes in the reserved area. Used to break out of
+ * a chain that loops back on itself, which would otherwise be walked
+ * forever - the chain walks have no CTRL-C check either.
+ */
+static uint32 MaxAnodeChain(void)
+{
+	uint32 blocks, perblock;
+
+	if (!rbl || !volume.rescluster || rbl->lastreserved < rbl->firstreserved)
+		return 1;
+
+	perblock = ANODES_PER_BLOCK;
+	if (!perblock)
+		return 1;
+
+	blocks = (rbl->lastreserved - rbl->firstreserved + 1) / volume.rescluster;
+	if (blocks > MAX_ANODE_CHAIN / perblock)
+		return MAX_ANODE_CHAIN;
+
+	return blocks * perblock;
+}
+
 static error_t RemoveDirEntry(struct direntry *de, c_dirblock_t *dirblk)
 {
-	uint8 *dest, *source;
-	uint32 movelen;
+	uint8 *dest, *source, *base, *end;
+	uint32 entrysize, movelen;
 
+	base = (uint8 *)dirblk->data;
+	end  = base + SIZEOF_RESBLOCK;
 	dest = (uint8 *)de;
-	source = dest + de->next;
-	movelen = ((uint8 *)(dirblk->data) + SIZEOF_RESBLOCK) - dest;
-	if (movelen > 0 && movelen < SIZEOF_RESBLOCK)
-	{
-		memmove(dest, source, movelen);
-		volume.writeblock((cachedblock_t *)dirblk);
-	}
-	else
+	entrysize = de->next;
+	source = dest + entrysize;
+
+	/* the entry has to lie entirely inside the block */
+	if (!entrysize || dest < base + offsetof(dirblock_t, entries) || source > end)
 		return e_fatal_error;
+
+	/* Move only what follows the entry. The old length was the distance
+	 * from the entry to the end of the block, which read 'entrysize'
+	 * bytes of heap past the buffer and wrote them into the tail of the
+	 * block. Clear the bytes the move vacates, so the chain keeps
+	 * terminating on a zero 'next' instead of on whatever was there.
+	 */
+	movelen = end - source;
+	memmove(dest, source, movelen);
+	memset(dest + movelen, 0, entrysize);
+	volume.writeblock((cachedblock_t *)dirblk);
 
 	return e_none;
 }
@@ -1979,7 +2080,7 @@ static error_t RemoveDirEntry(struct direntry *de, c_dirblock_t *dirblk)
 static error_t DeleteAnode(uint32 anodechain, uint32 node)
 {
 	canode_t prev_node, next_node;
-	uint32 previous;
+	uint32 previous, guard;
 
 	/* node is head */
 	if (anodechain == node)
@@ -1996,8 +2097,15 @@ static error_t DeleteAnode(uint32 anodechain, uint32 node)
 	{
 		/* find previous */
 		previous = anodechain;
+		guard = MaxAnodeChain();
 		while (true)
 		{
+			/* a chain that does not contain 'node', or loops, used to
+			 * be walked forever (a zero 'next' re-read anode 0)
+			 */
+			if (!previous || !guard--)
+				return e_anode_error;
+
 			if (!GetAnode(&prev_node, previous, false))
 				return e_anode_error;
 
@@ -2113,7 +2221,7 @@ static error_t RepairLinkChain(struct direntry *de, c_dirblock_t *dirblk)
 	struct extrafields extra;
 	canode_t linknode;
 	error_t error;
-	uint32 parent;
+	uint32 parent, guard;
 
 	/* check extra fields */
 	if ((error = GetExtraFields(&extra, de)))
@@ -2127,8 +2235,15 @@ static error_t RepairLinkChain(struct direntry *de, c_dirblock_t *dirblk)
 		return e_anode_error;
 
 	parent = dirblk->data->anodenr;
+	guard = MaxAnodeChain();
 	for (;;)
 	{
+		if (!guard--)
+		{
+			addfileerror("Hardlink chain does not end");
+			return e_anode_error;
+		}
+
 		// check objectdir (clustersize) against actual objectdir
 		if (linknode.clustersize != parent)
 		{
@@ -2180,20 +2295,22 @@ int SearchInDir(uint32 diranodenr, uint32 target)
 	c_dirblock_t dirblk;
 	struct direntry *de;
 	error_t error = e_none;
+	uint32 guard;
 	int ftype;
 
 	/* Get directory and find object */
 	dirblk.data = pfscalloc(1, SIZEOF_RESBLOCK);
+	guard = MaxAnodeChain();
 	while (error == e_none && diranodenr)
 	{
-		if (!GetAnode(&anode, diranodenr, false))
+		if (!guard-- || !GetAnode(&anode, diranodenr, false))
 			break;
 		
 		if ((error = volume.getblock((cachedblock_t *)&dirblk, anode.blocknr)) || aborting)
 			break;
 
 		de = FIRSTENTRY(&dirblk);
-		while (de->next)
+		while (DirEntryFits(de, &dirblk) && de->next)
 		{
 			if (de->anode == target)
 			{
