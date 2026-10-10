@@ -583,7 +583,7 @@ static error_t GetRootBlock(void)
 	bool ok = false;
 
 	enterblock(ROOTBLOCK);
-	volume.showmsg("Checking rootblock\n");
+	volume.showmsg("Checking rootblock %lu\n", (ROOTBLOCK + volume.firstblock) << volume.blocklogshift);
 	if (rbl)
 		FreeBufMem(rbl);
 
@@ -609,7 +609,8 @@ static error_t GetRootBlock(void)
 		{
 			if (IsRootBlock(rbl))
 			{
-				volume.showmsg("Rootblock found using 512 block size (block size was %lu)\n", volume.blocksize << volume.blocklogshift);
+				volume.showmsg("Rootblock %lu found using 512 block size (block size was %lu)\n",
+					ROOTBLOCK + volume.firstblocknative, volume.blocksize << volume.blocklogshift);
 				ULONG cylsectors = volume.dosenvec->de_Surfaces * volume.dosenvec->de_BlocksPerTrack;
 				volume.blocklogshift = 0;
 				volume.firstblocknative = volume.dosenvec->de_LowCyl * cylsectors;
