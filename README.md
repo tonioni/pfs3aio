@@ -37,3 +37,14 @@ filesystem version in `versionhistory.doc`.
 https://aminet.net/disk/misc/pfs3aio.readme
 Its version and archive contents have been adapted for these builds. Review
 the uploader details and add release-specific changes before a release.
+
+## GitHub Actions
+
+CI builds the handler and LHA on branch pushes and pull requests, runs the
+native regression tests, and uploads both the handler and distribution pair
+as workflow artifacts. The build uses Stefan Reinauer's m68k-amigaos-gcc
+13.4 container (`stefanreinauer/amiga-gcc:gcc-v13.4`).
+
+Pushing a `v*` or `release_*` tag runs the same build and tests, then creates
+a **draft** GitHub release with the LHA and matching Aminet readme. Review
+the assets and generated release notes before publishing it.
