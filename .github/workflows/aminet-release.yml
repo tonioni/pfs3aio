@@ -1,0 +1,76 @@
+name: Publish Aminet release
+
+# Draft creation never uploads to Aminet. Publishing is the approval step.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published release tag to upload to Aminet
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aminet-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Upload reviewed assets to Aminet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Prereleases are for testing, not public Aminet distribution.
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Validate tag and published release
+        run: |
+          set -eu
+          case "$RELEASE_TAG" in
+            v[0-9]*|release_[0-9]*) ;;
+            *) echo "Expected a version tag: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          version="${RELEASE_TAG#release_}"
+          version="${version#v}"
+          case "$version" in
+            *[!A-Za-z0-9._+-]*) echo "Invalid version: $version" >&2; exit 1 ;;
+          esac
+          state=$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq '[.isDraft, .isPrerelease] | any')
+          if [ "$state" != false ]; then
+            echo "Only published, non-prerelease releases may be uploaded" >&2
+            exit 1
+          fi
+          printf 'PACKAGE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+
+      - name: Download the reviewed archive and readme
+        run: |
+          set -eu
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --dir dist \
+            --pattern "pfs3aio_${PACKAGE_VERSION}.lha" \
+            --pattern "pfs3aio_${PACKAGE_VERSION}.readme"
+          # Keep the established Aminet package name rather than creating a
+          # separate Aminet entry for each release. Contents stay unchanged.
+          mv "dist/pfs3aio_${PACKAGE_VERSION}.lha" dist/pfs3aio.lha
+          mv "dist/pfs3aio_${PACKAGE_VERSION}.readme" dist/pfs3aio.readme
+
+      - name: Upload to Aminet
+        id: aminet
+        uses: sidick/aminet-release-action@v1
+        with:
+          filename: dist/pfs3aio.lha
+          readme: dist/pfs3aio.readme
+          category: disk/misc
+
+      - name: Require successful upload
+        env:
+          UPLOADED: ${{ steps.aminet.outputs.uploaded }}
+        run: test "$UPLOADED" = true
