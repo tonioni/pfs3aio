@@ -4,6 +4,13 @@ NOWTIME := "\"$(shell date "+%T")\""
 .DEFAULT_GOAL := all
 
 CC=/opt/amiga/bin/m68k-amigaos-gcc
+LHA ?= lha
+
+# Distribution version only; the handler's ABI version remains in
+# versionhistory.doc. Full history is needed for untagged CI builds.
+FULL_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null | sed -e 's/^release_//' -e 's/^v//')
+export FULL_VERSION
+DISTDIR := dist
 
 LIBS=-nostdlib -lamiga -lgcc -lnix13 -lnix -s
 
@@ -34,7 +41,7 @@ MISSING_DEPS = $(foreach obj,$(C_OBJS),$(if $(wildcard $(obj:.o=.d)),,$(obj)))
 
 -include $(C_OBJS:.o=.d)
 
-.PHONY: all force-deps
+.PHONY: all lha check clean force-deps
 $(MISSING_DEPS): force-deps
 force-deps:
 
@@ -42,6 +49,39 @@ all: pfs3aio
 
 pfs3aio: $(OBJS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
+
+$(OBJS): makefile
+
+check:
+	zsh tests/live/run.sh
+
+# Build in a fresh staging directory, so repeated invocations cannot retain
+# obsolete files in an existing archive. Only publish a CRC-checked archive.
+lha: pfs3aio dist.readme.in
+	@set -eu; \
+	version="$$FULL_VERSION"; \
+	case "$$version" in \
+	  ''|*[!A-Za-z0-9._+-]*) echo "Invalid FULL_VERSION: $$version" >&2; exit 1;; \
+	esac; \
+	mkdir -p $(DISTDIR); \
+	stage=$$(mktemp -d "$(DISTDIR)/.lha.XXXXXX"); \
+	trap 'rm -rf "$$stage"' EXIT HUP INT TERM; \
+	package="pfs3aio_$$version"; \
+	mkdir "$$stage/$$package"; \
+	cp -p pfs3aio LICENSE versionhistory.doc "$$stage/$$package/"; \
+	sed "s/@VERSION@/$$version/g" dist.readme.in > "$$stage/$$package.readme"; \
+	cp "$$stage/$$package.readme" "$$stage/$$package/pfs3aio.readme"; \
+	{ printf 'pfs3aio build %s\n' "$$version"; \
+	  git rev-parse HEAD 2>/dev/null || printf 'Source revision unavailable\n'; \
+	  $(CC) --version | head -n 1; \
+	} > "$$stage/$$package/Build.txt"; \
+	(cd "$$stage" && $(LHA) co5 "$$package.lha" "$$package"); \
+	$(LHA) t "$$stage/$$package.lha"; \
+	mv "$$stage/$$package.lha" "$(DISTDIR)/$$package.lha"; \
+	mv "$$stage/$$package.readme" "$(DISTDIR)/$$package.readme"
+
+clean:
+	$(RM) $(OBJS) pfs3aio
 
 startup.o: startup.s
 	$(CC) $(CFLAGS) -I. -c -o $@ startup.s
