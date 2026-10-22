@@ -48,3 +48,12 @@ as workflow artifacts. The build uses Stefan Reinauer's m68k-amigaos-gcc
 Pushing a `v*` or `release_*` tag runs the same build and tests, then creates
 a **draft** GitHub release with the LHA and matching Aminet readme. Review
 the assets and generated release notes before publishing it.
+
+Publishing a non-prerelease GitHub release triggers the Aminet workflow.
+It downloads the reviewed LHA and readme from that release (no rebuild),
+renames the pair to the established `pfs3aio.lha` / `pfs3aio.readme` names,
+and uploads them to `disk/misc` using the same Aminet action as ODFileSystem.
+The uploader email comes from the readme; no FTP credentials are required.
+Drafts and prereleases are not uploaded. A manual workflow dispatch can
+retry an existing published release by tag; it refuses drafts/prereleases.
+No workflow uploads anything merely because CI succeeds.
