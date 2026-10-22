@@ -518,6 +518,7 @@ struct globaldata
 	struct IOExtTD  *handlrequest;      /* copy of request for diskchangehndl   */
 	struct MsgPort  *timeport;
 	struct timerequest *trequest;
+	struct timerequest *flushrequest;    /* independent writeback deadline        */
 	struct MsgPort  *notifyport;        /* the replies to notification msgs come here */
 	struct MsgPort  *sleepport;         /* for update anode and unsleep packets */
 	struct DosPacket *action;           /* the current handled dospacket        */
@@ -566,6 +567,7 @@ struct globaldata
 	BOOL newvolumepending;              /* Pending NewValue(TRUE, g);           */
 	BOOL dirty;                         /* Global dirty flag                    */
 	BOOL timeron;                       /* change is being timed                */
+	BOOL flushtimeron;                  /* writeback deadline is outstanding    */
 	BOOL postpone;                      /* repeat timer when finished           */
 	BOOL removable;                     /* Is volume removable?                 */
 	BOOL trackdisk;                     /* Is the device trackdisk?             */

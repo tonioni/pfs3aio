@@ -191,6 +191,8 @@ CONST struct muExtOwner NOBODY = {0,0,0};
 
 /* proto */
 static void SetTimer(int, globaldata *);
+static void HandleTimer(globaldata *);
+static void CloseTimer(struct timerequest *, BOOL, globaldata *);
 
 #if MULTIUSER
 static BOOL FindInLibraryList (CONST_STRPTR, globaldata *);
@@ -374,46 +376,7 @@ void SAVEDS EntryPoint (void)
 		}
 #endif
 
-		if (signal & timesig)
-		{
-			if ((msg = GetMsg(g->timeport)))
-			{
-				if (g->inhibitcount == 0)
-				{
-					/* postpone until timeoutcounter 'timeout' is 0 */
-					if (g->timeout)
-					{
-						SetTimer(700000, g);
-						g->timeout--;
-					}
-					else
-					{
-						struct idlehandle *idle;
-						/* don't retry while soft protected: the volume
-						 * stays dirty and is flushed when the
-						 * protection is lifted (this avoids a
-						 * permanent 5 Hz retry loop)
-						 */
-						if (g->dirty && !g->softprotect)
-						{
-							/* Update disk but wait with turning out motor */
-							UpdateDisk(g);
-							SetTimer(200000, g);
-							for (idle = HeadOf(&g->idlelist); idle->next; idle = idle->next)
-								Signal (idle->task, 1L<<idle->dirtysignal);
-						}
-						else
-						{
-							UpdateAndMotorOff(g);
-							g->timeron = FALSE;
-							for (idle = HeadOf(&g->idlelist); idle->next; idle = idle->next)
-								Signal (idle->task, 1L<<idle->cleansignal);
-
-						}
-					}
-				}
-			}
-		}
+		HandleTimer(g);
 
 		if (signal & dossig)
 		{
@@ -443,13 +406,6 @@ void SAVEDS EntryPoint (void)
 					muFreeExtOwner (g->user);
 #endif  
 
-				if (!g->timeron && (g->timeout || g->dirty))
-				{
-					/* set timer for first period (always extended) */
-					SetTimer(200000, g);
-					g->timeron = TRUE;
-				}
-
 				if (g->dieing) {
 					CheckUpdate (RTBF_CHECK_TH, g);
 					if (pkt->dp_Type == ACTION_DIE)
@@ -459,6 +415,10 @@ void SAVEDS EntryPoint (void)
 	
 				ReturnPacket (pkt, msgport, g);
 				CheckUpdate (RTBF_CHECK_TH, g);
+				/* A permanently nonempty DOS queue must not starve timer
+				 * replies. Blocks are unlocked and the packet is complete.
+				 */
+				HandleTimer(g);
 			}
 		}
 
@@ -548,6 +508,103 @@ static void SetTimer (int micros, globaldata *g)
 	g->trequest->tr_time.tv_secs     = 0;
 	g->trequest->tr_time.tv_micro    = micros;
 	SendIO ((struct IORequest *)g->trequest);
+	g->timeron = TRUE;
+}
+
+static void CloseTimer(struct timerequest *request, BOOL pending, globaldata *g)
+{
+	(void)g; /* Used by the Exec/KS wrapper macros. */
+	if (!request)
+		return;
+	if (request->tr_node.io_Device)
+	{
+		/* An opened request need not have been submitted: initialization
+		 * can fail while allocating the second timer. Never wait on an
+		 * unsent request, or free one whose completion is still queued.
+		 */
+		if (pending)
+		{
+			if (!CheckIO((struct IORequest *)request))
+				AbortIO((struct IORequest *)request);
+			WaitIO((struct IORequest *)request);
+		}
+		CloseDevice((struct IORequest *)request);
+	}
+	DeleteIORequest((struct IORequest *)request);
+}
+
+/* Service both relative timers at packet boundaries. The activity timeout
+ * still controls idle writeback and motor-off, but a dirty volume also gets
+ * a five-second deadline that no subsequent DOS packet can postpone. Relative
+ * UNIT_VBLANK requests are unaffected by changes to the system clock.
+ */
+static void HandleTimer(globaldata *g)
+{
+	struct Message *msg;
+	struct idlehandle *idle;
+	BOOL idle_expired = FALSE, flush_expired = FALSE, updated = FALSE;
+
+	/* Drain replies before rearming either request. Both can complete while
+	 * a packet is running, and they share a signal bit and reply port.
+	 */
+	while ((msg = GetMsg(g->timeport)))
+	{
+		if (msg == (struct Message *)g->trequest)
+		{
+			g->timeron = FALSE;
+			idle_expired = TRUE;
+		}
+		else if (msg == (struct Message *)g->flushrequest)
+		{
+			g->flushtimeron = FALSE;
+			flush_expired = TRUE;
+		}
+	}
+
+	if (g->inhibitcount)
+		return;
+
+	if (g->dirty && !g->softprotect &&
+		(flush_expired || (idle_expired && !g->timeout)))
+	{
+		UpdateDisk(g);
+		updated = TRUE;
+		for (idle = HeadOf(&g->idlelist); idle->next; idle = idle->next)
+			Signal(idle->task, 1L << idle->dirtysignal);
+	}
+
+	if (idle_expired)
+	{
+		if (g->timeout)
+		{
+			g->timeout--;
+			SetTimer(700000, g);
+		}
+		else if (updated)
+			SetTimer(200000, g);
+		else
+		{
+			UpdateAndMotorOff(g);
+			for (idle = HeadOf(&g->idlelist); idle->next; idle = idle->next)
+				Signal(idle->task, 1L << idle->cleansignal);
+		}
+	}
+
+	/* Preserve failed writes as dirty and retry, but never repeatedly arm a
+	 * deadline while soft protected. Unprotecting resumes scheduling here.
+	 * A deadline left over after an early commit may flush a later batch
+	 * sooner; it can never make that batch wait longer than five seconds.
+	 */
+	if (g->dirty && !g->softprotect && !g->flushtimeron)
+	{
+		g->flushrequest->tr_node.io_Command = TR_ADDREQUEST;
+		g->flushrequest->tr_time.tv_secs = 5;
+		g->flushrequest->tr_time.tv_micro = 0;
+		SendIO((struct IORequest *)g->flushrequest);
+		g->flushtimeron = TRUE;
+	}
+	if (!g->timeron && (g->timeout || (g->dirty && !g->softprotect)))
+		SetTimer(200000, g);
 }
 
 #if MULTIUSER
@@ -645,13 +702,8 @@ static void Quit (globaldata *g)
 
 	/* cleanup timer device (OK) */
 	/* FreeSignal wil even niet..(signalnr!) */
-	if (g->trequest) {
-		if(!(CheckIO((struct IORequest *)g->trequest)))
-			AbortIO((struct IORequest *)g->trequest);
-		WaitIO((struct IORequest *)g->trequest);
-		CloseDevice((struct IORequest *)g->trequest);
-	}
-	DeleteIORequest((struct IORequest *)g->trequest);
+	CloseTimer(g->flushrequest, g->flushtimeron, g);
+	CloseTimer(g->trequest, g->timeron, g);
 	DeleteMsgPort(g->timeport);
 
 	/* clean up device */

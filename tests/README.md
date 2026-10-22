@@ -26,6 +26,7 @@ apply the fixes and they pass. Covered:
 | `ds_maxtransfer_live.c` | DirectSCSI maxtransfer in native sectors (a 16 KiB MaxTransfer with 4 KB blocks no longer rounds to 0) |
 | `freeanode_live.c`      | FreeAnode marks the correct anodeblock in non-split mode |
 | `update_cleanup_live.c` | Deferred reserved frees are persisted by a root-only write after the primary commit |
+| `writeback_live.c` | Relative writeback deadline survives one-second reads and continuous packet traffic; idle flushing, retries and inhibit remain safe |
 
 Not covered by a live test: fixes that are one-liners inside large functions
 (e.g. the `numblocks` formula in `NewVolume`) or that are inseparable from the
@@ -50,7 +51,27 @@ zsh tests/run.sh --driver /path/to/pfs3aio
 
 Requires `amifuse` (+ `rdbtool`) on PATH and a built driver. `fi.py` is the
 fault-injection / crash harness the suite drives; see its docstring for the
-`FI_*` knobs.
+`FI_*` knobs. `timer_device.py` gives the vamos timer stub deferred completion
+using the host's monotonic clock, instead of expiring requests immediately.
+
+## timer writeback regression
+
+```sh
+python3 tests/writeback.py --image /path/to/pfs.hdf --driver ./pfs3aio
+```
+
+This uses the real compiled m68k handler with a deferred timer.device shim.
+It creates a small file, opens/reads/closes `foo.md` once per simulated second,
+and snapshots the image after six seconds while the writer is still mounted.
+Reopening that snapshot must recover the complete new file without relying on
+an explicit flush or the writer's shutdown. The same test fails on the driver
+without the independent writeback deadline. Use `--read-file` for fixtures
+with a different existing file. All image changes are confined to temporary
+copies. The native `live/` test additionally exercises continuous read/write
+traffic, failed commits, soft protection, inhibit and simultaneous replies.
+Pass `--continuous-writes` to keep a larger file open and write chunks across
+deadline expirations, or `--real-time` to use elapsed host time instead of the
+virtual clock.
 
 ## everything
 
