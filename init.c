@@ -280,6 +280,21 @@ Removed because of problems with Phase 5 boards
 	if (!OpenTimerDevice(&g->timeport, &g->trequest, UNIT_VBLANK, g) )
 		return FALSE;
 
+	/* Use the same reply port, but a separate relative timer: ordinary disk
+	 * activity may extend the motor timeout, never the writeback deadline.
+	 */
+	g->flushrequest = (struct timerequest *)
+		CreateIORequest(g->timeport, sizeof(struct timerequest));
+	if (!g->flushrequest)
+		return FALSE;
+	if (OpenDevice(TIMERNAME, UNIT_VBLANK,
+		(struct IORequest *)g->flushrequest, 0))
+	{
+		DeleteIORequest((struct IORequest *)g->flushrequest);
+		g->flushrequest = NULL;
+		return FALSE;
+	}
+
 	g->removable = TestRemovability(g);
 	if(g->removable)
 		InstallDiskChangeHandler(g);

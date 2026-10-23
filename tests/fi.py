@@ -26,6 +26,16 @@ and, on a simulated crash / uncaught exception:
 """
 import os
 import sys
+from contextlib import ExitStack
+
+from timer_device import DeferredTimers
+
+# Immediate timer replies are not valid hardware behaviour: servicing them
+# between packets would expire a five-second deadline on the next packet.
+# Pump deferred replies at GetMsg boundaries using a monotonic host clock.
+_timer_patches = ExitStack()
+_timers = DeferredTimers()
+_timers.install(_timer_patches, real_time=True)
 
 FI_CMD    = os.environ.get("FI_CMD", "none")
 FI_LO     = int(os.environ.get("FI_LO", "0"))
