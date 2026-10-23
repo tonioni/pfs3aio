@@ -1,0 +1,74 @@
+name: pfs3aio CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-tag:
+        description: Exact version tag for a release build
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Native regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install test shell
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Run live-source tests
+        run: make check
+
+  build:
+    name: Build handler and LHA
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mark checkout as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build distribution
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          set -eu
+          if [ -n "$RELEASE_TAG" ]; then
+            version="${RELEASE_TAG#release_}"
+            version="${version#v}"
+            make -j2 lha FULL_VERSION="$version"
+          else
+            make -j2 lha
+          fi
+
+      - name: Upload handler
+        uses: actions/upload-artifact@v6
+        with:
+          name: pfs3aio-handler
+          path: pfs3aio
+          if-no-files-found: error
+
+      - name: Upload distribution
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-artifacts
+          path: |
+            dist/*.lha
+            dist/*.readme
+          if-no-files-found: error
