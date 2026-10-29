@@ -10,7 +10,7 @@
 #
 # Why each flag and each gap: TOOLCHAINS.md, "Target CPU: 68060".
 
-TIERS = 000 020 030 040 060 080 080a
+TIERS = 000 020 030 040 060 080 080a 000l 020l 030l 040l 060l 080l
 
 # gcc -m flag. Only 080a takes the line-A group, which most cores alert
 # 8000000A on; -mtune=68080 gives the rest of what the core adds.
@@ -21,6 +21,12 @@ TIER_CFLAGS_040 = -m68020-40
 TIER_CFLAGS_060 = -m68060
 TIER_CFLAGS_080 = -m68060 -mtune=68080 -Wa,-m68080
 TIER_CFLAGS_080a = -m68080
+TIER_CFLAGS_000l = -m68000
+TIER_CFLAGS_020l = -m68020-60
+TIER_CFLAGS_030l = -m68030
+TIER_CFLAGS_040l = -m68020-40
+TIER_CFLAGS_060l = -m68060
+TIER_CFLAGS_080l = -m68060 -mtune=68080 -Wa,-m68080
 
 # vbcc -cpu= value: the nearest plain CPU, since vbcc takes no combined ones.
 # Every vbcc build is 68060 safe whatever this says.
@@ -29,10 +35,17 @@ TIER_VBCPU_020 = 68020
 TIER_VBCPU_030 = 68030
 TIER_VBCPU_040 = 68040
 TIER_VBCPU_060 = 68060
+TIER_VBCPU_000l = 68000
+TIER_VBCPU_020l = 68020
+TIER_VBCPU_030l = 68030
+TIER_VBCPU_040l = 68040
+TIER_VBCPU_060l = 68060
 
 # Toolchains that cannot build a given build, space separated.
 #   gcc6: its -m68020-60 is not 68060 safe, unlike 13.4 and later
 #   vbcc: generates the same code for 020, 030 and 060
+#   l tiers: vbcc_fastcall.s forwards no 64 bit helpers, @_rshsint64 stays
+#          undefined
 #   080:   only gcc 6.5 has -m68080 and -mtune=68080; vbcc -cpu=68080 is its
 #          68060 code
 TIER_SKIP_020 = gcc6
@@ -41,6 +54,12 @@ TIER_SKIP_040 = vbcc
 TIER_SKIP_060 = vbcc
 TIER_SKIP_080 = gcc13 gcc15 gcc16 vbcc
 TIER_SKIP_080a = gcc13 gcc15 gcc16 vbcc
+TIER_SKIP_000l = vbcc
+TIER_SKIP_020l = gcc6 vbcc
+TIER_SKIP_030l = vbcc
+TIER_SKIP_040l = vbcc
+TIER_SKIP_060l = vbcc
+TIER_SKIP_080l = gcc13 gcc15 gcc16 vbcc
 
 # Lowest CPU the build runs on, so a harness knows which emulated CPU can run
 # it.
@@ -51,6 +70,12 @@ TIER_MINCPU_040 = 68020
 TIER_MINCPU_060 = 68020
 TIER_MINCPU_080 = 68080
 TIER_MINCPU_080a = 68080
+TIER_MINCPU_000l = 68000
+TIER_MINCPU_020l = 68020
+TIER_MINCPU_030l = 68020
+TIER_MINCPU_040l = 68020
+TIER_MINCPU_060l = 68020
+TIER_MINCPU_080l = 68080
 
 # Highest CPU the build runs on. Only those reaching 68060 are scanned by
 # tests/check68060.sh.
@@ -61,6 +86,12 @@ TIER_MAXCPU_040 = 68040
 TIER_MAXCPU_060 = 68060
 TIER_MAXCPU_080 = 68080
 TIER_MAXCPU_080a = 68080
+TIER_MAXCPU_000l = 68060
+TIER_MAXCPU_020l = 68060
+TIER_MAXCPU_030l = 68040
+TIER_MAXCPU_040l = 68040
+TIER_MAXCPU_060l = 68060
+TIER_MAXCPU_080l = 68080
 
 # Bracketed after the "runs on" column of the release table, where MINCPU and
 # MAXCPU alone cannot tell two builds for the same CPU apart. A note holds for
@@ -69,10 +100,28 @@ TIER_MAXCPU_080a = 68080
 TIER_NOTE_080 = no Line-A
 TIER_NOTE_SINCE_080 = 20260913-1
 TIER_NOTE_080a = with Line-A
+TIER_NOTE_080l = no Line-A
 
 # Builds the author runs, <tier>:<toolchain>, shown green in the release table.
 # Every other badge is grey: those are there to compare compilers and CPUs.
 RELEASE_PICKS = 000:gcc16 020:gcc16
+
+# LARGE_FILE_SIZE of the build: 0 is 32 bit file sizes, 2 supports file sizes
+# above 4G and formats every new volume as one. A volume formatted that way
+# is refused by the builds with 0. The tier name carries an l for 2.
+TIER_LARGE_000 = 0
+TIER_LARGE_020 = 0
+TIER_LARGE_030 = 0
+TIER_LARGE_040 = 0
+TIER_LARGE_060 = 0
+TIER_LARGE_080 = 0
+TIER_LARGE_080a = 0
+TIER_LARGE_000l = 2
+TIER_LARGE_020l = 2
+TIER_LARGE_030l = 2
+TIER_LARGE_040l = 2
+TIER_LARGE_060l = 2
+TIER_LARGE_080l = 2
 
 # Highest CPU Musashi implements, so the harnesses know which tiers they
 # cannot run at all.

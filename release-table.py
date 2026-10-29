@@ -5,7 +5,8 @@
 #   python3 release-table.py <tag> [--dist DIR] [--out DIR]
 #
 # Every binary in DIST is copied to OUT/<tag>/ as
-# pfs3aio-<tag>-<tier>-<toolchain>, and the table links to those assets. A
+# pfs3aio-<tag>-<tier>-<toolchain> (pfs3aio-large-<tag>-... for the large file
+# tiers), and the table links to those assets. A
 # release is always a full rebuild: every binary must carry [<fork>/<tag>] in
 # its own $VER string, so one left over from an earlier build is refused.
 # Columns come from the binaries and from tiers.mk, never from a second copy of
@@ -31,6 +32,13 @@ ORDER = ["gcc13", "gcc6", "gcc15", "gcc16", "vbcc"]
 
 LEGEND = "_Green: the builds I use most._"
 
+# One table per volume format: LARGE_FILE_SIZE of the tier in tiers.mk decides.
+FORMATS = [
+    ("0", "PFS\\1", "Files up to 4 GiB."),
+    ("2", "PFS\\2", "Files above 4 GiB. These builds format new volumes as PFS\\2 with the "
+                    "large file flag, which the builds above refuse."),
+]
+
 
 def die(msg):
     sys.exit("release-table.py: " + msg)
@@ -40,6 +48,15 @@ def tier_field(field, tier):
     pat = re.compile(r"^TIER_%s_%s\s*=\s*(.+?)\s*$" % (field, tier), re.M)
     m = pat.search(open(TIERS_MK).read())
     return m.group(1) if m else None
+
+
+def is_large(tier):
+    return tier_field("LARGE", tier) == "2"
+
+
+def shown(tier):
+    # The l of a large file tier is the PFS\\2 table and the large asset prefix.
+    return tier[:-1] if is_large(tier) and tier.endswith("l") else tier
 
 
 def runs_on(tier, stamp):
@@ -116,7 +133,7 @@ def rows(dist):
                 "path": path,
                 "cc": cc_of(tag),
                 "stamp": stamp,
-                "asset": "pfs3aio-%s-%s-%s" % (stamp, tier, tc),
+                "asset": "pfs3aio-%s%s-%s-%s" % ("large-" if is_large(tier) else "", stamp, shown(tier), tc),
             })
     return out
 
@@ -145,7 +162,7 @@ def render(tag, rs):
     for tier in tiers:
         cells = [badge(tag, cell[(tier, t)]) if (tier, t) in cell else "-" for t in tcs]
         newest = max(r["stamp"] for r in rs if r["tier"] == tier)
-        lines.append("| `%s` | %s | %s |" % (tier, runs_on(tier, newest), " | ".join(cells)))
+        lines.append("| `%s` | %s | %s |" % (shown(tier), runs_on(tier, newest), " | ".join(cells)))
     return "\n".join(lines)
 
 
@@ -185,8 +202,13 @@ def main():
 
     # "News" only when release-notes/<tag>.md has something to say.
     text = open(news).read().strip() if os.path.isfile(news) else ""
+    sections = []
+    for large, name, about in FORMATS:
+        part = [r for r in rs if (tier_field("LARGE", r["tier"]) or "0") == large]
+        if part:
+            sections.append("### `%s`\n\n%s\n\n%s\n" % (name, about, render(a.tag, part)))
     body = ("## News\n\n" + text + "\n\n" if text else "") \
-        + "## Downloads\n\n" + LEGEND + "\n\n" + render(a.tag, rs) + "\n"
+        + "## Downloads\n\n" + LEGEND + "\n\n" + "\n".join(sections)
     notes = os.path.join(out, "notes.md")
     with open(notes, "w") as f:
         f.write(body)

@@ -45,7 +45,7 @@ NOWTIME := \\\"$(shell date "+%T")\\\"
 
 DEFS = -DMIN_LIB_VERSION=33 -DKSWRAPPER=1 \
 	-DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
-	-DLARGE_FILE_SIZE=0 -DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
+	-DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
 	-DMULTIUSER=0 -DPROTECTION=0 -DVERSION23=1 -DROLLOVER=1 \
 	-DLIMIT_MAXTRANSFER=0x20000 -DUNSAFEQUIT=1 \
 	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME) \
@@ -84,6 +84,8 @@ CSRC = boot init assroutines messages volume lock dostohandlerinterface anodes \
 # bytes.
 OBJ_ORDER_000 = startup $(CSRC) vbcc_fastcall end
 OBJ_ORDER_020 = startup $(CSRC) end
+OBJ_ORDER_000l = $(OBJ_ORDER_000)
+OBJ_ORDER_020l = $(OBJ_ORDER_020)
 OBJ_ORDER_030 = startup $(CSRC) end
 OBJ_ORDER_040 = startup $(CSRC) end
 OBJ_ORDER_060 = startup $(CSRC) end
@@ -115,7 +117,7 @@ $(OUTDIR)/obj/$(1)/boot.o: $$(ORIGINSTAMP)
 
 $(OUTDIR)/obj/$(1)/%.o: %.c $$(FLAGSTAMP)
 	@mkdir -p $$(@D)
-	$$(VC) $$(VCFLAGS) -cpu=$$(TIER_VBCPU_$(1)) $$(TIER_TAG_$(1)) -c -o $$@ $$<
+	$$(VC) $$(VCFLAGS) -cpu=$$(TIER_VBCPU_$(1)) -DLARGE_FILE_SIZE=$$(TIER_LARGE_$(1)) $$(TIER_TAG_$(1)) -c -o $$@ $$<
 
 # startup.s and end.s are GNU-as sources with Motorola pseudo-ops mixed in and
 # GNU numeric local labels; vbcc-preasm.py converts both for vasm, and
@@ -133,7 +135,7 @@ ASM_SRC = $(filter-out vbcc_fastcall,$(CSRC))
 define ASM_RULES
 $(OUTDIR)/asm/$(1)/%.s: %.c
 	@mkdir -p $$(@D)
-	$$(VC) $$(VCFLAGS) -cpu=$$(TIER_VBCPU_$(1)) $$(TIER_TAG_$(1)) -S -o $$@ $$<
+	$$(VC) $$(VCFLAGS) -cpu=$$(TIER_VBCPU_$(1)) -DLARGE_FILE_SIZE=$$(TIER_LARGE_$(1)) $$(TIER_TAG_$(1)) -S -o $$@ $$<
 asm-$(1): $$(addprefix $(OUTDIR)/asm/$(1)/,$$(addsuffix .s,$$(ASM_SRC)))
 endef
 

@@ -15,6 +15,16 @@ Every binary names its own build in the `$VER` string, readable with `Version <f
 
 Builds are attached to the [releases](https://github.com/pulchart/pfs3aio/releases), each with a table of every build. Files are named `pfs3aio-<tag>-<tier>-<toolchain>`.
 
+## Large files
+
+A build with an `l` after the tier (`020l`) handles files above 4 GiB. The others keep the 32 bit limit.
+
+- A volume formatted by an `l` build is PFS\2 with the large file flag. Builds without `l` refuse to mount it. Volumes of the others stay readable and writable by both.
+- An existing PFS\2 volume turns on with `tools/setlargefile`, a PFS\1 volume has to be reformatted. There is no way back.
+- Programs reach such a file with the 64 bit packets of AmigaOS 4 (`ChangeFilePosition64`, `GetFilePosition64`, `ChangeFileSize64`, `GetFileSize64`). AmigaOS 3.2 has no 64 bit dos.library calls: sequential `Read` and `Write` pass 4 GiB, `Seek`, `SetFileSize` and `Examine` stay 32 bit. `Examine` shows 4 GiB - 1 for a larger file.
+- vbcc does not build the `l` tiers.
+- `tests/m68k/largefile.sh` checks both formats against both builds, `tests/m68k/largefile64.py` takes a file past 4 GiB under emulation (about 15 minutes).
+
 ## Building
 
 ```sh

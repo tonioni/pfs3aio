@@ -28,7 +28,7 @@ LIBS = -nostdlib -lamiga -lgcc -lnix13 -lnix -s
 CFLAGS_COMMON = -Os -fbbb=+ -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -fno-optimize-sibling-calls -msmall-code -s \
 	-DMIN_LIB_VERSION=33 -DKSWRAPPER=1 \
 	-DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
-	-DLARGE_FILE_SIZE=0 -DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
+	-DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
 	-DMULTIUSER=0 -DPROTECTION=0 -DVERSION23=1 -DROLLOVER=1 \
 	-DLIMIT_MAXTRANSFER=0x20000 -DUNSAFEQUIT=1 \
 	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME) \
@@ -57,7 +57,7 @@ LEGACY_TARGETS = pfs3aio
 include version.mk
 
 define TIER_RULES
-CFLAGS_$(1) = $$(CFLAGS_COMMON) $$(TIER_CFLAGS_$(1)) $$(TIER_TAG_$(1))
+CFLAGS_$(1) = $$(CFLAGS_COMMON) $$(TIER_CFLAGS_$(1)) -DLARGE_FILE_SIZE=$$(TIER_LARGE_$(1)) $$(TIER_TAG_$(1))
 OUTDIR_$(1) = $$(OUTDIR)/$(1)
 OBJDIR_$(1) = $$(OBJDIR)/$(1)
 ASMDIR_$(1) = $$(OUTDIR)/asm/$(1)

@@ -23,6 +23,7 @@ tier_gccflag() { tier_get CFLAGS "$1"; }
 tier_vbcpu() { tier_get VBCPU "$1"; }
 tier_mincpu() { tier_get MINCPU "$1"; }
 tier_maxcpu() { tier_get MAXCPU "$1"; }
+tier_large() { tier_get LARGE "$1"; }
 
 # Can this toolchain build this tier? See TIER_SKIP_<tier> in tiers.mk.
 tier_builds() {	# $1=tier $2=toolchain

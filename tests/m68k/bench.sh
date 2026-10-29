@@ -36,7 +36,9 @@ NDK=$VBCC/NDK/Include_H
 CPUS=${CPUS:-"68000 68020 68030 68040"}
 TOOLCHAINS=${TOOLCHAINS:-"gcc6 gcc13 gcc15 gcc16 vbcc"}
 . "$ROOT/tests/m68k/tiers.sh"
-TIER_LIST=${TIER_LIST:-$(tiers)}
+# the synthetic workload does not use LARGE_FILE_SIZE, so the large tiers repeat
+# the others
+TIER_LIST=${TIER_LIST:-$(for t in $(tiers); do [ "$(tier_large "$t")" = 0 ] && echo "$t"; done)}
 
 command -v "$VAMOS" >/dev/null 2>&1 || { echo "ERROR: no vamos on PATH"; exit 2; }
 GEN=$DIR/gen
