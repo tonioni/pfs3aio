@@ -451,16 +451,24 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 		case ACTION_END:            // Close(..)
 		case ACTION_CREATE_ROLLOVER:
 
+			action->dp_Res2 = ERROR_NOT_A_DOS_DISK;
+			action->dp_Res1 = DOSFALSE;
+			break;
+
 #if EXTENDED_PACKETS_OS4
 		case ACTION_CHANGE_FILE_POSITION64:
 		case ACTION_GET_FILE_POSITION64:
 		case ACTION_CHANGE_FILE_SIZE64:
 		case ACTION_GET_FILE_SIZE64:
-#endif
-
-			action->dp_Res2 = ERROR_NOT_A_DOS_DISK;
-			action->dp_Res1 = DOSFALSE;
+			{
+				struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
+				dp->dp_Res0 = DP64_INIT;
+				dp->dp_Res2 = ERROR_NOT_A_DOS_DISK;
+				dp->dp_Res1 = (dp->dp_Type == ACTION_GET_FILE_POSITION64 ||
+							   dp->dp_Type == ACTION_GET_FILE_SIZE64) ? -1 : 0;
+			}
 			break;
+#endif
 
 		case ACTION_READ:           // Read(..)
 		case ACTION_SEEK:           // Seek(..)
