@@ -1170,6 +1170,13 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 	{
 		goto nrd_error;
 	}
+#if !LARGE_FILE_SIZE
+	// this build does not read the size bits above 32 (fsizex)
+	if (rbp->options & MODE_LARGEFILE)
+	{
+		goto nrd_error;
+	}
+#endif
 
 	/* reserved_blksize must be a power of two, at least the logical
 	 * block size and at most 4096; anything else breaks the
