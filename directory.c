@@ -3665,20 +3665,69 @@ ULONG GetDEFileSize32(struct direntry *direntry, globaldata *g)
 	}
 }
 
+#if LARGE_FILE_SIZE
+/* The fsizex field of an entry, NULL when it has none. */
+static UWORD *FindFsizex(struct direntry *direntry)
+{
+	UWORD *fields = (UWORD *)(((UBYTE *)direntry) + direntry->next);
+	UWORD flags, i;
+
+	flags = *(--fields);
+	for (i = 0; i < sizeof(struct extrafields) / 2; i++, flags >>= 1)
+	{
+		if (flags & 1)
+		{
+			fields--;
+			if (i == offsetof(struct extrafields, fsizex) / 2)
+				return fields;
+		}
+	}
+	return NULL;
+}
+
+/* Add the fsizex field before a file grows above 4G; SetDEFileSize keeps the entry length */
+BOOL PrepareFileSize(fileentry_t *file, FSIZE size, SIPTR *error, globaldata *g)
+{
+	UBYTE entrybuffer[MAX_ENTRYSIZE];
+	struct direntry *destentry = (struct direntry *)entrybuffer;
+	struct extrafields extrafields;
+	union objectinfo directory;
+	struct fileinfo fi;
+	FSIZE oldsize;
+
+	if (!g->largefile || size <= MAXFILESIZE32 || FindFsizex(file->le.info.file.direntry))
+		return TRUE;
+
+	oldsize = GetDEFileSize(file->le.info.file.direntry, g);
+	memcpy(destentry, file->le.info.file.direntry, file->le.info.file.direntry->next);
+	GetExtraFields(destentry, &extrafields);
+	extrafields.fsizex = 1;		/* a zero field is not stored */
+	AddExtraFields(destentry, &extrafields);
+	if (!GetParent(&file->le.info, &directory, error, g))
+		return FALSE;
+	if (!ChangeDirEntry(file->le.info.file, destentry, &directory, &fi, g))
+	{
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+
+	/* the field exists now: give it the real size back */
+	SetDEFileSize(file->le.info.file.direntry, oldsize, g);
+	MakeBlockDirty((struct cachedblock *)file->le.info.file.dirblock, g);
+	return TRUE;
+}
+#endif
+
 void SetDEFileSize(struct direntry *direntry, FSIZE size, globaldata *g)
 {
-	if (!LARGE_FILE_SIZE || !g->largefile)
-		direntry->fsize = (ULONG)size;
+	direntry->fsize = (ULONG)size;
 #if LARGE_FILE_SIZE
-	else {
-		struct extrafields extrafields;
-		UWORD high = (UWORD)(size >> 32);
-		GetExtraFields(direntry, &extrafields);
-		if (extrafields.fsizex != high) {
-			extrafields.fsizex = high;
-			AddExtraFields(direntry, &extrafields);
-		}
-		direntry->fsize = (ULONG)size;
+	if (g->largefile)
+	{
+		/* the entry keeps its length: no field means the size is below 4G */
+		UWORD *fsizex = FindFsizex(direntry);
+		if (fsizex)
+			*fsizex = (UWORD)(size >> 32);
 	}
 #endif
 }

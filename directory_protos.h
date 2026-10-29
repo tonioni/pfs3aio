@@ -92,6 +92,11 @@ void FreeAnodesInChain(ULONG anodenr, globaldata *g);
 FSIZE GetDEFileSize(struct direntry *direntry, globaldata *g);
 ULONG GetDEFileSize32(struct direntry *direntry, globaldata *g);
 void SetDEFileSize(struct direntry *direntry, FSIZE size, globaldata *g);
+#if LARGE_FILE_SIZE
+BOOL PrepareFileSize(fileentry_t *file, FSIZE size, SIPTR *error, globaldata *g);
+#else
+#define PrepareFileSize(file, size, error, g) TRUE
+#endif
 
 #if DELDIR
 FSIZE GetDDFileSize(struct deldirentry *dde, globaldata *g);
