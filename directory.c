@@ -2687,7 +2687,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	AddExtraFields(destentry, &extrafields);
 
 	/* copy object info */
-	destentry->fsize = objectentry->fsize;
+	destentry->fsize = GetDEFileSize32(objectentry, g);
 	switch (objectentry->type)
 	{
 		case ST_FILE:
@@ -3871,7 +3871,7 @@ void UpdateLinks(struct direntry *object, globaldata * g)
 		GetAnode(&linklist, linknr, g);
 		if (FetchObject(linklist.blocknr, linklist.nr, &loi, g))
 		{
-			loi.file.direntry->fsize = object->fsize;
+			loi.file.direntry->fsize = GetDEFileSize32(object, g);
 			MakeBlockDirty((struct cachedblock *)loi.file.dirblock, g);
 		}
 		linknr = linklist.next;
