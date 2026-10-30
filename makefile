@@ -15,7 +15,9 @@ LIBS=-nostdlib -lamiga -lgcc -lnix13 -lnix -s
 # functions since the 2018 merge): every raw disk access gets blocknr=0.
 # amiga-gcc 6.x does not show this. Verified with a 25-line reproducer;
 # with this flag gcc emits the correct move.l d1,d2 + jsr sequence.
-CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -fno-optimize-sibling-calls -msmall-code -s \
+# -fno-strict-aliasing: the code reads structs through other pointer types,
+# which gcc 12 and later reorder.
+CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -fno-optimize-sibling-calls -fno-strict-aliasing -msmall-code -s \
 	-DMIN_LIB_VERSION=33 -DKSWRAPPER=1 \
 	-DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
 	-DLARGE_FILE_SIZE=0 -DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \
