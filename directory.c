@@ -3762,18 +3762,26 @@ void SetDDFileSize(struct deldirentry *dde, FSIZE size, globaldata *g)
 #endif
 }
 
+/* UWORD view of the extra fields; going through the union keeps the compiler
+ * from treating the UWORD accesses as not aliasing the ULONG fields */
+union extrawords
+{
+	struct extrafields fields;
+	UWORD w[sizeof(struct extrafields) / 2];
+};
+
 /*
  * GetExtraFields (normal file only)
  */
 void GetExtraFields(struct direntry *direntry, struct extrafields *extrafields)
 {
-	UWORD *extra = (UWORD *)extrafields;
+	union extrawords *extra = (union extrawords *)extrafields;
 	UWORD *fields = (UWORD *)(((UBYTE *)direntry) + direntry->next);
 	UWORD flags, i;
 
 	flags = *(--fields);
 	for (i = 0; i < sizeof(struct extrafields) / 2; i++, flags >>= 1)
-		*(extra++) = (flags & 1) ? *(--fields) : 0;
+		extra->w[i] = (flags & 1) ? *(--fields) : 0;
 
 	/* patch protection lower 8 bits */
 	extrafields->prot |= direntry->protection;
@@ -3815,7 +3823,7 @@ void AddExtraFields(struct direntry *direntry, struct extrafields *extra)
 	UWORD offset, *dirext;
 	UWORD array[16], i = 0, j = 0;
 	UWORD flags = 0, orvalue;
-	UWORD *fields = (UWORD *)extra;
+	union extrawords *words = (union extrawords *)extra;
 
 	/* patch protection lower 8 bits */
 	extra->prot &= 0xffffff00;
@@ -3826,14 +3834,10 @@ void AddExtraFields(struct direntry *direntry, struct extrafields *extra)
 	/* fill packed field array */
 	for (i = 0; i < sizeof(struct extrafields) / 2; i++)
 	{
-		if (*fields)
+		if (words->w[i])
 		{
-			array[j++] = *fields++;
+			array[j++] = words->w[i];
 			flags |= orvalue;
-		}
-		else
-		{
-			fields++;
 		}
 
 		orvalue <<= 1;
