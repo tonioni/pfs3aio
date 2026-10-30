@@ -3961,12 +3961,14 @@ static BOOL RemapLinks(struct fileinfo *object, globaldata * g)
 	struct direntry *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	SIPTR error;
+	UWORD fsizex;
 
 	ENTER("RemapLinks");
 	/* get head of linklist */
 	GetExtraFields(object->direntry, &extrafields);
 	if (extrafields.link == 0)
 		return FALSE;
+	fsizex = extrafields.fsizex;
 
 	/* the file has links; get head of list
 	 * we are going to promote this link to
@@ -3996,6 +3998,7 @@ static BOOL RemapLinks(struct fileinfo *object, globaldata * g)
 	destentry->anode = object->direntry->anode;     // is this necessary?
 
 	extrafields.link = linknode.next;
+	extrafields.fsizex = fsizex;	/* a link has no size above 4G */
 	AddExtraFields(destentry, &extrafields);
 
 	/* Free old linklist node */
