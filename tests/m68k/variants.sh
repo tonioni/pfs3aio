@@ -1,6 +1,7 @@
 #!/bin/sh
 # Functional check of built driver binaries under emulation: format a fresh
-# PFS3 image, write a file, read it back, compare byte for byte.
+# PFS3 image, write a file, read it back, compare byte for byte, then delete
+# the original of a hard link (hardlink.py).
 #
 #   sh tests/m68k/variants.sh [compare-dir]
 #
@@ -36,7 +37,7 @@ command -v rdbtool >/dev/null 2>&1 || { echo "ERROR: rdbtool not on PATH"; exit 
 mkdir -p "$TMP"
 head -c 32768 /dev/urandom > "$TMP/payload.bin"
 
-printf "%-14s %-7s %-7s %-7s %-7s %-7s\n" build cpu format write read compare
+printf "%-14s %-7s %-7s %-7s %-7s %-7s %-7s\n" build cpu format write read compare link
 fail=0
 
 for drv in "$OUT"/*/*/pfs3aio; do
@@ -45,8 +46,8 @@ for drv in "$OUT"/*/*/pfs3aio; do
 	tier=${name#*/}
 	cpu=$(tier_emu_cpu "$tier" "$EMUCPU")
 	if [ "$cpu" -gt "$MAXEMU" ]; then
-		printf "%-14s %-7s %-7s %-7s %-7s %-7s\n" \
-			"$name" "$cpu" skip skip skip "no core"
+		printf "%-14s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+			"$name" "$cpu" skip skip skip skip "no core"
 		continue
 	fi
 	img=$TMP/variant.hdf
@@ -54,7 +55,7 @@ for drv in "$OUT"/*/*/pfs3aio; do
 	rdbtool -f "$img" create size=$SIZE + init + add name=DH0 size=95% \
 		dostype=0x50465303 >/dev/null 2>&1
 
-	f=no; w=no; r=no; c=no
+	f=no; w=no; r=no; c=no; l=no
 	FI_CPU=$cpu FI_CMD=none python3 "$FI" format "$img" DH0 V --driver "$drv" 2>&1 \
 		| grep -qi "format complete" && f=yes
 	if [ $f = yes ]; then
@@ -64,10 +65,11 @@ for drv in "$OUT"/*/*/pfs3aio; do
 		FI_CPU=$cpu FI_CMD=none python3 "$FI" read "$img" --file F --out "$TMP/back.bin" \
 			--driver "$drv" >/dev/null 2>&1 && r=yes
 		[ -f "$TMP/back.bin" ] && cmp -s "$TMP/payload.bin" "$TMP/back.bin" && c=yes
+		python3 "$DIR/hardlink.py" --driver "$drv" --cpu "$cpu" >/dev/null 2>&1 && l=yes
 	fi
 
-	printf "%-14s %-7s %-7s %-7s %-7s %-7s\n" "$name" "$cpu" "$f" "$w" "$r" "$c"
-	[ "$c" = yes ] || fail=$((fail + 1))
+	printf "%-14s %-7s %-7s %-7s %-7s %-7s %-7s\n" "$name" "$cpu" "$f" "$w" "$r" "$c" "$l"
+	[ "$c" = yes ] && [ "$l" = yes ] || fail=$((fail + 1))
 done
 
 rm -f "$TMP/variant.hdf" "$TMP/back.bin" "$TMP/payload.bin"

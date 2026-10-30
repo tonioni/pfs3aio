@@ -25,7 +25,9 @@ LIBS = -nostdlib -lamiga -lgcc -lnix13 -lnix -s
 # the RawRead/RawWrite tail calls (4th argument in d2 restored before the
 # jump, never loaded), so every raw access gets blocknr=0. Not triggered by
 # amiga-gcc 6.x; kept for parity with upstream, costs about 60 bytes.
-CFLAGS_COMMON = -Os -fbbb=+ -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -fno-optimize-sibling-calls -msmall-code -s \
+# -fno-strict-aliasing: the code reads structs through other pointer types,
+# which gcc 12 and later reorder.
+CFLAGS_COMMON = -Os -fbbb=+ -noixemul -fomit-frame-pointer -nostartfiles -mregparm=3 -fno-optimize-sibling-calls -fno-strict-aliasing -msmall-code -s \
 	-DMIN_LIB_VERSION=33 -DKSWRAPPER=1 \
 	-DSCSIDIRECT=1 -DNSD=1 -DTD64=1 -DTRACKDISK=1 \
 	-DEXTRAPACKETS=1 -DSIZEFIELD -DDELDIR=1 \

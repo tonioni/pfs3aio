@@ -42,7 +42,7 @@ GCC15_EXTRA ?= -std=gnu17
 GCC16_EXTRA ?= -std=gnu17
 
 # Appended to every toolchain. Empty by default so results match a plain
-# "make". Set to -fno-strict-aliasing for real-data testing, see TOOLCHAINS.md.
+# "make".
 COMMON_EXTRA ?=
 
 PODMAN ?= podman
@@ -114,8 +114,7 @@ help:
 	@echo "       GCC16_TAG= PODMAN= VBCC="
 	@echo "       INSTALL_DIR=$(INSTALL_DIR) INSTALL_TOOLCHAINS='$(INSTALL_TOOLCHAINS)'"
 	@echo "       VBCC_OPT=$(VBCC_OPT)"
-	@echo "Example: make all COMMON_EXTRA=-fno-strict-aliasing"
-	@echo "         make install INSTALL_TOOLCHAINS=gcc16"
+	@echo "Example: make install INSTALL_TOOLCHAINS=gcc16"
 
 $(OUT):
 	mkdir -p $(OUT)

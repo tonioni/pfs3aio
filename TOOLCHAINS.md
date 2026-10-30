@@ -260,7 +260,7 @@ Hardware results, `bare` ROM profile on 68060. The `020`, `030` and `040` builds
 | vbcc / 060 (`-cpu=68020` then) | **works** |
 | any / `-m68020` | fails |
 
-vbcc needed no workaround: it emits none of the affected instructions at any `-cpu` setting. The strict-aliasing issue below produced no symptom here and remains latent.
+vbcc needed no workaround: it emits none of the affected instructions at any `-cpu` setting. vbcc is not affected by the strict-aliasing issue below.
 
 **The `060` build is compiled `-m68060`.** That drops the 64-bit multiplies and keeps the rest 68020 compatible, so the binary still runs on 68020 and 68030. Both builds verify clean:
 
@@ -497,19 +497,13 @@ That d2 is really `blocknr` is visible in the callee, which compiles `if (blockn
 
 Cost of the flag: 0 bytes on gcc 6.5 (binaries are byte-identical, it never emits the sibling call here), 60/72 bytes on gcc 13.4, 44/40 bytes on gcc 15.2.
 
-## Issue 2: strict aliasing (open)
+## Issue 2: strict aliasing (fixed)
 
-Affects every compiler here, including the gcc 6.5 builds in `compare/gcc6/`. Not fixed.
+`GetExtraFields` filled a `struct extrafields` through a `UWORD *` and `AddExtraFields` read it that way. gcc 6.5 reports 34 `-Wstrict-aliasing` warnings; gcc 15.2 reports `extrafields.link` used uninitialized in `UpdateLinks` and `RemapLinks`.
 
-`GetExtraFields` (`directory.c:3719`) fills a `struct extrafields` by walking it through a `UWORD *`. That covers all 22 bytes, so the struct is written, but the type-pun is undefined behaviour and the optimizer is entitled to ignore it. gcc 6.5 reports 34 `-Wstrict-aliasing` warnings; gcc 15.2 goes further and reports `extrafields.link` used uninitialized at `directory.c:3815` (`UpdateLinks`) and `directory.c:3915` (`RemapLinks`), because it cannot see the stores.
+gcc 13.4, 15.2 and 16.2 miscompile it: `CreateLink` reuses the `link` value it stored itself before `GetExtraFields`, so the linked file never gets its link field. Deleting it then frees the file and leaves the link dangling. gcc 6.5 and vbcc are not affected. The test is deleting the original of a hard link and reading the link (`tests/m68k/hardlink.py`, a column of `variants.sh`).
 
-This is not theoretical: compiling `directory.c` with and without `-fno-strict-aliasing` produces different code for exactly those two functions, on gcc 6.5 as well as gcc 15.2 (`directory.o` grows 96 bytes on 6.5, 168 on 15.2).
-
-No miscompilation has been demonstrated. The mitigation is cheap, and for testing against real volumes it is worth applying:
-
-```sh
-make all COMMON_EXTRA=-fno-strict-aliasing
-```
+Both functions go through a union of the struct and a `UWORD` array now. Every build also passes `-fno-strict-aliasing`, so other accesses of that kind cannot go wrong.
 
 ## Issue 3: intlcmp post-increment miscompilation (avoided by pinning)
 
