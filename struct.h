@@ -234,15 +234,6 @@ int stcu_d(char *out, unsigned int val);
 #define memcpy(d,s,n)  CopyMem(s,d,n)
 #endif
 
-#if defined(__VBCC__)
-/* Same helpers for vbcc, minus the memcpy override: vbcc's string.h already
- * declares memcpy and redefining it as a macro is an error there.
- */
-#define max(a,b) (((a)>(b))?(a):(b))
-#define min(a,b) (((a)<(b))?(a):(b))
-int stcu_d(char *out, unsigned int val);
-#endif
-
 #ifndef SAVEDS
 #define SAVEDS
 #endif
@@ -1027,9 +1018,7 @@ typedef struct lockentry
 } lockentry_t;
 
 // *lock -> *fileentry
-/* nested offsetof: vbcc only accepts a single member, so sum the two */
-#define LOCKTOFILEENTRY(l) ((fileentry_t *)(((UBYTE*)l)- \
-	(offsetof(fileentry_t, le) + offsetof(listentry_t, lock))))
+#define LOCKTOFILEENTRY(l) ((fileentry_t *)(((UBYTE*)l)-offsetof(fileentry_t, le.lock)))
 
 // Maakt geen lock naar 'root of currentdir' aan!!
 #define LockEntryFromLock(x) ((x) ? \

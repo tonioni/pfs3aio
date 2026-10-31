@@ -162,7 +162,7 @@ BOOL debug=FALSE;
 
 /* protos */
 // extern void SAVEDS EntryWithNewStack(void);
-void SAVEDS ASMLINKAGE EntryPoint(void);
+void SAVEDS EntryPoint(void);
 void NormalCommands(struct DosPacket *, globaldata *);
 void HandleSleepMsg (globaldata *g);
 void ReturnPacket(struct DosPacket *, struct MsgPort *, globaldata *);
@@ -170,15 +170,13 @@ static void Quit(globaldata *);
 
 /* Build identity in the version string. Every variant otherwise reports the
  * same "Professional-File-System-III 20.0", so C:Version and the ROM module
- * listing cannot tell a gcc build from a vbcc one. Placed right after the
+ * listing cannot tell one gcc build from another. Placed right after the
  * revision because those listings truncate the string.
  */
 #define PFS_STR2(x) #x
 #define PFS_STR(x) PFS_STR2(x)
 
-#if defined(__VBCC__)
-#define PFS_CC "vbcc"
-#elif defined(__GNUC__)
+#if defined(__GNUC__)
 #define PFS_CC "gcc" PFS_STR(__GNUC__) "." PFS_STR(__GNUC_MINOR__)
 #else
 #define PFS_CC "cc"
@@ -282,7 +280,7 @@ static UBYTE debugbuf[120];
 /*                                MAIN                                */
 /**********************************************************************/
 
-void SAVEDS ASMLINKAGE EntryPoint (void)
+void SAVEDS EntryPoint (void)
 {
 	/* globals */
 	struct globaldata *g;

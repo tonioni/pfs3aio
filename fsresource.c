@@ -4,7 +4,6 @@
 #include <exec/execbase.h>
 #include <resources/filesysres.h>
 #include <proto/exec.h>
-#include "vbcc_compat.h"
 #include "versionhistory.doc"
 
 extern CONST UBYTE shortname[];
@@ -12,12 +11,12 @@ extern CONST UBYTE shortname[];
 #ifndef __SASC
 #undef NewList
 #define NewList(list) \
-do {									\
+({									\
   struct List *_NewList_list = (list);					\
   _NewList_list->lh_TailPred = (struct Node *)_NewList_list;		\
   _NewList_list->lh_Head = (struct Node *)&_NewList_list->lh_Tail;	\
   _NewList_list->lh_Tail = 0;						\
-} while (0)
+})
 #endif
 
 /* AddToFSResource
@@ -74,7 +73,7 @@ void AddToFSResource(ULONG dostype, BPTR seglist, struct ExecBase *SysBase)
 extern const ULONG PFS3FakeSeg[];
 // PFS\1 PDS\1 PFS\3 PDS\3
 static const ULONG fsids[] = { 0x50465301, 0x50445301, 0x50465303, 0x50445303, 0 };
-void ASMLINKAGE ResidentAddToFSResource(void)
+void ResidentAddToFSResource(void)
 {
 	struct ExecBase *eb =  *((struct ExecBase **)4);
 	for (int i = 0; fsids[i]; i++) {

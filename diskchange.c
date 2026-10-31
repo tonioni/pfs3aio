@@ -51,14 +51,6 @@ ULONG DiskChangeHandler(register struct globaldata *g asm("a1"))
 }
 
 
-#elif defined(__VBCC__)
-
-ULONG DiskChangeHandler(__reg("a1") struct globaldata *g)
-{
-	Signal(&g->myproc->pr_Task, g->diskchangesignal);
-	return 0;
-}
-
 #else
 
 #warning "Add the implementation for your platform"

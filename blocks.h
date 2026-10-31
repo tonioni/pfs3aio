@@ -70,23 +70,12 @@
 #ifndef _BLOCKS_H
 #define _BLOCKS_H 1
 
-/* Trailing variable-length array of an on-disk block. vbcc rejects [0] and
- * rounds the struct up to one element, which would change the on-disk layout,
- * so it gets the C99 flexible array member instead. gcc and SAS/C keep [0].
- */
-#if defined(__VBCC__)
-#define PFSVLA
-#else
-#define PFSVLA 0
-#endif
-
 #ifndef DOS_DOSEXTENS_H
 #include <dos/dosextens.h>
 #endif
 #ifndef DEVICES_TRACKDISK_H
 #include <devices/trackdisk.h>
 #endif
-#include "vbcc_compat.h"
 #ifndef PROTO_EXEC_H
 #include <proto/exec.h>
 #endif
@@ -191,7 +180,7 @@ typedef struct bitmapblock
     UWORD not_used;
     ULONG datestamp;
     ULONG seqnr;
-    ULONG bitmap[PFSVLA];        /* the bitmap.                      */
+    ULONG bitmap[0];        /* the bitmap.                      */
 } bitmapblock_t;
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -221,7 +210,7 @@ typedef struct indexblock
     UWORD not_used;
     ULONG datestamp;
     ULONG seqnr;
-    LONG index[PFSVLA];          /* the indices                      */
+    LONG index[0];          /* the indices                      */
 } indexblock_t;
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -265,7 +254,7 @@ typedef struct anodeblock
     ULONG datestamp;
     ULONG seqnr;
     ULONG not_used_2;
-    struct anode nodes[PFSVLA];
+    struct anode nodes[0];
 } anodeblock_t;
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -306,7 +295,7 @@ struct dirblock
     UWORD not_used_2[2];
     ULONG anodenr;          /* anodenr belonging to this directory (points to FIRST block of dir) */
     ULONG parent;           /* parent                           */
-    UBYTE entries[PFSVLA];       /* entries                          */
+    UBYTE entries[0];       /* entries                          */
 };
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -405,7 +394,7 @@ struct deldirblock
 	UWORD creationday;
 	UWORD creationminute;
 	UWORD creationtick;
-	struct deldirentry entries[PFSVLA];	/* 31 entries				*/
+	struct deldirentry entries[0];	/* 31 entries				*/
 };
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -509,7 +498,7 @@ struct cachedblock
 	UWORD	used;					// block locked if used == g->locknr
 	UBYTE	changeflag;				// dirtyflag
 	UBYTE	dummy;					// pad to make offset even
-	UBYTE	data[PFSVLA];				// the datablock;
+	UBYTE	data[0];				// the datablock;
 };
 
 struct lru_cachedblock

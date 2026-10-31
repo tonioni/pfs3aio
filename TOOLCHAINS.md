@@ -1,12 +1,13 @@
 # Building pfs3aio with several m68k-amigaos toolchains
 
-Reference for building this tree with gcc 6.5, 13.4, 15.2, 16.2 and vbcc, one build per target CPU from 68000 to 68060, and for the compiler issues found while doing it. `tiers.mk` is the list; this file follows it.
+Reference for building this tree with gcc 6.5, 13.4 and 16.2, one build per target CPU from 68000 to 68060, and for the compiler issues found while doing it. `tiers.mk` is the list; this file follows it.
 
-Everything is driven by `GNUmakefile`, which only selects a toolchain and an output directory; the flags live in `makefile.gcc` and `makefile.vbcc`, so the builds differ only by compiler. `makefile` is upstream's and is left alone, so a plain `make` runs ours and `make -f makefile` runs theirs.
+Everything is driven by `GNUmakefile`, which only selects a toolchain and an output directory; the flags live in `makefile.gcc`, so the builds differ only by compiler. `makefile` is upstream's and is left alone, so a plain `make` runs ours and `make -f makefile` runs theirs.
 
 ```sh
 make help
-make all          # every toolchain, every build, then sizes
+make all          # every toolchain, every release build, then sizes
+make all EXTRA=1  # plus the extra builds of `tiers.mk`
 make gcc13        # just one
 make sibcall-proof
 ```
@@ -16,8 +17,8 @@ Output lands in `compare/<toolchain>/<cpu>/pfs3aio`. `compare/` is gitignored. T
 `install` builds every toolchain and puts them side by side as `INSTALL_DIR/<cpu>/pfs3aio.<toolchain>`, every build, so variants can be compared on hardware without rebuilding between flashes. Defaults are every toolchain and `INSTALL_DIR=/opt/AmigaOS/pfs/v20.0`.
 
 ```sh
-make install                          # every toolchain, every build
-make install INSTALL_TOOLCHAINS=vbcc  # just one
+make install                          # every toolchain, every release build
+make install INSTALL_TOOLCHAINS=gcc16 # just one
 make install INSTALL_DIR=/tmp/x       # dry run somewhere harmless
 ```
 
@@ -26,28 +27,24 @@ Resulting layout, one directory per target CPU:
 ```
 /opt/AmigaOS/pfs/v20.0/000/pfs3aio.gcc6     66408
 /opt/AmigaOS/pfs/v20.0/000/pfs3aio.gcc13    66104
-/opt/AmigaOS/pfs/v20.0/000/pfs3aio.gcc15    66684
 /opt/AmigaOS/pfs/v20.0/000/pfs3aio.gcc16    66544
-/opt/AmigaOS/pfs/v20.0/000/pfs3aio.vbcc     85840
 ```
 
 ## The toolchains
 
-Several gcc versions from one image family, plus vbcc:
+Several gcc versions from one image family:
 
 | | version | tag on `docker.io/stefanreinauer/amiga-gcc` | needs |
 |---|---|---|---|
 | gcc6 | 6.5.0b | `gcc-v6.5.0b-20251218` | pinned, see below |
 | gcc13 | 13.4.0b | `gcc-v13.4` | nothing |
-| gcc15 | 15.2.0 | `gcc-v15.2` | `-std=gnu17` |
 | gcc16 | 16.2.0b | `gcc-v16.2` | `-std=gnu17` |
-| vbcc | 0.9 | host install at `/opt/vbcc`, NDK at `/opt/vbcc/NDK` | see "vbcc" below |
 
 Nothing has to be bootstrapped. `make all` pulls what it needs; each image is 5 to 10 GB unpacked.
 
 They all install into `/opt/amiga`, which the auto-detection in `makefile` finds, so none of them passes `AMIGA_PREFIX`. That is also why a plain `make` still works against a host install: `makefile` prefers `~/opt/m68k-amigaos` and falls back to `/opt/amiga`, and `AMIGA_PREFIX=` or `CC=` override it.
 
-**gcc 15 and 16 need `-std=gnu17`.** Both default to C23, where `struct.h:306`'s `typedef enum {false, true} bool;` is a syntax error. gcc 6.5 does not know the option at all. gcc 13.4 accepts it but does not need it, and leaving it off keeps its output byte-identical to what the previously used locally built image produced.
+**gcc 16 needs `-std=gnu17`.** It defaults to C23, where `struct.h:306`'s `typedef enum {false, true} bool;` is a syntax error. gcc 6.5 does not know the option at all. gcc 13.4 accepts it but does not need it, and leaving it off keeps its output byte-identical to what the previously used locally built image produced.
 
 **gcc 6.5 is pinned to a dated tag**, not the floating `gcc-v6.5.0b`, because that tag now carries a build that miscompiles `intlcmp`. See "Issue 3" below. `gcc-v6.5.0b-20251218` carries bebbo build `251015095727` and produces binaries byte-identical to a host `~/opt/m68k-amigaos` install of the same build, so the pin changed nothing that ships. `gcc-v6.5.0b-20260629`, build `260602123145`, is also clean but 88 bytes smaller on the 000 tier and 84 on the 020, so it is not a drop-in replacement for the pinned one.
 
@@ -59,13 +56,11 @@ One build per target CPU, each named after the machine you would install it on; 
 |---|---|---|---|---|---|
 | gcc 6.5.0b | 66408 | - | 65036 | 65444 | 65060 |
 | gcc 13.4.0b | 66104 | 64152 | 64096 | 64300 | 64152 |
-| gcc 15.2.0 | 66684 | 64536 | 64568 | 64684 | 64536 |
 | gcc 16.2.0b | 66544 | 64592 | 64772 | 64944 | 64592 |
-| vbcc | 85840 | 79888 | - | - | - |
 
-Two gaps, both recorded as `TIER_SKIP` in `tiers.mk`. gcc 6.5 has no `020` build: its `-m68020-60` is not 68060-safe, see "Target CPU: 68060". vbcc builds only `000` and `020`: it generates the same code for `-cpu=68020`, `68030` and `68060`, so the other two would be duplicate binaries, and it is a comparison toolchain rather than one that ships.
+gcc 6.5 has no `020` build, recorded as `TIER_SKIP` in `tiers.mk`: its `-m68020-60` is not 68060-safe, see "Target CPU: 68060".
 
-All of them build the tree clean. Under `-Wall`, gcc 6.5 reports 292 warnings and gcc 15.2 reports 276; gcc 15 adds `-Warray-bounds` at `boot.c:240` and `fsresource.c:78`, which are false positives from the Amiga `*(struct ExecBase **)4` absolute-address idiom.
+All of them build the tree clean. Under `-Wall`, gcc 6.5 reports 292 warnings.
 
 ## Code quality on 68000
 
@@ -75,14 +70,12 @@ Upstream's position in PR #10 was that 6.5.0b stays the compiler for pfs3aio bec
 |---|---|---|---|---|
 | gcc 6.5 / 000 | 60804 | 19275 | 4 | 74 |
 | gcc 13.4 / 000 | 60500 | 18723 | 180 | 74 |
-| gcc 15.2 / 000 | 61124 | 18835 | 189 | 74 |
 | gcc 6.5 / 060 | 60032 | 18319 | 0 | 0 |
 | gcc 13.4 / 060 | 59032 | 18142 | 0 | 0 |
-| gcc 15.2 / 060 | 59472 | 18203 | 0 | 0 |
 
-**The `cmp #0,an` complaint is real and large.** `tst.l aN` is 68020+, so a pointer NULL test has to be synthesized on 68000. gcc 6.5 uses `move.l aN,dN` (`2008`, one word, register to register). gcc 13.4 and 15.2 use `cmpa.w #0,aN` (`b0fc 0000`, two words, with an immediate operand fetch). That is 4 occurrences against 180 and 189, roughly 360 extra bytes and an extra memory fetch on every pointer check in a driver that checks pointers constantly. On 68020 the difference vanishes: all three emit `tst.l aN`, which is why the 68020 column shows zero.
+**The `cmp #0,an` complaint is real and large.** `tst.l aN` is 68020+, so a pointer NULL test has to be synthesized on 68000. gcc 6.5 uses `move.l aN,dN` (`2008`, one word, register to register). gcc 13.4 uses `cmpa.w #0,aN` (`b0fc 0000`, two words, with an immediate operand fetch). That is 4 occurrences against 180, roughly 360 extra bytes and an extra memory fetch on every pointer check in a driver that checks pointers constantly. On 68020 the difference vanishes: all three emit `tst.l aN`, which is why the 68020 column shows zero.
 
-**The size claim does not hold for 13.4.** Despite that regression, gcc 13.4 produces less text than 6.5 in both builds, so it is winning elsewhere by more than the NULL tests cost. gcc 15.2 is bigger than 6.5 on 68000+. The absolute-addressing half of the claim was not re-verified after the objdump problem was found.
+**The size claim does not hold for 13.4.** Despite that regression, gcc 13.4 produces less text than 6.5 in both builds, so it is winning elsewhere by more than the NULL tests cost. The absolute-addressing half of the claim was not re-verified after the objdump problem was found.
 
 **No algorithmic difference in arithmetic.** They emit the same 74 libgcc helper calls on the `000` build, where 32-bit multiply and divide have no hardware instruction, and none where `muls.l`/`divs.l` exist in hardware. No compiler is picking a better or worse algorithm here.
 
@@ -128,14 +121,10 @@ On a 68020, against the same source built `000`. Positive means the `060` build 
 |---|---|---|---|---|---|
 | gcc 6.5, 512B | +0% | +22% | +2% | -1% | +3% |
 | gcc 13.4, 512B | +3% | +17% | -13% | +1% | +2% |
-| gcc 15.2, 512B | +4% | +18% | -5% | +2% | +3% |
 | gcc 16.2, 512B | +4% | +19% | -1% | -1% | +3% |
-| vbcc, 512B | +5% | +11% | +15% | +16% | +8% |
 | gcc 6.5, 4K | +2% | +6% | -5% | -4% | -1% |
 | gcc 13.4, 4K | +3% | +5% | -5% | +4% | +5% |
-| gcc 15.2, 4K | +3% | +8% | +3% | +6% | +7% |
 | gcc 16.2, 4K | +4% | +6% | +0% | -1% | +2% |
-| vbcc, 4K | +4% | +10% | +17% | +16% | +7% |
 
 The payoff sits in the write, where hardware `muls.l`/`divs.l` replace libgcc helpers; the other operations gain little, and on reads the `000` build is sometimes faster. The CPU is worth more than the flag: the same `000` binary moved from a 68000 to a 68020 roughly halves the write, which choosing the `060` build does not approach.
 
@@ -143,7 +132,7 @@ The negative read column is most likely an artifact. The `060` build is compiled
 
 ### What the synthetic workload shows about codegen
 
-`bench.sh` ranks gcc 15.2 far worse than gcc 13.4 on a 68000, 237M against 154M cycles, where the driver has 15.2 slightly ahead. The whole gap is one loop and one transformation. For `if (w & (1UL << b)) sum++` gcc 6.5 emits `btst d5,d6` and a branch, 6 cycles; gcc 15.2 and 16.2 go branchless with `lsr.l d0,d3` / `and.l #1,d3`. A register-count `lsr.l` costs 8+2n cycles on a 68000, around 39 at n averaged over 0-31, and a flat 6 on a 68020, which is why the same loop is 2.4x worse on a 68000 and only 31% worse on a 68020.
+One loop in `bench.sh` shows a mechanism. For `if (w & (1UL << b)) sum++` gcc 6.5 emits `btst d5,d6` and a branch, 6 cycles; gcc 16.2 goes branchless with `lsr.l d0,d3` / `and.l #1,d3`. A register-count `lsr.l` costs 8+2n cycles on a 68000, around 39 at n averaged over 0-31, and a flat 6 on a 68020.
 
 It does not reach the driver. Register-count shifts over the whole tree, `000` build:
 
@@ -151,11 +140,9 @@ It does not reach the driver. Register-count shifts over the whole tree, `000` b
 |---|---|---|
 | gcc 6.5 | 84 | 330 |
 | gcc 13.4 | 83 | 206 |
-| gcc 15.2 | 82 | 208 |
 | gcc 16.2 | 84 | 316 |
-| vbcc | 176 | 471 |
 
-The gcc versions are level. vbcc uses twice as many, which is part of why it is the most expensive build in nearly every column.
+The gcc versions are level.
 
 So a synthetic loop shows a mechanism and cannot rank toolchains: whether a transformation matters depends on how often the real code hits it.
 
@@ -164,7 +151,7 @@ So a synthetic loop shows a mechanism and cannot rank toolchains: whether a tran
 vamos runs on machine68k, a Python binding around Musashi. Musashi has no timing model: every instruction it executes is charged a constant from a table selected by CPU type at reset, plus a constant for the addressing mode, plus a per-bit surcharge for shifts on 68010 and below. `btst Dn,Dm` is 6 cycles on a 68000 and 4 on a 68020, `divu.w` 140 and 44, `divu.l` exists only from the 68020 and costs 84 there. A total is what the Motorola timings say that instruction stream costs.
 
 - **Only instructions the emulated CPU interprets are counted.** `exec.library`, `dos.library` and `scsi.device` are Python traps in vamos and amifuse, so a library call costs nothing. A figure is the driver's own CPU work, not the time an operation takes.
-- **Nothing outside the CPU core is counted:** no memory wait states, no caches, no chip-RAM contention. Stack traffic is understated, which treats vbcc's stack-passing convention more kindly than a real 68000 would.
+- **Nothing outside the CPU core is counted:** no memory wait states, no caches, no chip-RAM contention.
 - **Deterministic.** Three consecutive `driverbench` runs, each with a freshly generated random payload, produced identical output, so one run per cell is enough. Host wall clock tracks interpreter throughput and carries no signal.
 - **Each run verifies itself.** The synthetic benchmark returns a checksum of its work as its exit code, so a build computing something else is a failure and not a number; the driver benchmark reads the file back and compares it byte for byte.
 
@@ -210,7 +197,7 @@ $VER: Professional-File-System-III 20.0 [gcc16.1/030][020-040][jpu/e4bb995] PFS3
 | `080` | `-m68060 -mtune=68080 -Wa,-m68080` | 68080 only | `[<cc>/080][080]` |
 | `080a` | `-m68080` | 68080 only, line-A | `[<cc>/080a][080]` |
 
-`<cc>` is `gcc6.5`, `gcc13.4`, `gcc15.2`, `gcc16.2` or `vbcc`. The first field is what the build is tuned for, the second where it runs. The range alone would not identify a binary: `030` and `040` share `020-040`, `020` and `060` share `020+`, `080` and `080a` share `080`.
+`<cc>` is `gcc6.5`, `gcc13.4` or `gcc16.2`. The first field is what the build is tuned for, the second where it runs. The range alone would not identify a binary: `030` and `040` share `020-040`, `020` and `060` share `020+`, `080` and `080a` share `080`.
 
 The last bracket is the origin, `[<fork>/<tag or commit>]`, the tag when the build came from a tagged commit. A build made with upstream's `makefile` carries no origin bracket, since it passes none of these defines.
 
@@ -252,15 +239,9 @@ Hardware results, `bare` ROM profile on 68060. The `020`, `030` and `040` builds
 | gcc 6.5 / 060 (`-m68060`) | **works** |
 | gcc 13.4 / 000 (`-m68000`) | **works** |
 | gcc 13.4 / 060 (`-m68060`) | **works** |
-| gcc 15.2 / 000 (`-m68000`) | **works** |
-| gcc 15.2 / 060 (`-m68060`) | **works** |
 | gcc 16.1 / 000 (`-m68000`) | **works** |
 | gcc 16.1 / 060 (`-m68060`) | **works** |
-| vbcc / 000 (`-cpu=68000`) | **works** |
-| vbcc / 060 (`-cpu=68020` then) | **works** |
 | any / `-m68020` | fails |
-
-vbcc needed no workaround: it emits none of the affected instructions at any `-cpu` setting. vbcc is not affected by the strict-aliasing issue below.
 
 **The `060` build is compiled `-m68060`.** That drops the 64-bit multiplies and keeps the rest 68020 compatible, so the binary still runs on 68020 and 68030. Both builds verify clean:
 
@@ -275,9 +256,7 @@ Every toolchain boots here once the build avoids `-m68020`, so the choice of com
 
 ## Apollo 68080
 
-The AC68080 runs everything from the 68000 to the 68060 except the MMU instructions, so the `060` build works on it. Two builds use what the core adds, `080` and `080a`, and only gcc 6.5 can produce either: 13.4, 15.2 and 16.1 reject `-m68080`, `-mcpu=68080` and `-march=68080` alike, and vbcc's `-cpu=68080` emits its 68060 code with a different `machine` directive.
-
-vbcc's switch is not a target. Its code generator has no 68080 model: `-cpu=68080` gives byte-identical output to `-cpu=68020` and `-cpu=68060`, only `-cpu=68040` differs, and any number is accepted, `-cpu=99999` included. The value is forwarded into the `machine` directive for vasm, which does know the 68080, but what it implements there is AMMX, `load`, `store`, `vperm` and the E registers. The integer extensions gcc emits are rejected under `-m68080`: `clr.q`, `mov3q.l`, `mvs`, `mvz`, `moviw.l` and `dbral` all fail to assemble.
+The AC68080 runs everything from the 68000 to the 68060 except the MMU instructions, so the `060` build works on it. Two builds use what the core adds, `080` and `080a`, and only gcc 6.5 can produce either: 13.4 and 16.1 reject `-m68080`, `-mcpu=68080` and `-march=68080` alike.
 
 What `-m68080` puts in the binary, counted over `directory.c`, `disk.c`, `anodes.c`, `allocation.c` and `lru.c`, 10230 instructions of which 408 are not 68060 instructions:
 
@@ -322,127 +301,12 @@ No AMMX: not one E-register or SIMD instruction. `-m68080` uses the integer exte
 
 Scan the `.s` from `gcc -S`, not `objdump -d` output. Disassembling `.text` decodes jump tables as instructions and invents them. In this tree `objdump` reported two `movep` in `dostohandlerinterface.c`, which do not exist: both were switch jump-table data, one of them sitting directly under its own `jmp (table,pc,d0.w)`. No compiler here emits `movep` at any CPU setting. The `cmpa #0,aN` counts above were re-verified from `.s` and were correct.
 
-## vbcc
-
-Built by `makefile.vbcc`, which `make vbcc` drives. It is a separate makefile because vbcc shares no flags, no libraries and no assembler with gcc.
-
-```sh
-make vbcc          # its builds into compare/vbcc/
-make -f makefile.vbcc OUTDIR=somewhere VBCC=/opt/vbcc
-```
-
-Needs vbcc at `/opt/vbcc` and the NDK headers at `/opt/vbcc/NDK/Include_H`; vbcc ships only `proto/` and `inline/`, not the base `exec/`, `dos/` and `devices/` headers.
-
-**vbcc is 68060-safe at every `-cpu` setting.** It emits no bitfield instructions, no `MOVEP` and no 64-bit mul/div under `-cpu=68000`, `68020`, `68040` or `68060`, so unlike gcc it needs no special flag for the upper builds.
-
-### -fastcall
-
-vbcc passes arguments on the stack by default, five pushes and an `add.w #20,a7` per call, where gcc's `-mregparm=3` uses registers. `-fastcall` switches vbcc to registers:
-
-| build | binary, default | binary, `-fastcall` | stack/movem ops* |
-|---|---|---|---|
-| `000` | 89696 | **85264** | 1286 -> **395** |
-| `060` | 83764 | **79316** | 1235 -> **344** |
-
-\* in `disk.c`, `lru.c`, `update.c`, `allocation.c`, `anodes.c`
-
-About 4.4 KB smaller and 70 percent less stack traffic per build. On the hot path it takes vbcc from 10.7 times gcc's memory operations to 3.4, with the instruction count unchanged at about 2.6 times.
-
-`-fastcall` prefixes every C symbol with `@`, including the compiler's calls to its own runtime, and `vc.lib` is built with the default convention. Three things follow.
-
-**`strchr`, `memcmp`, `memmove` and `strcspn` are supplied in `vbcc_compat.c`.** `memmove` copies in longwords where both pointers allow it, since `directory.c` shifts whole directory blocks through it when adding or removing entries; the other three handle path and name strings a few bytes long, called per packet rather than per block, and stay simple loops.
-
-| bulk copy | instructions per byte |
-|---|---|
-| gcc, libnix `__bcopz` in assembly | 0.28 |
-| vbcc, unrolled longwords | 0.41 |
-| vbcc, single longwords | 1.0 |
-| vbcc, byte loop | 7.0 |
-
-The remaining gap is post-increment addressing and `dbf`, which C cannot reach. 292 bytes of code for the whole change. `tests/live/memmove_live.c` compares it against the host `memmove` over every small length at every overlap offset in both directions plus 20000 random cases, 23321 comparisons; the copies use `ULONG`/`UWORD` and `size_t` for the alignment casts, so the widths are right on host and target.
-
-**The 32-bit divide helpers are forwarded in `vbcc_fastcall.s`.** vbcc emits `jsr @_divu` for division and `jsr __divu` for modulo from the same object, and only the plain name exists in `vc.lib`. The convention is identical either way, dividend in `d0`, divisor in `d1`, quotient back in `d0` and remainder in `d1`, so the `@` names are a `jmp` and no division is reimplemented. Only the `000` build links it: on 68020+ `divu.l`/`divs.l` are hardware instructions, and linking the thunk there drags `_divu`/`_divs` in from `vc.lib` for about 200 bytes.
-
-**`startup.s` calls `EntryPoint` and `ResidentAddToFSResource` by name.** Hand-written assembly cannot follow the `@` prefix, so both are marked `ASMLINKAGE`, which is `__stdargs` under vbcc and empty everywhere else.
-
-**Do not forward the string functions the way the divide helpers are forwarded.** Their convention does change:
-
-```
-@strchr  (-fastcall)   move.l a0,a1 / moveq #47,d0 / jsr @strchr             arguments in registers
-_strchr  (vc.lib)      move.l #47,-(a7) / move.l ...,-(a7) / jsr _strchr     on the stack
-```
-
-`#pragma stdargs-on` around the `<string.h>` include does resolve the calls to `vc.lib`, but only if processed before any other inclusion of that header, and several `.c` files include `<string.h>` ahead of `blocks.h`. vbcc has no force-include option, so it would mean reordering includes across the tree.
-
-### Flags
-
-```
-compile  vc +aos68k $(VBCC_OPT) -cpu=<68000|68020> -I. -I<NDK> <-D...>
-link     vc +aos68k $(VBCC_OPT) -cpu=<...> -nostdlib -lvc -lamiga
-assemble vasmm68k_std -Fhunk
-```
-
-`VBCC_OPT` defaults to `-O1` and can be overridden on either makefile. Note vbcc's `-O` numbering: no flag at all is `-O=1`, which is almost no optimisation; `-O1` is `-O=991`, `-O2` is `-O=1023 -schedule`, `-O3` is everything plus cross-module. Peephole optimisation is on by default (`-no-peephole` disables it).
-
-Measured on the `000` build, every variant free of the instructions the 68060 lacks:
-
-| VBCC_OPT | 000 | vs `-O1` |
-|---|---|---|
-| `-O1 -size` | 87692 | -268 |
-| `-O1` (default) | 87944 | 0 |
-| `-O1 -speed` | 88192 | +248 |
-| `-O2` | 90984 | +3040 |
-| `-O3` | 107620 | +19676 |
-
-```sh
-make vbcc VBCC_OPT="-O1 -size"
-make install INSTALL_TOOLCHAINS=vbcc VBCC_OPT="-O1 -speed"
-```
-
-Objects depend on a stamp file holding the flags, so changing `VBCC_OPT` rebuilds rather than leaving stale objects behind. `REVDATE`/`REVTIME` are excluded from the stamp; they change every second.
-
-**`-sc` (small code) cannot be used.** It forces 16-bit PC-relative calls, and the code section is far beyond 32 KB, so vlink rejects it with `Relative reference to relocatable symbol ... doesn't fit into 16 bits`. gcc's `-msmall-code` survives the same situation by falling back to `jsr xxx.l` for far calls; vbcc does not relax. `-merge-constants` is not a vbcc option at all.
-
-### What the port needed
-
-Six source changes, all written so the gcc and SAS/C builds are unaffected. Verified: gcc binaries are byte-for-byte the same size before and after.
-
-| what | where | why |
-|---|---|---|
-| `[0]` -> `[PFSVLA]` on six trailing arrays | `blocks.h` | vbcc rounds a `[0]` array up to one element, which changed `sizeof` on eight on-disk structs (`dirblock` 20 -> 22, `deldirblock` 32 -> 64). `PFSVLA` is empty for vbcc, giving a C99 flexible array member, and `0` everywhere else. |
-| nested `offsetof` split into two | `struct.h`, `LOCKTOFILEENTRY` | vbcc's `offsetof` takes a single member, not `le.lock`. |
-| `NewList` macro `({...})` -> `do {} while (0)` | `kswrapper.h`, `kswrapper.c`, `fsresource.c` | GCC statement expressions. Four separate copies of the same macro exist in the tree. |
-| `rindex` -> `strrchr` | `dd_funcs.c` | `rindex` is a BSD name vbcc does not declare. |
-| `min`/`max` for vbcc | `struct.h` | they were gated on `__GNUC__` only. A separate block rather than widening the existing one, which also overrides `memcpy` and would clash with vbcc's `string.h`. |
-| `__reg("a1")` handler variants | `diskchange.c`, `resethandler.c` | the register-argument handlers had `__MORPHOS__`, `__AROS__` and `__GNUC__` branches but no vbcc one. |
-
-Plus two new files: `vbcc_compat.h`/`vbcc_compat.c` supply `stricmp` (used once in `directory.c`, absent from `vc.lib`) and declare `stpcpy` (implemented in `assroutines.c`, undeclared by vbcc's `string.h`).
-
-### Linking: -Rstd is required for the ROM builder
-
-Linked with `vlink` directly rather than through `vc`. `vc`'s `aos68k` config appends `-s -Rshort`, and the short relocation table it produces (`HUNK_DREL32`, 0x3F7) is not understood by Capitoline, the ROM builder behind amigaos-kickstart-builder. It misparses the file and dies with `free(): corrupted unsorted chunks` partway through the build, after the ADFs have loaded.
-
-`-Rstd` emits the ordinary `HUNK_RELOC32` that gcc's linker also produces, and the ROM then builds normally. It costs about 340 bytes on the 020 tier and 1700 on 000.
-
-| | hunks |
-|---|---|
-| gcc | `HUNK_CODE HUNK_RELOC32 HUNK_END HUNK_DATA HUNK_RELOC32 HUNK_END` |
-| vbcc, `-Rshort` | `HUNK_CODE HUNK_DREL32 ...` rejected by Capitoline |
-| vbcc, `-Rstd` | `HUNK_CODE HUNK_RELOC32 HUNK_END HUNK_CODE HUNK_END` |
-
-### Assembling startup.s
-
-`startup.s` is GNU-as source with Motorola pseudo-ops mixed in and GNU numeric local labels, and vasm accepts neither dialect whole. Rather than fork the file, the build pipes it through `vbcc-preasm.py`, which rewrites `dc.b`/`dc.w`/`dc.l` to `.byte`/`.word`/`.long` and gives each numeric local label a unique name, resolving `Nf`/`Nb` to the nearest match in the right direction. The label numbers 1, 2 and 3 are reused across two blocks, so a plain substitution would be wrong.
-
-`vbcc-inc/exec/exec_lib.i` replaces the NDK's Motorola-syntax `exec_lib.i`, which needs the `FUNCDEF` macro. `startup.s` references only six LVOs, so they are declared directly; the values follow from FUNCDEF order in the NDK file, first `-30`, step `-6`.
-
 ## Testing
 
 Layers of test, in increasing cost and coverage, then the benchmarks:
 
 ```sh
 bash tests/live/run.sh                  # host, lifted functions (upstream's is zsh)
-sh tests/m68k/run.sh                    # emulated 68k, lifted functions
 make check-68060    # static, instructions the 68060 lacks
 make verify         # the audit plus format/write/read per build
 zsh tests/run.sh --driver <binary>      # emulated 68k, upstream's full black-box suite
@@ -452,7 +316,7 @@ make bench          # cycles: synthetic workload, all toolchains
 sh tests/m68k/sensitivity.sh            # does driverbench react to its knobs?
 ```
 
-`tests/live` compiles driver functions with the host compiler: cheap, blind to target type widths, unable to run assembly. `tests/m68k` lifts the same functions onto an emulated 68k, so widths, alignment and assembly are in scope; `CPU=68020` selects the emulated CPU.
+`tests/live` compiles driver functions with the host compiler: cheap, blind to target type widths, unable to run assembly.
 
 `make verify` runs each built binary against a fresh `rdbtool` image: format, write 32 KB, read back, compare, each on the lowest CPU its build runs on. All of them pass. The benchmarks are documented in "Measuring cost under emulation" and in `BENCHMARK.md`; they check their own results, so a cell carries either a cycle count or a failure.
 
@@ -477,9 +341,9 @@ FI_CMD=none python3 tests/fi.py format tests/fixtures/small.hdf DH0 TESTVOL \
 
 ## Issue 1: sibling-call miscompilation (handled)
 
-Affects gcc 13.4 and 15.2, not 6.5. Already fixed by `-fno-optimize-sibling-calls` in `makefile`, which came from upstream commit `82afc5f`. **Do not remove that flag.** Nothing else is required.
+Affects gcc 13.4, not 6.5. Already fixed by `-fno-optimize-sibling-calls` in `makefile`, which came from upstream commit `82afc5f`. **Do not remove that flag.** Nothing else is required.
 
-`RawRead`/`RawWrite` in `disk.c` end in a tail call to `RawReadWrite_DS`/`_TD`, so gcc turns the call into a jump. With `-mregparm=3` the arguments live in registers and have to be shuffled first. gcc 13.4 and 15.2 get the shuffle wrong: `blocknr` is never moved into d2 where the callee reads it, and d2 is restored to the caller's value before the jump. Every raw sector access then uses a wrong block number.
+`RawRead`/`RawWrite` in `disk.c` end in a tail call to `RawReadWrite_DS`/`_TD`, so gcc turns the call into a jump. With `-mregparm=3` the arguments live in registers and have to be shuffled first. gcc 13.4 gets the shuffle wrong: `blocknr` is never moved into d2 where the callee reads it, and d2 is restored to the caller's value before the jump. Every raw sector access then uses a wrong block number.
 
 Reproduce with `make sibcall-proof`, which builds `disk.o` both ways and prints `RawRead`. With sibling calls enabled the `move.l d1,d2` is missing:
 
@@ -495,13 +359,13 @@ sibling calls on                  sibling calls off
 
 That d2 is really `blocknr` is visible in the callee, which compiles `if (blocknr == (ULONG)-1)` and `blocknr += g->firstblock` to `cmp.l d2,d1` and `add.l 88(a1),d2`.
 
-Cost of the flag: 0 bytes on gcc 6.5 (binaries are byte-identical, it never emits the sibling call here), 60/72 bytes on gcc 13.4, 44/40 bytes on gcc 15.2.
+Cost of the flag: 0 bytes on gcc 6.5 (binaries are byte-identical, it never emits the sibling call here), 60/72 bytes on gcc 13.4.
 
 ## Issue 2: strict aliasing (fixed)
 
-`GetExtraFields` filled a `struct extrafields` through a `UWORD *` and `AddExtraFields` read it that way. gcc 6.5 reports 34 `-Wstrict-aliasing` warnings; gcc 15.2 reports `extrafields.link` used uninitialized in `UpdateLinks` and `RemapLinks`.
+`GetExtraFields` filled a `struct extrafields` through a `UWORD *` and `AddExtraFields` read it that way. gcc 6.5 reports 34 `-Wstrict-aliasing` warnings.
 
-gcc 13.4, 15.2 and 16.2 miscompile it: `CreateLink` reuses the `link` value it stored itself before `GetExtraFields`, so the linked file never gets its link field. Deleting it then frees the file and leaves the link dangling. gcc 6.5 and vbcc are not affected. The test is deleting the original of a hard link and reading the link (`tests/m68k/hardlink.py`, a column of `variants.sh`).
+gcc 13.4 and 16.2 miscompile it: `CreateLink` reuses the `link` value it stored itself before `GetExtraFields`, so the linked file never gets its link field. Deleting it then frees the file and leaves the link dangling. gcc 6.5 is not affected. The test is deleting the original of a hard link and reading the link (`tests/m68k/hardlink.py`, a column of `variants.sh`).
 
 Both functions go through a union of the struct and a `UWORD` array now. Every build also passes `-fno-strict-aliasing`, so other accesses of that kind cannot go wrong.
 

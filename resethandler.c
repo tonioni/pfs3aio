@@ -57,14 +57,6 @@ ULONG ResetHandler(register struct globaldata *g asm("a1"))
 	return 0;
 }
 
-#elif defined(__VBCC__)
-
-ULONG ResetHandler(__reg("a1") struct globaldata *g)
-{
-	Signal(&g->myproc->pr_Task, g->resethandlersignal);
-	return 0;
-}
-
 #else
 
 #warning "Add the implementation for your platform"

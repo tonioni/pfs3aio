@@ -3,7 +3,7 @@
 # on every emulated CPU and prints the time.
 #
 #   sh tests/m68k/bench.sh
-#   CPUS="68000 68020" TOOLCHAINS="gcc6 vbcc" sh tests/m68k/bench.sh
+#   CPUS="68000 68020" TOOLCHAINS="gcc6 gcc16" sh tests/m68k/bench.sh
 #   BREAKDOWN=1 sh tests/m68k/bench.sh          # per workload, one table per CPU
 #
 # Reported per cell: the cycles Musashi charges for the instructions it
@@ -12,8 +12,7 @@
 #
 # Not measured: the driver itself, and anything outside the CPU core. No memory
 # wait states, no caches, no chip-RAM contention, which is exactly what makes
-# stack traffic expensive on a real 68000, so vbcc's stack-passing penalty in
-# particular is understated here. Read a column as a ranking.
+# stack traffic expensive on a real 68000. Read a column as a ranking.
 #
 # 68010 is missing because vamos does not accept it. 68030 needs the AttnFlags
 # fix in tests/m68k/vamos_cpu.py; see that file. Musashi charges 68030 and
@@ -24,17 +23,14 @@ set -u
 DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$DIR/../.." && pwd)
 VAMOS=${VAMOS:-vamos}
-VBCC=${VBCC:-/opt/vbcc}
 # Same image family and pinned tags as GNUmakefile; see the note there on
 # why gcc 6.5 is pinned to a dated tag.
 GCC_IMAGE=${GCC_IMAGE:-docker.io/stefanreinauer/amiga-gcc}
 GCC6_TAG=${GCC6_TAG:-gcc-v6.5.0b-20251218}
 GCC13_TAG=${GCC13_TAG:-gcc-v13.4}
-GCC15_TAG=${GCC15_TAG:-gcc-v15.2}
 GCC16_TAG=${GCC16_TAG:-gcc-v16.2}
-NDK=$VBCC/NDK/Include_H
 CPUS=${CPUS:-"68000 68020 68030 68040"}
-TOOLCHAINS=${TOOLCHAINS:-"gcc6 gcc13 gcc15 gcc16 vbcc"}
+TOOLCHAINS=${TOOLCHAINS:-"gcc6 gcc13 gcc16"}
 . "$ROOT/tests/m68k/tiers.sh"
 # the synthetic workload does not use LARGE_FILE_SIZE, so the large tiers repeat
 # the others
@@ -46,7 +42,7 @@ mkdir -p "$GEN"
 SRC=$DIR/bench_m68k.c
 
 # Same flags the driver is built with, so the codegen being compared is the
-# codegen that ships. See makefile.gcc and makefile.vbcc.
+# codegen that ships. See makefile.gcc.
 GFLAGS="-Os -fbbb=+ -noixemul -fomit-frame-pointer -mregparm=3 \
 	-fno-optimize-sibling-calls -msmall-code"
 
@@ -68,27 +64,7 @@ build() {	# $1=toolchain $2=tier
 	case $tc in
 	gcc6)  gccbuild "$GCC6_TAG" "$tier" "$rel" "" ;;
 	gcc13) gccbuild "$GCC13_TAG" "$tier" "$rel" "" ;;
-	gcc15) gccbuild "$GCC15_TAG" "$tier" "$rel" "-std=gnu17" ;;
 	gcc16) gccbuild "$GCC16_TAG" "$tier" "$rel" "-std=gnu17" ;;
-	vbcc)
-		# Linked with vlink rather than vc for the same reason makefile.vbcc
-		# does it: to force -Rstd. vbcc_fastcall.o supplies the @-prefixed
-		# divide helpers -fastcall calls, which only the 000 tier needs.
-		export VBCC PATH="$VBCC/bin:$PATH"
-		extra=
-		if [ "$(tier_mincpu "$tier")" -lt 68020 ]; then
-			cpp -I"$ROOT"/vbcc-inc -P "$ROOT"/vbcc_fastcall.s \
-				| python3 "$ROOT"/vbcc-preasm.py > "$GEN"/vbcc_fastcall.s || return 1
-			"$VBCC"/bin/vasmm68k_std -Fhunk -quiet -nowarn=62 \
-				-o "$GEN"/vbcc_fastcall.o "$GEN"/vbcc_fastcall.s || return 1
-			extra=$GEN/vbcc_fastcall.o
-		fi
-		"$VBCC"/bin/vc +aos68k -O1 -fastcall -cpu=$(tier_vbcpu "$tier") -I"$NDK" \
-			-c -o "$GEN"/bench-vbcc.o "$SRC" || return 1
-		"$VBCC"/bin/vlink -bamigahunk -x -Bstatic -Cvbcc -nostdlib -mrel \
-			-s -Rstd -L"$VBCC"/targets/m68k-amigaos/lib \
-			"$VBCC"/targets/m68k-amigaos/lib/startup.o \
-			"$GEN"/bench-vbcc.o $extra -lvc -lamiga -o "$out" ;;
 	esac
 	[ -f "$out" ]
 }

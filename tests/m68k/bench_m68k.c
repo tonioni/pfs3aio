@@ -10,15 +10,9 @@
 
 #include <exec/types.h>
 
-/* Both toolchains pass arguments in registers here (-fastcall, -mregparm=3),
- * but the C startup calls main on the stack. Same reason ASMLINKAGE exists in
- * vbcc_compat.h. vbcc's -fastcall also renames every C symbol including main,
- * which __stdargs undoes. */
-#ifdef __VBCC__
-#define BENCH_MAIN __stdargs
-#else
+/* The compilers pass arguments in registers here (-mregparm=3), but the C
+ * startup calls main on the stack. */
 #define BENCH_MAIN __attribute__((stkparm))
-#endif
 
 #define BLK 2048
 #define NAMES 64

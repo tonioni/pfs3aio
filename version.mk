@@ -1,8 +1,7 @@
-# What goes into the version string, as bare tokens: vc re-shells its command
-# line and eats one level of quoting, which truncated the whole string once.
-# boot.c assembles them; see TOOLCHAINS.md, "Telling the variants apart".
+# What goes into the version string, as bare tokens that boot.c turns into
+# strings; see TOOLCHAINS.md, "Telling the variants apart".
 #
-# Included by makefile.gcc and makefile.vbcc. GNUmakefile passes FORK and
+# Included by makefile.gcc. GNUmakefile passes FORK and
 # PFS_REF down so the containers never run git: the repo is mounted from the
 # host and git inside refuses it as dubious ownership. Outside a checkout the
 # shell call comes back empty and the origin bracket is left out, which is also

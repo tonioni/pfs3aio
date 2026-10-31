@@ -4,12 +4,12 @@
 #ifndef __SASC
 #undef NewList
 #define NewList(list) \
-do {									\
+({									\
   struct List *_NewList_list = (list);					\
   _NewList_list->lh_TailPred = (struct Node *)_NewList_list;		\
   _NewList_list->lh_Head = (struct Node *)&_NewList_list->lh_Tail;	\
   _NewList_list->lh_Tail = 0;						\
-} while (0)
+})
 #endif
 
 #define KSWRAPPER_DEBUG 0
