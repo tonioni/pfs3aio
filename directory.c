@@ -2687,7 +2687,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	AddExtraFields(destentry, &extrafields);
 
 	/* copy object info */
-	destentry->fsize = objectentry->fsize;
+	destentry->fsize = GetDEFileSize32(objectentry, g);
 	switch (objectentry->type)
 	{
 		case ST_FILE:
@@ -3665,20 +3665,69 @@ ULONG GetDEFileSize32(struct direntry *direntry, globaldata *g)
 	}
 }
 
+#if LARGE_FILE_SIZE
+/* The fsizex field of an entry, NULL when it has none. */
+static UWORD *FindFsizex(struct direntry *direntry)
+{
+	UWORD *fields = (UWORD *)(((UBYTE *)direntry) + direntry->next);
+	UWORD flags, i;
+
+	flags = *(--fields);
+	for (i = 0; i < sizeof(struct extrafields) / 2; i++, flags >>= 1)
+	{
+		if (flags & 1)
+		{
+			fields--;
+			if (i == offsetof(struct extrafields, fsizex) / 2)
+				return fields;
+		}
+	}
+	return NULL;
+}
+
+/* Add the fsizex field before a file grows above 4G; SetDEFileSize keeps the entry length */
+BOOL PrepareFileSize(fileentry_t *file, FSIZE size, SIPTR *error, globaldata *g)
+{
+	UBYTE entrybuffer[MAX_ENTRYSIZE];
+	struct direntry *destentry = (struct direntry *)entrybuffer;
+	struct extrafields extrafields;
+	union objectinfo directory;
+	struct fileinfo fi;
+	FSIZE oldsize;
+
+	if (!g->largefile || size <= MAXFILESIZE32 || FindFsizex(file->le.info.file.direntry))
+		return TRUE;
+
+	oldsize = GetDEFileSize(file->le.info.file.direntry, g);
+	memcpy(destentry, file->le.info.file.direntry, file->le.info.file.direntry->next);
+	GetExtraFields(destentry, &extrafields);
+	extrafields.fsizex = 1;		/* a zero field is not stored */
+	AddExtraFields(destentry, &extrafields);
+	if (!GetParent(&file->le.info, &directory, error, g))
+		return FALSE;
+	if (!ChangeDirEntry(file->le.info.file, destentry, &directory, &fi, g))
+	{
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+
+	/* the field exists now: give it the real size back */
+	SetDEFileSize(file->le.info.file.direntry, oldsize, g);
+	MakeBlockDirty((struct cachedblock *)file->le.info.file.dirblock, g);
+	return TRUE;
+}
+#endif
+
 void SetDEFileSize(struct direntry *direntry, FSIZE size, globaldata *g)
 {
-	if (!LARGE_FILE_SIZE || !g->largefile)
-		direntry->fsize = (ULONG)size;
+	direntry->fsize = (ULONG)size;
 #if LARGE_FILE_SIZE
-	else {
-		struct extrafields extrafields;
-		UWORD high = (UWORD)(size >> 32);
-		GetExtraFields(direntry, &extrafields);
-		if (extrafields.fsizex != high) {
-			extrafields.fsizex = high;
-			AddExtraFields(direntry, &extrafields);
-		}
-		direntry->fsize = (ULONG)size;
+	if (g->largefile)
+	{
+		/* the entry keeps its length: no field means the size is below 4G */
+		UWORD *fsizex = FindFsizex(direntry);
+		if (fsizex)
+			*fsizex = (UWORD)(size >> 32);
 	}
 #endif
 }
@@ -3713,18 +3762,26 @@ void SetDDFileSize(struct deldirentry *dde, FSIZE size, globaldata *g)
 #endif
 }
 
+/* UWORD view of the extra fields; going through the union keeps the compiler
+ * from treating the UWORD accesses as not aliasing the ULONG fields */
+union extrawords
+{
+	struct extrafields fields;
+	UWORD w[sizeof(struct extrafields) / 2];
+};
+
 /*
  * GetExtraFields (normal file only)
  */
 void GetExtraFields(struct direntry *direntry, struct extrafields *extrafields)
 {
-	UWORD *extra = (UWORD *)extrafields;
+	union extrawords *extra = (union extrawords *)extrafields;
 	UWORD *fields = (UWORD *)(((UBYTE *)direntry) + direntry->next);
 	UWORD flags, i;
 
 	flags = *(--fields);
 	for (i = 0; i < sizeof(struct extrafields) / 2; i++, flags >>= 1)
-		*(extra++) = (flags & 1) ? *(--fields) : 0;
+		extra->w[i] = (flags & 1) ? *(--fields) : 0;
 
 	/* patch protection lower 8 bits */
 	extrafields->prot |= direntry->protection;
@@ -3766,7 +3823,7 @@ void AddExtraFields(struct direntry *direntry, struct extrafields *extra)
 	UWORD offset, *dirext;
 	UWORD array[16], i = 0, j = 0;
 	UWORD flags = 0, orvalue;
-	UWORD *fields = (UWORD *)extra;
+	union extrawords *words = (union extrawords *)extra;
 
 	/* patch protection lower 8 bits */
 	extra->prot &= 0xffffff00;
@@ -3777,14 +3834,10 @@ void AddExtraFields(struct direntry *direntry, struct extrafields *extra)
 	/* fill packed field array */
 	for (i = 0; i < sizeof(struct extrafields) / 2; i++)
 	{
-		if (*fields)
+		if (words->w[i])
 		{
-			array[j++] = *fields++;
+			array[j++] = words->w[i];
 			flags |= orvalue;
-		}
-		else
-		{
-			fields++;
 		}
 
 		orvalue <<= 1;
@@ -3822,7 +3875,7 @@ void UpdateLinks(struct direntry *object, globaldata * g)
 		GetAnode(&linklist, linknr, g);
 		if (FetchObject(linklist.blocknr, linklist.nr, &loi, g))
 		{
-			loi.file.direntry->fsize = object->fsize;
+			loi.file.direntry->fsize = GetDEFileSize32(object, g);
 			MakeBlockDirty((struct cachedblock *)loi.file.dirblock, g);
 		}
 		linknr = linklist.next;
@@ -3908,12 +3961,14 @@ static BOOL RemapLinks(struct fileinfo *object, globaldata * g)
 	struct direntry *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	SIPTR error;
+	UWORD fsizex;
 
 	ENTER("RemapLinks");
 	/* get head of linklist */
 	GetExtraFields(object->direntry, &extrafields);
 	if (extrafields.link == 0)
 		return FALSE;
+	fsizex = extrafields.fsizex;
 
 	/* the file has links; get head of list
 	 * we are going to promote this link to
@@ -3943,6 +3998,7 @@ static BOOL RemapLinks(struct fileinfo *object, globaldata * g)
 	destentry->anode = object->direntry->anode;     // is this necessary?
 
 	extrafields.link = linknode.next;
+	extrafields.fsizex = fsizex;	/* a link has no size above 4G */
 	AddExtraFields(destentry, &extrafields);
 
 	/* Free old linklist node */

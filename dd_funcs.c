@@ -2273,41 +2273,19 @@ static LONG dd_MorphOSQueryAttr(struct DosPacket *pkt, globaldata *g)
 
 #if EXTENDED_PACKETS_OS4
 
-/* Totally untested at the moment, logic copied from UAE */
-
-#define DP64_INIT -3
-/* Not real one but close enough */
-struct DosPacket64OS4
-{
-	ULONG dp_Link;
-	ULONG dp_Port;
-	LONG  dp_Type;
-	ULONG dp_Res0;
-	ULONG dp_Res2;
-	QUAD dp_Res1;
-	QUAD dp_Arg1;
-	QUAD dp_Arg2;
-	ULONG dp_Arg3;
-	ULONG dp_Arg4;
-	ULONG dp_Arg5;
-};
-
 static listentry_t *InitOS464(struct DosPacket *pkt, globaldata *g, BOOL errortype)
 {
 	struct DosPacket64OS4 *dp = (struct DosPacket64OS4*)pkt;
 	listentry_t *listentry;
-	
+
 	dp->dp_Res0 = DP64_INIT;
 	dp->dp_Res2 = 0;
-	listentry = (listentry_t *) pkt->dp_Arg1;
-	if (!CheckVolume(listentry->volume, 0, &pkt->dp_Res2, g)) {
-		dp->dp_Res1 = errortype ? -1 : 0;
-		dp->dp_Res2 = ERROR_INVALID_LOCK;
+	dp->dp_Res1 = errortype ? -1 : 0;
+	listentry = (listentry_t *)(IPTR)dp->dp_Arg1;
+	if (!CheckVolume(listentry->volume, 0, (SIPTR *)&dp->dp_Res2, g))
 		return NULL;
-	}
 	UpdateLE(listentry, g);
 	if (!IsFile(listentry->info)) {
-		dp->dp_Res1 = errortype ? -1 : 0;
 		dp->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
 		return NULL;
 	}
@@ -2318,7 +2296,7 @@ static void dd_GetFileSize64(struct DosPacket *pkt, globaldata *g)
 {
 	struct DosPacket64OS4 *dp = (struct DosPacket64OS4*)pkt;
 	listentry_t *listentry;
-	
+
 	listentry = InitOS464(pkt, g, TRUE);
 	if (!listentry)
 		return;
@@ -2330,18 +2308,17 @@ static void dd_ChangeFileSize64(struct DosPacket *pkt, globaldata *g)
 	struct DosPacket64OS4 *dp = (struct DosPacket64OS4*)pkt;
 	listentry_t *listentry;
 	SIPTR error;
-	SFSIZE pos;
+	SFSIZE size;
 
 	listentry = InitOS464(pkt, g, FALSE);
 	if (!listentry)
 		return;
-	pos = ChangeFileSize((fileentry_t *)listentry, dp->dp_Arg2, dp->dp_Arg3, &error, g);
-	if (pos < 0) {
-		dp->dp_Res1 = DOSFALSE;
+	size = ChangeObjectSize((fileentry_t *)listentry, dp->dp_Arg2, dp->dp_Arg3, &error, g);
+	if (size < 0) {
 		dp->dp_Res2 = error;
 	} else {
 		dp->dp_Res1 = DOSTRUE;
-	}	
+	}
 }
 
 static void dd_GetFilePosition64(struct DosPacket *pkt, globaldata *g)
@@ -2354,9 +2331,8 @@ static void dd_GetFilePosition64(struct DosPacket *pkt, globaldata *g)
 	listentry = InitOS464(pkt, g, TRUE);
 	if (!listentry)
 		return;
-	pos = SeekInObject((fileentry_t *)listentry, OFFSET_CURRENT, 0, &error, g);
+	pos = SeekInObject((fileentry_t *)listentry, 0, OFFSET_CURRENT, &error, g);
 	if (pos < 0) {
-		dp->dp_Res1 = -1;
 		dp->dp_Res2 = error;
 	} else {
 		dp->dp_Res1 = pos;
@@ -2373,15 +2349,13 @@ static void dd_ChangeFilePosition64(struct DosPacket *pkt, globaldata *g)
 	listentry = InitOS464(pkt, g, FALSE);
 	if (!listentry)
 		return;
-	pos = SeekInObject((fileentry_t *)listentry, dp->dp_Arg3, dp->dp_Arg2, &error, g);
+	pos = SeekInObject((fileentry_t *)listentry, dp->dp_Arg2, dp->dp_Arg3, &error, g);
 	if (pos < 0) {
-		dp->dp_Res1 = DOSFALSE;
 		dp->dp_Res2 = error;
 	} else {
 		dp->dp_Res1 = DOSTRUE;
-	}		
+	}
 }
-
 
 #endif
 

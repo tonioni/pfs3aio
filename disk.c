@@ -798,6 +798,8 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 		*error = ERROR_DISK_FULL;
 		return -1;
 	}
+	if (!PrepareFileSize(file, newfileoffset, error, g))
+		return -1;
 
 	oldblocksinfile = (oldfilesize + BLOCKSIZEMASK)>>BLOCKSHIFT;
 	newblocksinfile = (newfileoffset + BLOCKSIZEMASK)>>BLOCKSHIFT;
@@ -1132,6 +1134,9 @@ SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error,
 		*error = ERROR_SEEK_ERROR;
 		return -1;
 	}
+
+	if (!PrepareFileSize(file, abseof, error, g))
+		return -1;
 
 	/* change allocation (ala WriteToFile) */
 	oldfilesize = GetDEFileSize(file->le.info.file.direntry, g);

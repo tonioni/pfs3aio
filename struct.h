@@ -1053,6 +1053,27 @@ typedef struct lockentry
 #define ACTION_GET_FILE_SIZE64         8004
 #endif
 
+#if EXTENDED_PACKETS_OS4
+/* Packet of the 64 bit actions; Res0 is DP64_INIT in an answer */
+#define DP64_INIT -3
+struct DosPacket64OS4
+{
+	ULONG dp_Link;		/*  0 */
+	ULONG dp_Port;		/*  4 */
+	LONG  dp_Type;		/*  8 */
+	LONG  dp_Res0;		/* 12 */
+	ULONG dp_Res2;		/* 16 */
+	ULONG dp_Pad0;		/* 20 */
+	QUAD  dp_Res1;		/* 24 */
+	ULONG dp_Arg1;		/* 32 */
+	ULONG dp_Pad1;		/* 36 */
+	QUAD  dp_Arg2;		/* 40 */
+	ULONG dp_Arg3;		/* 48 */
+	ULONG dp_Arg4;		/* 52 */
+	ULONG dp_Arg5;		/* 56 */
+};
+#endif
+
 #ifndef ACTION_SEEK64
 /* MOS 64-bit filesize packets */
 #define ACTION_SEEK64			26400

@@ -381,6 +381,11 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 	if (resblocksize > 1024 || g->blocklogshift) {
 		disktype = ID_PFS2_DISK;
 	}
+#if LARGE_FILE_SIZE > 1
+	// file sizes above 4G: new format type
+	disktype = ID_PFS2_DISK;
+	options |= MODE_LARGEFILE;
+#endif
 	// max supported resblock size is 4096
 	if (resblocksize > 4096) {
 		resblocksize = 4096;
@@ -435,8 +440,6 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 	rbl->reserved_blksize = resblocksize;
 
 #if LARGE_FILE_SIZE > 1
-	rbl->options |= MODE_LARGEFILE;
-	rbl->disktype = ID_PFS2_DISK;
 	NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_FILE, NULL, 1);
 #endif
 
