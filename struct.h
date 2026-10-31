@@ -848,6 +848,9 @@ typedef signed long long FSIZE;
 typedef signed long long SFSIZE;
 /* Limit to useful sane size, not real max for now */
 #define MAX_FILE_SIZE 0x7fffffffff
+#ifndef EXTENDED_PACKETS_OS4
+#define EXTENDED_PACKETS_OS4 1
+#endif
 #else
 typedef ULONG FSIZE;
 typedef LONG SFSIZE;
