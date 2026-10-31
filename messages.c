@@ -40,9 +40,6 @@ CONST UBYTE AFS_WARNING_MEMORY_MASK[]         = "WARNING:\nAllocated memory does
 #if WARN_EXPERIMENTAL
 CONST UBYTE AFS_WARNING_EXPERIMENTAL_DISK[]   = "WARNING:\nExperimental >104G partition / block size support enabled.\nPBS=%lu LBS=%lu RBS=%lu\nS=%lu,%lu E=%lu,%lu";
 #endif
-#if LARGE_FILE_SIZE > 1
-CONST UBYTE AFS_WARNING_EXPERIMENTAL_FILE[]   = "WARNING:\nExperimental >4G file size support enabled";
-#endif
 
 CONST UBYTE AFS_ERROR_DNV_ALLOC_INFO[]        = "ALERT:\nAllocation info not found";
 CONST UBYTE AFS_ERROR_DNV_ALLOC_BLOCK[]       = "ALERT:\nAllocation block not found";
