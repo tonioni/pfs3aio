@@ -288,7 +288,7 @@ static BOOL GetParentOf(union objectinfo *path, SIPTR *error, globaldata *);
 static BOOL GetDir(STRPTR dirname, union objectinfo *path, SIPTR *error, globaldata *);
 static BOOL GetObject(STRPTR objectname, union objectinfo *path, SIPTR *error, globaldata *);
 static BOOL SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *info, globaldata * g);
-static void FillFib(struct direntry *direntry, struct FileInfoBlock *fib, globaldata * g);
+static void FillFib(struct direntry *direntry, struct FileInfoBlock *fib, FSIZE *size64, globaldata * g);
 #if DELDIR
 static struct deldirentry *SearchInDeldir(STRPTR delname, union objectinfo *result, globaldata *g);
 static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, globaldata *g);
@@ -829,8 +829,9 @@ BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo * result, glob
  *   *error: error if failure; else undefined
  *
  * - fib_DirEntryType must be equal to fib_EntryType
+ * - size64, when not NULL, receives the full file size of a file entry
  */
-BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, SIPTR *error, globaldata * g)
+BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, FSIZE *size64, SIPTR *error, globaldata * g)
 {
 	struct volumedata *volume;
 #if DELDIR
@@ -904,7 +905,7 @@ BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, SIPTR *error, gl
 		else
 #endif
 		{
-			FillFib(file->info.file.direntry, fib, g);
+			FillFib(file->info.file.direntry, fib, size64, g);
 		}
 #if DELDIR
 	}
@@ -941,7 +942,7 @@ BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, SIPTR *error, gl
  * lock->nextentry == {NULL, NULL}
  *
  */
-BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib,
+BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib, FSIZE *size64,
 					 SIPTR *error, globaldata * g)
 
 {
@@ -995,7 +996,7 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib,
 	if (direntry->next)
 	{
 		fib->fib_DiskKey = (IPTR)file;  // I use it as dir-block-number
-		FillFib(direntry, fib, g);
+		FillFib(direntry, fib, size64, g);
 	}
 	else
 	{
@@ -1012,13 +1013,15 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib,
 
 /* Fill fileinfoblock of a file
  */
-static void FillFib(struct direntry *direntry, struct FileInfoBlock *fib, globaldata * g)
+static void FillFib(struct direntry *direntry, struct FileInfoBlock *fib, FSIZE *size64, globaldata * g)
 {
 	struct extrafields extrafields;
 	UBYTE *comment;
 	FSIZE size;
 	
 	size = GetDEFileSize(direntry, g);
+	if (size64)
+		*size64 = size;
 	/* fib->fib_DiskKey done by Examine(Next) */
 	fib->fib_DirEntryType = direntry->type;
 	fib->fib_EntryType = direntry->type;
@@ -1044,7 +1047,11 @@ static void FillFib(struct direntry *direntry, struct FileInfoBlock *fib, global
 
 #if ROLLOVER
 		if (direntry->type == ST_ROLLOVERFILE)
+		{
 			fib->fib_Size = extrafields.virtualsize;
+			if (size64)
+				*size64 = extrafields.virtualsize;
+		}
 #endif
 	}
 }
