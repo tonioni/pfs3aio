@@ -926,7 +926,7 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	// ARG1 = BSTR new disk name
 	// RES1 = BOOL Success/failure (DOSTRUE/DOSFALSE)
 
-	UBYTE newlabel[FNSIZE], *newname;
+	UBYTE newlabel[DNSIZE], *newname;
 	UBYTE newnamelen;
 
 #if MULTIUSER
@@ -937,37 +937,41 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	}
 #endif
 
-	BCPLtoCString(newlabel, (DSTR)BARG1(pkt));
+	DSTR newnamept = (DSTR)BARG1(pkt);
+	newnamelen = newnamept[0];
 
-	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g))
+ 	if (newnamelen >= DNSIZE - 1) {
+		pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
 		return DOSFALSE;
+ 	}
 
-	newnamelen = strlen(newlabel) + 2;
-	newname = AllocMem(newnamelen, MEMF_CLEAR | MEMF_PUBLIC);
-	if (newname) {
-		/* change rootblock */
-		if (RenameDisk(newlabel, g))
-		{
-				// change volume name
-				struct DeviceList *devlist = g->currentvolume->devlist;
-				UBYTE *oldname = BADDR(devlist->dl_Name);
-				strcpy(newname + 1, newlabel);
-				newname[0] = newnamelen;
-				devlist->dl_Name = MKBADDR(newname);
-				FreeMem(oldname, oldname[0] + 2);
-		}
-		else
-		{
-			FreeMem(newname, newnamelen);
-			pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
-			return DOSFALSE;
-		}
+	BCPLtoCString(newlabel, newnamept);
+
+	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g)) {
+		return DOSFALSE;
 	}
-	else
-	{
+
+	newname = AllocMem(newnamelen + 2, MEMF_CLEAR | MEMF_PUBLIC);
+	if (!newname) {
 		pkt->dp_Res2 = ERROR_NO_FREE_STORE;
 		return DOSFALSE;
 	}
+
+	/* change rootblock */
+	ULONG err = RenameDisk(newlabel, g);
+	if (err) {
+		FreeMem(newname, newnamelen + 2);
+		pkt->dp_Res2 = err;
+		return DOSFALSE;
+	}
+
+	// change volume name
+	struct DeviceList *devlist = g->currentvolume->devlist;
+	UBYTE *oldlabel = BADDR(devlist->dl_Name);
+	strcpy(newname + 1, newlabel);
+	newname[0] = newnamelen;
+	devlist->dl_Name = MKBADDR(newname);
+	FreeMem(oldlabel, oldlabel[0] + 2);
 
 	return DOSTRUE;
 }

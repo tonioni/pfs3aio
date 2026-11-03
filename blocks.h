@@ -119,6 +119,8 @@
 #define MAXDISKSIZE4K ((ULONG)(MAXBITMAPINDEX+1)*BITMAP_PAYLOAD_4K*BITMAP_PAYLOAD_4K*32)
 #define MAXDISKSIZE MAXDISKSIZE4K
 
+#define DNSIZE 32
+
 #if defined(__GNUC__) || defined(__VBCC__)
 /* Force SAS/C compatible alignment rules for all these structures */
 #pragma pack(2)
@@ -139,7 +141,7 @@ typedef struct rootblock
     UWORD creationminute;   /* minutes past modnight            */
     UWORD creationtick;     /* ticks past minute                */
     UWORD protection;       /* protection bits (ala ADOS)       */
-    UBYTE diskname[32];     /* disk label (pascal string)       */
+    UBYTE diskname[DNSIZE]; /* disk label (pascal string)       */
     ULONG lastreserved;     /* reserved area. sector number of last reserved block */
     ULONG firstreserved;	/* sector number of first reserved block */
     ULONG reserved_free;    /* number of reserved blocks (blksize blocks) free  */
@@ -514,7 +516,6 @@ struct lru_cachedblock
 #define FNSIZE 108
 #define PATHSIZE 256
 #define FILENAMESIZE (g->fnsize)
-#define DNSIZE 32
 #define CMSIZE 80
 #define MAX_ENTRYSIZE (sizeof(struct direntry) + FNSIZE + CMSIZE + 34)
 
