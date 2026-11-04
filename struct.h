@@ -1078,7 +1078,7 @@ struct DosPacket64OS4
 #endif
 
 #if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
-/* FileInfoBlock of ACTION_EXAMINE_OBJECT64, _NEXT64 and _FH64: the 32 bit block with 64 bit size fields */
+/* FileInfoBlock of the 64 bit examine packets (MorphOS V51): 64 bit values in the reserved area, high long first */
 struct FileInfoBlock64Packet
 {
 	ULONG fib_DiskKey;			/*   0 */
@@ -1086,16 +1086,25 @@ struct FileInfoBlock64Packet
 	UBYTE fib_FileName[108];	/*   8 */
 	LONG  fib_Protection;		/* 116 */
 	LONG  fib_EntryType;		/* 120 */
-	ULONG fib_SizeHigh;			/* 124 */
-	ULONG fib_SizeLow;			/* 128 */
-	ULONG fib_NumBlocksHigh;	/* 132 */
-	ULONG fib_NumBlocksLow;		/* 136 */
-	struct DateStamp fib_Date;	/* 140 */
-	UBYTE fib_Comment[80];		/* 152 */
-	UWORD fib_OwnerUID;			/* 232 */
-	UWORD fib_OwnerGID;			/* 234 */
-	UBYTE fib_Reserved[32];		/* 236 */
+	LONG  fib_Size;				/* 124 */
+	LONG  fib_NumBlocks;		/* 128 */
+	struct DateStamp fib_Date;	/* 132 */
+	UBYTE fib_Comment[80];		/* 144 */
+	UWORD fib_OwnerUID;			/* 224 */
+	UWORD fib_OwnerGID;			/* 226 */
+	ULONG fib_Size64High;		/* 228 */
+	ULONG fib_Size64Low;		/* 232 */
+	ULONG fib_NumBlocks64High;	/* 236 */
+	ULONG fib_NumBlocks64Low;	/* 240 */
+	ULONG fib_Pad0[3];			/* 244 */
+	UWORD fib_Pad1;				/* 256 */
+	UBYTE fib_ActExtFlags;		/* 258 */
+	UBYTE fib_ReqExtFlags;		/* 259 */
 };
+
+typedef char fib64_size64_check[(__builtin_offsetof(struct FileInfoBlock64Packet, fib_Size64High) == 228) ? 1 : -1];
+typedef char fib64_extflags_check[(__builtin_offsetof(struct FileInfoBlock64Packet, fib_ActExtFlags) == 258) ? 1 : -1];
+typedef char fib64_total_check[(sizeof(struct FileInfoBlock64Packet) == 260) ? 1 : -1];
 #endif
 
 #ifndef ACTION_SEEK64

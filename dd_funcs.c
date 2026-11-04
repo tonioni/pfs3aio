@@ -1357,24 +1357,14 @@ static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
 }
 
 #if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
-static void CopyBytes(const UBYTE *src, UBYTE *dst, ULONG length)
-{
-	while (length--)
-		*dst++ = *src++;
-}
-
-/*
- * ACTION_EXAMINE_OBJECT64, _NEXT64 and _FH64: as the 32 bit packets, but ARG2 is a
- * FileInfoBlock64Packet carrying the full file size
- */
+/* ACTION_EXAMINE_OBJECT64, _NEXT64 and _FH64: as the 32 bit packets, with the 64 bit size in a FileInfoBlock64Packet */
 static SIPTR dd_Examine64(struct DosPacket *pkt, globaldata * g)
 {
 	struct FileInfoBlock64Packet *fib = (struct FileInfoBlock64Packet *)BARG2(pkt);
-	struct FileInfoBlock f;
 	FSIZE size = (FSIZE)-1;
+	ULONG blocks;
 	LONG type;
 	SIPTR res;
-	UWORD i;
 
 	switch (pkt->dp_Type)
 	{
@@ -1389,34 +1379,24 @@ static SIPTR dd_Examine64(struct DosPacket *pkt, globaldata * g)
 			break;
 	}
 
-	/* ExNext continues from the key and the name of the previous entry */
-	f.fib_DiskKey = fib->fib_DiskKey;
-	CopyBytes(fib->fib_FileName, f.fib_FileName, sizeof(f.fib_FileName));
-
-	res = ExaminePacket(pkt, type, &f, &size, g);
+	res = ExaminePacket(pkt, type, (struct FileInfoBlock *)fib, &size, g);
 	if (res == DOSFALSE)
 		return res;
 
 	if (size == (FSIZE)-1)
-		size = (ULONG)f.fib_Size;
+		size = (ULONG)fib->fib_Size;
+	blocks = (ULONG)fib->fib_NumBlocks;
 
-	fib->fib_DiskKey = f.fib_DiskKey;
-	fib->fib_DirEntryType = f.fib_DirEntryType;
-	CopyBytes(f.fib_FileName, fib->fib_FileName, sizeof(fib->fib_FileName));
-	fib->fib_Protection = f.fib_Protection;
-	fib->fib_EntryType = f.fib_EntryType;
-	fib->fib_SizeHigh = (ULONG)((unsigned long long)size >> 32);
-	fib->fib_SizeLow = (ULONG)size;
-	fib->fib_NumBlocksHigh = 0;
-	fib->fib_NumBlocksLow = (ULONG)f.fib_NumBlocks;
-	fib->fib_Date.ds_Days = f.fib_Date.ds_Days;
-	fib->fib_Date.ds_Minute = f.fib_Date.ds_Minute;
-	fib->fib_Date.ds_Tick = f.fib_Date.ds_Tick;
-	CopyBytes(f.fib_Comment, fib->fib_Comment, sizeof(fib->fib_Comment));
-	fib->fib_OwnerUID = f.fib_OwnerUID;
-	fib->fib_OwnerGID = f.fib_OwnerGID;
-	for (i = 0; i < sizeof(fib->fib_Reserved); i++)
-		fib->fib_Reserved[i] = 0;
+	fib->fib_Size = (size > 0x7FFFFFFF) ? 0 : (LONG)size;
+	fib->fib_Size64High = (ULONG)((unsigned long long)size >> 32);
+	fib->fib_Size64Low = (ULONG)size;
+	fib->fib_NumBlocks64High = 0;
+	fib->fib_NumBlocks64Low = blocks;
+	fib->fib_Pad0[0] = 0;
+	fib->fib_Pad0[1] = 0;
+	fib->fib_Pad0[2] = 0;
+	fib->fib_Pad1 = 0;
+	fib->fib_ActExtFlags = 0;
 	return res;
 }
 #endif
