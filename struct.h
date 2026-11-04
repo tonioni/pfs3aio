@@ -848,6 +848,9 @@ typedef signed long long FSIZE;
 typedef signed long long SFSIZE;
 /* Limit to useful sane size, not real max for now */
 #define MAX_FILE_SIZE 0x7fffffffff
+#ifndef EXTENDED_PACKETS_OS4
+#define EXTENDED_PACKETS_OS4 1
+#endif
 #else
 typedef ULONG FSIZE;
 typedef LONG SFSIZE;
@@ -1071,6 +1074,27 @@ struct DosPacket64OS4
 	ULONG dp_Arg3;		/* 48 */
 	ULONG dp_Arg4;		/* 52 */
 	ULONG dp_Arg5;		/* 56 */
+};
+#endif
+
+#if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
+/* FileInfoBlock of ACTION_EXAMINE_OBJECT64, _NEXT64 and _FH64: the 32 bit block with 64 bit size fields */
+struct FileInfoBlock64Packet
+{
+	ULONG fib_DiskKey;			/*   0 */
+	LONG  fib_DirEntryType;		/*   4 */
+	UBYTE fib_FileName[108];	/*   8 */
+	LONG  fib_Protection;		/* 116 */
+	LONG  fib_EntryType;		/* 120 */
+	ULONG fib_SizeHigh;			/* 124 */
+	ULONG fib_SizeLow;			/* 128 */
+	ULONG fib_NumBlocksHigh;	/* 132 */
+	ULONG fib_NumBlocksLow;		/* 136 */
+	struct DateStamp fib_Date;	/* 140 */
+	UBYTE fib_Comment[80];		/* 152 */
+	UWORD fib_OwnerUID;			/* 232 */
+	UWORD fib_OwnerGID;			/* 234 */
+	UBYTE fib_Reserved[32];		/* 236 */
 };
 #endif
 

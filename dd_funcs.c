@@ -1316,16 +1316,11 @@ static SIPTR dd_SetProperty(struct DosPacket *pkt, globaldata * g)
 /*
  * Examine directory contents
  */
-static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
+static SIPTR ExaminePacket(struct DosPacket *pkt, LONG type, struct FileInfoBlock *fib, FSIZE *size64, globaldata * g)
 {
-	// ARG1 = LOCK or filehandle of object to examine
-	// ARG2 = BPTR FileInfoBlock to fill in
-	// RES1 = Success/failure (DOSTRUE/DOSFALSE)
-	// RES2 = errorcode
-
 	listentry_t *listentry;
 
-	if (pkt->dp_Type == ACTION_EXAMINE_FH)
+	if (type == ACTION_EXAMINE_FH)
 		listentry = (listentry_t *) pkt->dp_Arg1;
 	else
 		listentry = ListEntryFromLock(pkt->dp_Arg1);
@@ -1344,15 +1339,87 @@ static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
 		return DOSFALSE;
 	}
 
-	if (pkt->dp_Type == ACTION_EXAMINE_NEXT)
-		return ExamineNextFile((lockentry_t *) listentry,
-							   (struct FileInfoBlock *)BARG2(pkt),
+	if (type == ACTION_EXAMINE_NEXT)
+		return ExamineNextFile((lockentry_t *) listentry, fib, size64,
 							   &pkt->dp_Res2, g);
 	else
-		return ExamineFile(listentry,
-						   (struct FileInfoBlock *)BARG2(pkt),
-						   &pkt->dp_Res2, g);
+		return ExamineFile(listentry, fib, size64, &pkt->dp_Res2, g);
 }
+
+static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
+{
+	// ARG1 = LOCK or filehandle of object to examine
+	// ARG2 = BPTR FileInfoBlock to fill in
+	// RES1 = Success/failure (DOSTRUE/DOSFALSE)
+	// RES2 = errorcode
+
+	return ExaminePacket(pkt, pkt->dp_Type, (struct FileInfoBlock *)BARG2(pkt), NULL, g);
+}
+
+#if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
+static void CopyBytes(const UBYTE *src, UBYTE *dst, ULONG length)
+{
+	while (length--)
+		*dst++ = *src++;
+}
+
+/*
+ * ACTION_EXAMINE_OBJECT64, _NEXT64 and _FH64: as the 32 bit packets, but ARG2 is a
+ * FileInfoBlock64Packet carrying the full file size
+ */
+static SIPTR dd_Examine64(struct DosPacket *pkt, globaldata * g)
+{
+	struct FileInfoBlock64Packet *fib = (struct FileInfoBlock64Packet *)BARG2(pkt);
+	struct FileInfoBlock f;
+	FSIZE size = (FSIZE)-1;
+	LONG type;
+	SIPTR res;
+	UWORD i;
+
+	switch (pkt->dp_Type)
+	{
+		case ACTION_EXAMINE_NEXT64:
+			type = ACTION_EXAMINE_NEXT;
+			break;
+		case ACTION_EXAMINE_FH64:
+			type = ACTION_EXAMINE_FH;
+			break;
+		default:
+			type = ACTION_EXAMINE_OBJECT;
+			break;
+	}
+
+	/* ExNext continues from the key and the name of the previous entry */
+	f.fib_DiskKey = fib->fib_DiskKey;
+	CopyBytes(fib->fib_FileName, f.fib_FileName, sizeof(f.fib_FileName));
+
+	res = ExaminePacket(pkt, type, &f, &size, g);
+	if (res == DOSFALSE)
+		return res;
+
+	if (size == (FSIZE)-1)
+		size = (ULONG)f.fib_Size;
+
+	fib->fib_DiskKey = f.fib_DiskKey;
+	fib->fib_DirEntryType = f.fib_DirEntryType;
+	CopyBytes(f.fib_FileName, fib->fib_FileName, sizeof(fib->fib_FileName));
+	fib->fib_Protection = f.fib_Protection;
+	fib->fib_EntryType = f.fib_EntryType;
+	fib->fib_SizeHigh = (ULONG)((unsigned long long)size >> 32);
+	fib->fib_SizeLow = (ULONG)size;
+	fib->fib_NumBlocksHigh = 0;
+	fib->fib_NumBlocksLow = (ULONG)f.fib_NumBlocks;
+	fib->fib_Date.ds_Days = f.fib_Date.ds_Days;
+	fib->fib_Date.ds_Minute = f.fib_Date.ds_Minute;
+	fib->fib_Date.ds_Tick = f.fib_Date.ds_Tick;
+	CopyBytes(f.fib_Comment, fib->fib_Comment, sizeof(fib->fib_Comment));
+	fib->fib_OwnerUID = f.fib_OwnerUID;
+	fib->fib_OwnerGID = f.fib_OwnerGID;
+	for (i = 0; i < sizeof(fib->fib_Reserved); i++)
+		fib->fib_Reserved[i] = 0;
+	return res;
+}
+#endif
 
 static SIPTR dd_ExamineAllEnd(struct DosPacket *pkt, globaldata * g)
 {
