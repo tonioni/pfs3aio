@@ -1881,6 +1881,10 @@ static SIPTR dd_RemoveNotify (struct DosPacket *pkt, globaldata * g)
 	struct NotifyRequest *nr = (struct NotifyRequest *)pkt->dp_Arg1;
 	struct notifyobject *no;
 
+	if (!CheckVolume(g->currentvolume, 0, &pkt->dp_Res2, g)) {
+		return DOSFALSE;
+	}
+
 	/* 
 	 * BTW: pending messages that return after RemoveNotify
 	 * may cause trouble
