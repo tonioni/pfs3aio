@@ -1045,6 +1045,7 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 
 	ENTER("GetCurrentRoot");
 
+	*rootblock = NULL;
 	if (g->removable)
 	{
 		/* init */
