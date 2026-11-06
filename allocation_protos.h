@@ -6,8 +6,9 @@ void InitAllocation (struct volumedata * , globaldata * );
 
 BOOL AllocateBlocks (ULONG , ULONG , globaldata * );
 BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *ref, globaldata *g);
-VOID FreeBlocksAC (struct anodechain *achain, ULONG size, enum freeblocktype freetype, globaldata *g);
-void UpdateFreeList(globaldata * );
+BOOL FreeBlocksAC (struct anodechain *achain, ULONG size, enum freeblocktype freetype, globaldata *g);
+BOOL UpdateFreeList(globaldata * );
+BOOL ValidateFreeList(globaldata * );
 void CommitFreeList(globaldata * );
 void UndoFreeList(globaldata * );
 
