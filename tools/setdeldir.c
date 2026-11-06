@@ -17,6 +17,7 @@
 #include <proto/exec.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "../blocks.h"
 
 #define REVISION "1.2"
 #define DATE "11.3.1999"
@@ -112,7 +113,8 @@ void main(void)
 	{
 		nbr = IoErr();
 		printf("Current number of deldirblocks is %ld\n", nbr);
-		printf("The delete directory has a maximum capacity of %ld deleted files\n", nbr*31);
+		printf("The delete directory has a maximum capacity of %ld deleted files\n",
+			nbr * DELENTRIES_PER_BLOCK);
 	}
 
 	FreeArgs(result);

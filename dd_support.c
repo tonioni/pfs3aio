@@ -33,9 +33,9 @@ void PFSUpdateNotify(ULONG dirnode, DSTR filename, ULONG anodenr, globaldata *g)
 
 /* AFS extensions */
 #if EXTRAPACKETS
-static void Sleep (globaldata *g);
-static void Awake (globaldata *g);
-static void Alarm (globaldata *g);
+static BOOL Sleep (SIPTR *error, globaldata *g);
+static BOOL Awake (SIPTR *error, globaldata *g);
+static BOOL Alarm (SIPTR *error, globaldata *g);
 static LONG UpdateAnode (ULONG old, ULONG new, globaldata *g);
 void HandleSleepMsg (globaldata *g);
 #endif
@@ -116,8 +116,13 @@ do {                                                                   \
 	{                                                               \
 		if (!CheckVolume ((fe)->le.volume, access, error, g))         \
 			return DOSFALSE;                                        \
-		UpdateLE ((listentry_t *)(fe), g);                                           \
-		fi = &(fe)->le.info;                                             \
+		UpdateLE ((listentry_t *)(fe), g);                          \
+		if ((fe)->le.dirblocknr)                                    \
+		{                                                           \
+			*error = ERROR_DISK_NOT_VALIDATED;                      \
+			return DOSFALSE;                                        \
+		}                                                           \
+		fi = &(fe)->le.info;                                        \
 	}                                                               \
 	else                                                            \
 	{                                                               \
@@ -144,9 +149,13 @@ static ULONG RenameDisk (UBYTE *newname, globaldata *g)  //%4.5
 
 	ENTER("RenameDisk");
 
-	/* Write changes directly to disk to prevent disk recognition problems.
-	 * (So DON'T use updatedisk)
-	*/
+	/* Never write a root containing uncommitted or lost metadata. */
+	if (volume->metadata_error)
+		return ERROR_DISK_NOT_VALIDATED;
+	if (g->dirty && (!UpdateDisk(g) || g->dirty || volume->metadata_error))
+		return g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+
+	/* Write the renamed, already committed root directly. */
 	diskname = volume->rootblk->diskname;
 	CopyMem(diskname, oldname, DNSIZE);
 	*diskname = strlen(newname);
@@ -231,6 +240,9 @@ void PFSDoNotify (struct fileinfo *object, BOOL checkparent, globaldata *g)
 {
 	struct notifyobject *no = NULL;
 
+	if (!object || !object->direntry || !object->dirblock || !g->currentvolume)
+		return;
+
 #if DELDIR
 	if ((IPTR)object->direntry <= SPECIAL_DELFILE)
 		return;
@@ -308,48 +320,72 @@ void PFSUpdateNotify (ULONG dirnode, DSTR filename, ULONG anodenr, globaldata *g
  * Examine chains have to be broken since sleepwalkers are
  * allowed to change directory order
  */
-static void Sleep (globaldata *g)
+static BOOL Sleep (SIPTR *error, globaldata *g)
 {
 	listentry_t *le;
 	struct volumedata *volume = g->currentvolume;
 
 	if (volume)
 	{
-		/* first update disk */
-		UpdateDisk (g);
+		if (volume->metadata_error ||
+			(g->dirty && (!UpdateDisk(g) || g->dirty)) ||
+			UpdateDataCache(g))
+		{
+			*error = ERROR_DISK_NOT_VALIDATED;
+			return FALSE;
+		}
 
-		/* flush references */
+		/* Resolve every parent before releasing any live references. */
 		for (le=HeadOf (&volume->fileentries); le->next; le=le->next)
 		{
-			if (!IsVolumeEntry(le))
+			le->diranodenr = 0;
+			le->sleepref = FALSE;
+			if (!IsVolumeEntry(le)
+#if DELDIR
+				&& !IsDelDir(le->info) && !IsDelFile(le->info)
+#endif
+				)
 			{
-				/* load flushed references */
-				if (le->dirblocknr)
-					LoadDirBlock (le->dirblocknr, g);
-
+				if ((le->dirblocknr && !LoadDirBlock(le->dirblocknr, g)) ||
+					!le->info.file.dirblock)
+				{
+					*error = ERROR_DISK_NOT_VALIDATED;
+					return FALSE;
+				}
 				le->diranodenr = le->info.file.dirblock->blk.anodenr;
+				le->sleepref = TRUE;
 			}
+		}
 
+		for (le=HeadOf (&volume->fileentries); le->next; le=le->next)
+		{
 			if (IsFileEntry(le))
 			{
 				fileentry_t *fe = (fileentry_t *)le;
 
 				if (fe->anodechain)
 					DetachAnodeChain (fe->anodechain, g);
-
+				fe->anodechain = NULL;
 				fe->currnode = NULL;
 			}
-		}
-
-		/* now kill all flushed references (they are now replaced
-		 * by anode references in le->diranodenr)
-		 */
-		for (le=HeadOf (&volume->fileentries); le->next; le=le->next)
-		{
+			if (le->sleepref)
+			{
+#if DELDIR
+				le->info.deldir.special = SPECIAL_FLUSHED;
+#else
+				le->info.file.direntry = NULL;
+#endif
+				le->info.file.dirblock = NULL;
+			}
 			le->dirblocknr = 0;
+			le->dirblockoffset = 0;
 
 			/* terminate examine chains */
-			if (le->type.flags.dir && !IsDelDir(le->info))
+			if (le->type.flags.dir
+#if DELDIR
+				&& !IsDelDir(le->info)
+#endif
+				)
 			{
 				((lockentry_t *)le)->nextentry.direntry = NULL;
 				((lockentry_t *)le)->nextentry.dirblock = NULL;
@@ -363,13 +399,16 @@ static void Sleep (globaldata *g)
 		 * the conventional FlushBlock! 
 		 */
 		FreeUnusedResources (volume, g);
+		FlushDataCache(g);
 	}
 
 	/* set sleepmode */
 	g->sleepmode = TRUE;
+	g->sleep_wake_error = 0;
 
 	/* enter sleepmode */
 	g->DoCommand = SleepCommands;
+	return TRUE;
 }
 
 /*
@@ -378,54 +417,184 @@ static void Sleep (globaldata *g)
  * Reload all essential blocks. References are restored by searching
  * by anodenr in the directory identified by diranodenr (using FetchObject)
  */
-static void Awake (globaldata *g)
+static BOOL Awake (SIPTR *error, globaldata *g)
 {
   listentry_t *le;
   struct volumedata *volume = g->currentvolume;
-  struct rootblock *rootblock;
-  SIPTR error;
+  struct rootblock *rootblock, *newroot;
+  UBYTE *newext = NULL;
+  ULONG rootsize;
 
 	if (volume)
 	{
-		/* reload current rootblock  */
+		if (volume->metadata_error || g->dirty || alloc_data.rtbf_index)
+			goto failed;
+
+		/* Read into separate buffers: a short or failed read must not
+		 * overwrite the mounted volume's only copy of its metadata. */
 		rootblock = volume->rootblk;
-		RawRead((UBYTE *)rootblock, rootblock->rblkcluster, ROOTBLOCK, g);
+		rootsize = (ULONG)rootblock->rblkcluster * BLOCKSIZE;
+		newroot = AllocBufmem(rootsize, g);
+		if (!newroot)
+		{
+			*error = ERROR_NO_FREE_STORE;
+			return FALSE;
+		}
+		if (RawRead((UBYTE *)newroot, rootblock->rblkcluster, ROOTBLOCK, g) ||
+			newroot->disktype != rootblock->disktype ||
+			newroot->creationday != rootblock->creationday ||
+			newroot->creationminute != rootblock->creationminute ||
+			newroot->creationtick != rootblock->creationtick ||
+			newroot->rblkcluster != rootblock->rblkcluster ||
+			newroot->reserved_blksize != rootblock->reserved_blksize ||
+			newroot->firstreserved != rootblock->firstreserved ||
+			newroot->lastreserved != rootblock->lastreserved ||
+			((newroot->options ^ rootblock->options) &
+			 (MODE_HARDDISK | MODE_SPLITTED_ANODES | MODE_SUPERINDEX |
+			  MODE_DIR_EXTENSION | MODE_LARGEFILE)) ||
+			!!(newroot->extension && (newroot->options & MODE_EXTENSION)) !=
+			!!volume->rblkextension)
+			goto read_failed;
 
-		/* reload rootblock extension */
-		if (rootblock->extension && (rootblock->options & MODE_EXTENSION))
-			RawRead((UBYTE *)&volume->rblkextension->blk, volume->rescluster,
-				rootblock->extension, g);
+		if (volume->rblkextension)
+		{
+			newext = AllocBufmem(rootblock->reserved_blksize, g);
+			if (!newext)
+			{
+				*error = ERROR_NO_FREE_STORE;
+				FreeBufmem(newroot, g);
+				return FALSE;
+			}
+			if (RawRead(newext, volume->rescluster, newroot->extension, g) ||
+				((struct rootblockextension *)newext)->id != EXTENSIONID)
+				goto read_failed;
+		}
 
-		/* reload deldir */
-		// if (rootblock->deldir && (rootblock->options & MODE_DELDIR))
-		//	RawRead((UBYTE *)&volume->deldir->blk, volume->rescluster,
-		//		rootblock->deldir, g);
+		memcpy(rootblock, newroot, rootsize);
+		if (newext)
+		{
+			memcpy(&volume->rblkextension->blk, newext, rootblock->reserved_blksize);
+			volume->rblkextension->blocknr = rootblock->extension;
+			FreeBufmem(newext, g);
+		}
+		FreeBufmem(newroot, g);
 
-		/* reconfigure modules */
+		/* InitAllocation replaces this empty queue. */
+		if (alloc_data.reservedtobefreed)
+		{
+			FreeMem(alloc_data.reservedtobefreed,
+				sizeof(*alloc_data.reservedtobefreed) * alloc_data.rtbf_size);
+			alloc_data.reservedtobefreed = NULL;
+		}
 		InitModules (volume, FALSE, g);
+		if (volume->metadata_error || (g->dirty && (!UpdateDisk(g) || g->dirty)))
+		{
+			/* Do not reload or discard a partially applied postponed operation. */
+			volume->metadata_error = TRUE;
+			goto failed;
+		}
+		if (!andata.anblkbitmap)
+		{
+			*error = ERROR_DISK_NOT_VALIDATED;
+			goto rollback;
+		}
 
 		/* restore references */
 		for (le=HeadOf (&volume->fileentries); le->next; le=le->next)
 		{
-			if (!IsVolumeEntry(le))
+			if (le->sleepref)
 			{
-				if (!FetchObject(le->diranodenr, le->anodenr, &le->info, g))
-					ErrorMsg(AFS_ERROR_UNSLEEP, NULL, g);  /*  -> kill, invalidate lock <- */
-
-				if (IsFileEntry(le))
+				if (!le->diranodenr || !le->anodenr)
 				{
-				  ULONG offset;
-				  fileentry_t *fe = (fileentry_t *)le;
+					*error = ERROR_OBJECT_NOT_FOUND;
+					goto rollback;
+				}
+				if (!FetchObject(le->diranodenr, le->anodenr, &le->info, error, g))
+					goto rollback;
+				if (!!le->type.flags.dir != !!IsDir(le->info) || IsSoftLink(le->info))
+				{
+					*error = ERROR_OBJECT_WRONG_TYPE;
+					goto rollback;
+				}
+			}
+#if DELDIR
+			if (IsDelDir(le->info) && !g->deldirenabled)
+			{
+				*error = ERROR_OBJECT_NOT_FOUND;
+				goto rollback;
+			}
+			if (IsDelFile(le->info))
+			{
+				struct deldirentry *dde = GetDeldirEntryQuick(le->info.delfile.slotnr, g);
+				if (!dde || dde->anodenr != le->anodenr)
+				{
+					*error = ERROR_DISK_NOT_VALIDATED;
+					goto rollback;
+				}
+			}
+#endif
+			if (IsFileEntry(le))
+			{
+				FSIZE offset;
+				FSIZE filesize;
+				fileentry_t *fe = (fileentry_t *)le;
+				struct anodechainnode *node;
+				ULONG anodeoffset;
 
-					/* restore anodechain and fe->currnode */
-					if (!(fe->anodechain = GetAnodeChain(fe->le.anodenr, g)))
-						;   /* kill, invalidate */
-				
-					offset = fe->offset;
-					fe->currnode = &fe->anodechain->head;
-					fe->offset = fe->blockoffset = fe->anodeoffset = 0;
-					if (SeekInObject(fe, offset, OFFSET_BEGINNING, &error, g) == -1)
-						ErrorMsg(AFS_ERROR_UNSLEEP, NULL, g);  /* -> kill, invalidate */
+				if (!le->anodenr)
+				{
+					*error = ERROR_OBJECT_NOT_FOUND;
+					goto rollback;
+				}
+				if (!(fe->anodechain = GetAnodeChain(le->anodenr, g)))
+				{
+					*error = ERROR_NO_FREE_STORE;
+					goto rollback;
+				}
+				offset = fe->offset;
+#if DELDIR
+				if (IsDelFile(le->info))
+				{
+					struct deldirentry *dde = GetDeldirEntryQuick(le->info.delfile.slotnr, g);
+					if (!dde)
+					{
+						*error = ERROR_DISK_NOT_VALIDATED;
+						goto rollback;
+					}
+					filesize = GetDDFileSize(dde, g);
+				}
+				else
+#endif
+					filesize = GetDEFileSize(le->info.file.direntry, g);
+#if ROLLOVER
+				if (IsRollover(le->info))
+				{
+					struct extrafields fields;
+					GetExtraFields(le->info.file.direntry, &fields);
+					if (filesize <= 0 || filesize > (FSIZE)0xffffffffUL ||
+						(FSIZE)fields.rollpointer > filesize ||
+						(FSIZE)fields.virtualsize >= filesize)
+					{
+						*error = ERROR_DISK_NOT_VALIDATED;
+						goto rollback;
+					}
+				}
+#endif
+				fe->currnode = &fe->anodechain->head;
+				fe->offset = fe->blockoffset = fe->anodeoffset = 0;
+				/* The stored offset is physical even for rollover files. */
+				if (SeekInFile(fe, offset, OFFSET_BEGINNING, error, g) == -1)
+				{
+					fe->offset = offset;
+					goto rollback;
+				}
+				node = fe->currnode;
+				anodeoffset = fe->anodeoffset;
+				if ((offset < filesize || fe->blockoffset) &&
+					!CorrectAnodeAC(&node, &anodeoffset, g))
+				{
+					*error = ERROR_DISK_NOT_VALIDATED;
+					goto rollback;
 				}
 			}
 		}
@@ -439,24 +608,71 @@ static void Awake (globaldata *g)
 
 	/* awake */
 	g->DoCommand = NormalCommands;
+	return TRUE;
+
+read_failed:
+	if (newext)
+		FreeBufmem(newext, g);
+	FreeBufmem(newroot, g);
+	goto failed;
+
+rollback:
+	/* All chains acquired by this attempt are owned by their entries.
+	 * Drop them and clear references before invalidating clean cache blocks;
+	 * a later wake must read the sleepwalker's latest disk contents. */
+	for (le=HeadOf(&volume->fileentries); le->next; le=le->next)
+	{
+		if (IsFileEntry(le))
+		{
+			fileentry_t *fe = (fileentry_t *)le;
+			if (fe->anodechain)
+				DetachAnodeChain(fe->anodechain, g);
+			fe->anodechain = NULL;
+			fe->currnode = NULL;
+		}
+		if (le->sleepref)
+		{
+#if DELDIR
+			le->info.deldir.special = SPECIAL_FLUSHED;
+#else
+			le->info.file.direntry = NULL;
+#endif
+			le->info.file.dirblock = NULL;
+		}
+		le->dirblocknr = le->dirblockoffset = 0;
+	}
+	FreeUnusedResources(volume, g);
+	FlushDataCache(g);
+	return FALSE;
+
+failed:
+	*error = ERROR_DISK_NOT_VALIDATED;
+	return FALSE;
 }
 
 /*
  * Disk accessing packets are pending --> wake up!
  * Handshaking sleeptask <-> AFS
  */
-static void Alarm (globaldata *g)
+static BOOL Alarm (SIPTR *error, globaldata *g)
 {
-  ULONG sleepmask = 1<<g->alarmsignal;
+  ULONG sleepmask = 1UL << g->alarmsignal;
 
 	/* signal task that we want to wake up */
+	g->sleep_wake_error = 0;
 	Signal (g->sleeptask, sleepmask);
 
 	while (g->sleepmode)
 	{
 		WaitPort (g->sleepport);
 		HandleSleepMsg (g);
+		if (g->sleepmode && g->sleep_wake_error)
+		{
+			*error = g->sleep_wake_error;
+			return FALSE;
+		}
 	}
+	return TRUE;
 }
 
 
@@ -472,6 +688,9 @@ static LONG UpdateAnode (ULONG old, ULONG new, globaldata *g)
   struct notifyobject *no;
   LONG i=0;
   struct volumedata *volume = g->currentvolume;
+
+	if (!volume)
+		return 0;
 
 	/*
 	 * Update fileentry list
@@ -501,12 +720,17 @@ static LONG UpdateAnode (ULONG old, ULONG new, globaldata *g)
 	 * Update notify list
 	 */
 
-	for (no=HeadOf(&g->currentvolume->notifylist); no->next; no=no->next)
+	for (no=HeadOf(&volume->notifylist); no->next; no=no->next)
 	{
 		if (no->anodenr == old)
 		{
 			i++;
 			no->anodenr = new;
+		}
+		if (no->parentanodenr == old)
+		{
+			i++;
+			no->parentanodenr = new;
 		}
 	}
 
@@ -519,12 +743,13 @@ static LONG UpdateAnode (ULONG old, ULONG new, globaldata *g)
 void HandleSleepMsg (globaldata *g)
 {
   struct Message *msg;
+  struct DosPacket *saved_action = g->action;
 
 	while ((msg = GetMsg (g->sleepport)))
 	{
+		g->action = (struct DosPacket *)msg->mn_Node.ln_Name;
 		if (g->sleepmode)
 		{
-			g->action = (struct DosPacket *)msg->mn_Node.ln_Name;
 			(g->DoCommand)(g->action, g);
 		}
 		else
@@ -535,6 +760,7 @@ void HandleSleepMsg (globaldata *g)
 
 		ReturnPacket (g->action, g->sleepport, g);
 	}
+	g->action = saved_action;
 }
 
 #endif

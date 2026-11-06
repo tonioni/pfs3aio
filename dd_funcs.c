@@ -216,7 +216,7 @@ static SIPTR dd_Lock(struct DosPacket *pkt, globaldata * g)
 	ENTER("Lock");
 
 	GetFileInfoFromLock(pkt->dp_Arg1, 0, parentfe, parentfi);
-	BCPLtoCString(pathname, (DSTR)BARG2(pkt));
+	BCPLtoCString(pathname, sizeof(pathname), (DSTR)BARG2(pkt));
 	DB(Trace(1, "Lock", "locking : %s parent: %lx \n", pathname, pkt->dp_Arg1));
 	DB(if (parentfi) Trace(1, "Lock", "anodenr = %lx and %lx \n", parentfe->le.anodenr,
 		(parentfi->file.direntry ? parentfi->file.direntry->anode : ANODE_ROOTDIR)));
@@ -332,6 +332,11 @@ static SIPTR dd_DupLock(struct DosPacket *pkt, globaldata * g)
 	if (!CheckVolume(srcfe->le.volume, 0, &pkt->dp_Res2, g))
 		return DOSFALSE;
 	UpdateLE((listentry_t *)srcfe, g);
+	if (srcfe->le.dirblocknr)
+	{
+		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 
 	/* only allow SHAREDREAD locks & fe's */
 	if (srcfe->le.type.flags.access != ET_SHAREDREAD)
@@ -388,7 +393,7 @@ static SIPTR dd_CreateDir(struct DosPacket *pkt, globaldata * g)
 #endif
 
 	GetFileInfoFromLock(pkt->dp_Arg1, 1, parentle, parentfi);
-	BCPLtoCString(pathname, (DSTR)BARG2(pkt));
+	BCPLtoCString(pathname, sizeof(pathname), (DSTR)BARG2(pkt));
 	SkipColon(dirname, pathname);
 	zonderpad = GetFullPath(parentfi, dirname, &path, error, g);
 	if (!zonderpad)
@@ -399,7 +404,7 @@ static SIPTR dd_CreateDir(struct DosPacket *pkt, globaldata * g)
 	if (!IsVolume(path))
 	{
 #if DELDIR
-		GetExtraFieldsOI(&path, &extrafields);
+		GetExtraFieldsOI(&path, &extrafields, g);
 #else /* DELDIR */
 		GetExtraFields(path.file.direntry, &extrafields);
 #endif /* DELDIR */
@@ -411,6 +416,14 @@ static SIPTR dd_CreateDir(struct DosPacket *pkt, globaldata * g)
 #endif /* MULTIUSER */
 
 	newdirle = NewDir(&path, zonderpad, error, g);
+
+	if (g->currentvolume && g->currentvolume->metadata_error)
+	{
+		if (newdirle)
+			RemoveListEntry((listentry_t *)newdirle, g);
+		*error = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 
 	if (newdirle)
 	{
@@ -447,6 +460,11 @@ static SIPTR dd_Parent(struct DosPacket *pkt, globaldata * g)
 		if (!CheckVolume(childfe->le.volume, 0, error, g))
 			return DOSFALSE;
 		UpdateLE((listentry_t *)childfe, g);
+		if (childfe->le.dirblocknr)
+		{
+			*error = ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
 		childfi = &childfe->le.info;
 	}
 	else
@@ -497,9 +515,7 @@ static SIPTR dd_SameLock(struct DosPacket *pkt, globaldata * g)
 	lockentry_t *lock1, *lock2;
 
 	lock1 = LockEntryFromLock(pkt->dp_Arg1);
-	UpdateLE((listentry_t *)lock1, g);
 	lock2 = LockEntryFromLock(pkt->dp_Arg2);
-	UpdateLE((listentry_t *)lock2, g);
 	pkt->dp_Res2 = 0;
 
 	if (!lock1 || !lock2)
@@ -558,7 +574,7 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 	// -I- benodigde waarden afleiden van pakket
 	filehandle = (struct FileHandle *)BADDR(pkt->dp_Arg1);
 	GetFileInfoFromLock(pkt->dp_Arg2, 0, parentfe, parentfi);
-	BCPLtoCString(pathname, (DSTR)BARG3(pkt));
+	BCPLtoCString(pathname, sizeof(pathname), (DSTR)BARG3(pkt));
 	DB(Trace(1, "Open", "%s\n", pathname));
 	SkipColon(fullname, pathname);
 
@@ -579,6 +595,8 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 
 		/* try to locate file */
 		found = FindObject(&pathfi, filename, &filefi, error, g);
+		if (!found && *error != ERROR_OBJECT_NOT_FOUND)
+			return DOSFALSE;
 	}
 
 	if (found)
@@ -610,7 +628,7 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 		memset(&path_extrafields, 0, sizeof(struct extrafields));
 	else
 #if DELDIR
-		GetExtraFieldsOI(&pathfi, &path_extrafields);
+		GetExtraFieldsOI(&pathfi, &path_extrafields, g);
 #else /* DELDIR */
 		GetExtraFields(pathfi.file.direntry, &path_extrafields);
 #endif /* DELDIR */
@@ -640,6 +658,13 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 			flags = ((extrafields.uid == muNOBODY_UID) << muRelB_NO_OWNER) | muRelF_NOBODY;
 	}
 #endif /* MULTIUSER */
+
+	if (pkt->dp_Type != ACTION_FINDINPUT &&
+		g->currentvolume && g->currentvolume->metadata_error)
+	{
+		*error = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 
 	switch (pkt->dp_Type)
 	{
@@ -721,6 +746,13 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 			return DOSFALSE;
 	}
 
+	if (pkt->dp_Type != ACTION_FINDINPUT &&
+		g->currentvolume && g->currentvolume->metadata_error)
+	{
+		*error = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
+
 	/* Add file to list  */
 	if (!(filefe = MakeListEntry(&filefi, type, error, g)))
 		return DOSFALSE;
@@ -730,6 +762,13 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 		DB(Trace(1, "dd_Open", "AddListEntry failed"));
 		FreeListEntry(filefe, g);
 		*error = ERROR_OBJECT_IN_USE;
+		return DOSFALSE;
+	}
+	if (pkt->dp_Type != ACTION_FINDINPUT &&
+		g->currentvolume && g->currentvolume->metadata_error)
+	{
+		RemoveListEntry(filefe, g);
+		*error = ERROR_DISK_NOT_VALIDATED;
 		return DOSFALSE;
 	}
 
@@ -757,6 +796,11 @@ static SIPTR dd_OpenFromLock(struct DosPacket *pkt, globaldata * g)
 		return DOSFALSE;
 
 	UpdateLE(lockentry, g);
+	if (lockentry->dirblocknr)
+	{
+		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 	if (!IsFile(lockentry->info))
 	{
 		pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
@@ -785,29 +829,59 @@ static SIPTR dd_OpenFromLock(struct DosPacket *pkt, globaldata * g)
 
 static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 {
-	SIPTR error;
+	BOOL ok = TRUE;
 	fileentry_t *fe = (fileentry_t *)pkt->dp_Arg1;
 
 	if (!fe)
 		return DOSFALSE;
 
-	if (fe->checknotify)
+#if DELDIR
+	if (!IsVolumeEntry(&fe->le) && !IsDelFile(fe->le.info) && fe->checknotify)
+#else
+	if (!IsVolumeEntry(&fe->le) && fe->checknotify)
+#endif
 	{
 		FSIZE size;
-		if (!CheckVolume(fe->le.volume, 1, &error, g))
+		if (fe->le.volume && fe->le.volume->metadata_error)
+		{
+			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			ok = FALSE;
+			goto close_entry;
+		}
+		if (!CheckVolume(fe->le.volume, 1, &pkt->dp_Res2, g))
 			return DOSFALSE;
 		UpdateLE((listentry_t *) fe, g);
+		if (fe->le.dirblocknr)
+		{
+			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
 		Touch(&fe->le.info.file, g);
 		size = GetDEFileSize(fe->le.info.file.direntry, g);
 		if (fe->originalsize != size)
-			UpdateLinks(fe->le.info.file.direntry, g);
+			if (!UpdateLinks(fe->le.info.file.direntry, g))
+			{
+				fe->le.volume->metadata_error = TRUE;
+				pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+				ok = FALSE;
+			}
 
 		PFSDoNotify(&fe->le.info.file, TRUE, g);
 		fe->checknotify = 0;
+		if (fe->le.volume->metadata_error)
+		{
+			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			ok = FALSE;
+		}
+	}
+	else if (!CheckVolume(fe->le.volume, 0, &pkt->dp_Res2, g))
+	{
+		return DOSFALSE;
 	}
 
+close_entry:
 	RemoveListEntry((listentry_t *) fe, g);
-	return DOSTRUE;
+	return ok ? DOSTRUE : DOSFALSE;
 }
 
 static SIPTR dd_ChangeMode(struct DosPacket *pkt, globaldata * g)
@@ -832,6 +906,11 @@ static SIPTR dd_ChangeMode(struct DosPacket *pkt, globaldata * g)
 			return DOSFALSE;
 
 		UpdateLE(listentry, g);
+		if (listentry->dirblocknr)
+		{
+			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
 	}
 	else
 		return DOSFALSE;
@@ -863,6 +942,11 @@ static SIPTR dd_SeekRead(struct DosPacket *pkt, globaldata * g)
 		return -1;
 
 	UpdateLE(listentry, g);
+	if (listentry->dirblocknr)
+	{
+		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return -1;
+	}
 
 	if (pkt->dp_Type == ACTION_READ)
 	{
@@ -901,6 +985,11 @@ static SIPTR dd_WriteSFS(struct DosPacket *pkt, globaldata * g)
 	if (!CheckVolume(listentry->volume, 1, &pkt->dp_Res2, g))
 		return -1;
 	UpdateLE(listentry, g);
+	if (listentry->dirblocknr)
+	{
+		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return -1;
+	}
 
 	if (pkt->dp_Type == ACTION_WRITE)
 	{
@@ -945,7 +1034,7 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 		return DOSFALSE;
  	}
 
-	BCPLtoCString(newlabel, newnamept);
+	BCPLtoCString(newlabel, sizeof(newlabel), newnamept);
 
 	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g)) {
 		return DOSFALSE;
@@ -983,30 +1072,43 @@ static SIPTR dd_AddBuffers(struct DosPacket *pkt, globaldata * g)
 	// RES1 = BOOL Success/failure (DOSTRUE/DOSFALSE)
 	// RES2 = new total number of cache buffers or failurecode (if res1 = DOSFALSE)
 
-	struct lru_cachedblock *lrunode, *nextnode;
-	LONG numbuffers;
+	LONG numbuffers = g->dosenvec->de_NumBuffers;
+	LONG delta = (LONG)pkt->dp_Arg1;
 
-	/* kill old cache */
-	UpdateDisk(g);
-
-	for (lrunode = (struct lru_cachedblock *)g->glob_lrudata.LRUqueue.mlh_Head; lrunode->next;
-		 lrunode = nextnode)
+	if (!g->currentvolume || !g->rootblock || !g->glob_lrudata.LRUarray)
 	{
-		FlushBlock(&lrunode->cblk, g);
-		nextnode = lrunode->next;
-		MinRemove(lrunode);
+		pkt->dp_Res2 = ERROR_DEVICE_NOT_MOUNTED;
+		return DOSFALSE;
+	}
+	if (delta == 0)
+	{
+		pkt->dp_Res2 = g->glob_lrudata.poolsize;
+		return g->glob_lrudata.poolsize;
+	}
+	if (g->currentvolume->metadata_error ||
+		(g->dirty && (!UpdateDisk(g) || g->dirty ||
+			g->currentvolume->metadata_error)))
+	{
+		pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
 	}
 
-	DeallocLRU(g);
-	numbuffers = g->dosenvec->de_NumBuffers;
-	numbuffers = max(0, numbuffers + (LONG)pkt->dp_Arg1);
-	g->dosenvec->de_NumBuffers = numbuffers;
+	/* Saturate before adding, including the most negative LONG. */
+	if (delta < -numbuffers)
+		numbuffers = 0;
+	else if (delta > MAX_BUFFERS - numbuffers)
+		numbuffers = MAX_BUFFERS;
+	else
+		numbuffers += delta;
+	numbuffers = ResizeLRU(g, numbuffers);
+	if (!numbuffers)
+	{
+		pkt->dp_Res2 = ERROR_NO_FREE_STORE;
+		return DOSFALSE;
+	}
 
-	while (!InitLRU(g, SIZEOF_RESBLOCK))
-		g->dosenvec->de_NumBuffers--;
-
-	pkt->dp_Res2 = g->dosenvec->de_NumBuffers;
-	return (LONG)g->dosenvec->de_NumBuffers;
+	pkt->dp_Res2 = numbuffers;
+	return numbuffers;
 }
 
 /* disk info */
@@ -1085,7 +1187,14 @@ static SIPTR dd_Info(struct DosPacket *pkt, globaldata * g)
 /* flush cache (BTW: doesn't actually flush the cache right now) */
 static SIPTR dd_Flush(struct DosPacket *pkt, globaldata * g)
 {
-	UpdateDisk(g);
+	if (g->currentvolume &&
+		(g->currentvolume->metadata_error ||
+		 (g->dirty && (!UpdateDisk(g) || g->dirty ||
+		  g->currentvolume->metadata_error))))
+	{
+		pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 	FreeUnusedResources(g->currentvolume, g);
 	g->timeout = 0;
 	return DOSTRUE;
@@ -1102,7 +1211,14 @@ static SIPTR dd_WriteProtect(struct DosPacket *pkt, globaldata * g)
 	{
 		if (g->softprotect)     /* already protected */
 			return DOSFALSE;
-		UpdateDisk(g);
+		if (g->currentvolume &&
+			(g->currentvolume->metadata_error ||
+			 (g->dirty && (!UpdateDisk(g) || g->dirty ||
+			  g->currentvolume->metadata_error))))
+		{
+			pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
 		/* updatedisk can cause a softprotect, so check again */
 		if (!g->softprotect)
 		{
@@ -1136,6 +1252,13 @@ static SIPTR dd_SerializeDisk(struct DosPacket *pkt, globaldata * g)
 	// RES2 = failurecode (if res1 = DOSFALSE)
 	struct DateStamp time;
 	struct rootblock *rbl;
+
+	if ((g->currentvolume && g->currentvolume->metadata_error) ||
+		(g->inhibitcount && g->inhibit_metadata_error))
+	{
+		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 
 	DateStamp(&time);
 
@@ -1188,7 +1311,7 @@ static SIPTR dd_DeleteObject(struct DosPacket *pkt, globaldata * g)
 #endif
 
 	GetFileInfoFromLock(pkt->dp_Arg1, 1, parentfe, parentfi);
-	BCPLtoCString(pathname, (DSTR)BARG2(pkt));
+	BCPLtoCString(pathname, sizeof(pathname), (DSTR)BARG2(pkt));
 	SkipColon(filename, pathname);
 	LocateFile(parentfi, filename, filefi, error);
 
@@ -1231,8 +1354,8 @@ static SIPTR dd_Rename(struct DosPacket *pkt, globaldata * g)
 
 	GetFileInfoFromLock(pkt->dp_Arg1, 1, srcdirfe, srcdirfi);
 	GetFileInfoFromLock(pkt->dp_Arg3, 1, dstdirfe, dstdirfi);
-	BCPLtoCString(srcpathname, (DSTR)BARG2(pkt));
-	BCPLtoCString(dstpathname, (DSTR)BARG4(pkt));
+	BCPLtoCString(srcpathname, sizeof(srcpathname), (DSTR)BARG2(pkt));
+	BCPLtoCString(dstpathname, sizeof(dstpathname), (DSTR)BARG4(pkt));
 	DB(Trace(1, "Rename", "renaming %s to %s\n", srcpathname, dstpathname));
 
 	SkipColon(srcname, srcpathname);
@@ -1288,7 +1411,7 @@ static SIPTR dd_SetProperty(struct DosPacket *pkt, globaldata * g)
 #endif
 
 	GetFileInfoFromLock(pkt->dp_Arg2, 1, parentfe, parentfi);
-	BCPLtoCString(pathname, (DSTR)BARG3(pkt));
+	BCPLtoCString(pathname, sizeof(pathname), (DSTR)BARG3(pkt));
 	SkipColon(filename, pathname);
 	LocateFile(parentfi, filename, objectfi, error);
 	CheckPropertyAccess(objectfi, extrafields, flags, error);
@@ -1300,7 +1423,7 @@ static SIPTR dd_SetProperty(struct DosPacket *pkt, globaldata * g)
 			return ProtectFile(&objectfi.file, (ULONG)pkt->dp_Arg4, error, g);
 
 		case ACTION_SET_COMMENT:
-			BCPLtoCString(comment, (DSTR)BARG4(pkt));
+			BCPLtoCString(comment, sizeof(comment), (DSTR)BARG4(pkt));
 			return AddComment(&objectfi, comment, error, g);
 
 		case ACTION_SET_DATE:
@@ -1331,6 +1454,11 @@ static SIPTR ExaminePacket(struct DosPacket *pkt, LONG type, struct FileInfoBloc
 			return DOSFALSE;
 
 		UpdateLE(listentry, g);
+		if (listentry->dirblocknr)
+		{
+			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
 		UpdateLE_exa((lockentry_t *) listentry, g);
 	}
 	else if (!g->currentvolume)
@@ -1453,6 +1581,11 @@ static SIPTR dd_ExamineAll(struct DosPacket *pkt, globaldata * g)
 			return DOSFALSE;
 
 		UpdateLE(listentry, g);
+		if (listentry->dirblocknr)
+		{
+			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
 		UpdateLE_exa((lockentry_t *) listentry, g);
 	}
 	else if (!g->currentvolume)
@@ -1492,7 +1625,7 @@ static SIPTR dd_MakeLink(struct DosPacket *pkt, globaldata * g)
 	SIPTR *error = &pkt->dp_Res2;
 
 	GetFileInfoFromLock(pkt->dp_Arg1, 1, parentle, parentfi);
-	BCPLtoCString(linkname, (DSTR)BARG2(pkt));
+	BCPLtoCString(linkname, sizeof(linkname), (DSTR)BARG2(pkt));
 	SkipColon(fullname, linkname);
 
 	if (!(zonderpad = GetFullPath(parentfi, fullname, &path, &pkt->dp_Res2, g)))
@@ -1503,7 +1636,7 @@ static SIPTR dd_MakeLink(struct DosPacket *pkt, globaldata * g)
 	if (!IsVolume(path))
 	{
 #if DELDIR
-		GetExtraFieldsOI(&path, &extrafields);
+		GetExtraFieldsOI(&path, &extrafields, g);
 #else /* DELDIR */
 		GetExtraFields(path.file.direntry, &extrafields);
 #endif /* DELDIR */
@@ -1539,6 +1672,11 @@ static SIPTR dd_MakeLink(struct DosPacket *pkt, globaldata * g)
 
 	/* don't do this until you know the lock is ours */
 	UpdateLE((listentry_t *)targetle, g);
+	if (targetle->le.dirblocknr)
+	{
+		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return DOSFALSE;
+	}
 
 	result = CreateLink(&path, zonderpad, &targetle->le.info, &linkinfo, &pkt->dp_Res2, g);
 	if (result)
@@ -1563,11 +1701,31 @@ static SIPTR dd_ReadLink(struct DosPacket *pkt, globaldata * g)
 
 	lockentry_t *parentle;
 	union objectinfo linkfi, *parentfi;
-	char *fullname, *prefixptr, oldchar;
+	char *fullname, *prefixptr = NULL, oldchar;
 	SIPTR *error = &pkt->dp_Res2;
 	LONG res;
 
-	GetFileInfoFromLock(pkt->dp_Arg1, 0, parentle, parentfi);
+	if ((parentle = LockEntryFromLock(pkt->dp_Arg1)))
+	{
+		if (!CheckVolume(parentle->le.volume, 0, error, g))
+			return -1;
+		UpdateLE((listentry_t *)parentle, g);
+		if (parentle->le.dirblocknr)
+		{
+			*error = ERROR_DISK_NOT_VALIDATED;
+			return -1;
+		}
+		parentfi = &parentle->le.info;
+	}
+	else
+	{
+		if (!g->currentvolume)
+		{
+			*error = ERROR_NO_DISK;
+			return -1;
+		}
+		parentfi = NULL;
+	}
 
 	/* strip upto first : */
 	SkipColon(fullname, (char *)pkt->dp_Arg2);
@@ -1671,7 +1829,9 @@ static SIPTR dd_InhibitOn(struct DosPacket *pkt, globaldata * g)
 
 	if (pkt->dp_Arg1 != DOSFALSE)   /* don't check for DOSTRUE (Holger Kruse!) */
 	{
+		g->inhibit_metadata_error = FALSE;
 		if (!SafeDiskRemoveSequence(g)) {
+			g->inhibit_metadata_error = FALSE;
 			pkt->dp_Res2 = ERROR_OBJECT_IN_USE;
 			return DOSFALSE;
 		}
@@ -1701,6 +1861,7 @@ static SIPTR dd_InhibitOff(struct DosPacket *pkt, globaldata * g)
 		g->inhibitcount--;
 		if (g->inhibitcount <= 0)
 		{
+			g->inhibit_metadata_error = FALSE;
 			if (g->trackdisk)
 			{
 				g->request->iotd_Req.io_Command = CMD_CLEAR;
@@ -1744,12 +1905,18 @@ static SIPTR dd_PFSFormat(struct DosPacket *pkt, ULONG rsblocks, globaldata * g)
 	}
 
 	/* format disk */
-	return FDSFormat((DSTR)BADDR(pkt->dp_Arg1), pkt->dp_Arg2, &pkt->dp_Res2, rsblocks, g);
+	SIPTR res = FDSFormat((DSTR)BADDR(pkt->dp_Arg1), pkt->dp_Arg2, &pkt->dp_Res2, rsblocks, g);
+	if (res)
+		g->inhibit_metadata_error = FALSE;
+	return res;
 }
 
 static SIPTR dd_Format(struct DosPacket *pkt, globaldata * g)
 {
-	return dd_PFSFormat(pkt, 0, g);
+	SIPTR res = dd_PFSFormat(pkt, 0, g);
+	if (res)
+		g->inhibit_metadata_error = FALSE;
+	return res;
 }
 
 /**********************
@@ -1768,8 +1935,17 @@ static SIPTR dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	BOOL found = FALSE;
 	int t;
 
+	if (!nr || !nr->nr_FullName)
+	{
+		pkt->dp_Res2 = ERROR_OBJECT_NOT_FOUND;
+		return DOSFALSE;
+	}
+
 	if (!(no = AllocMemP (sizeof(struct notifyobject), g)))
 		goto memerror1;
+
+	no->anodenr = 0;
+	no->namemem = NULL;
 
 	/* strip upto first : */
 	name = strchr (nr->nr_FullName, ':');
@@ -1783,6 +1959,12 @@ static SIPTR dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	no->unparsed = NULL;
 	temp = FilePart (name);
 	t = strlen (temp);
+	if (t > 255)
+	{
+		FreeMemP (no, g);
+		pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
+		return DOSFALSE;
+	}
 	if (!(no->objectname = AllocMemP (t+2, g)))
 		goto memerror2;
 	ctodstr (temp, no->objectname);
@@ -1790,14 +1972,28 @@ static SIPTR dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 
 	if (!(GetFullPath(NULL, name, &oi, &pkt->dp_Res2, g)))
 	{
-		if (g->unparsed)
+		if (pkt->dp_Res2 == ERROR_OBJECT_NOT_FOUND && g->unparsed)
 		{
+			char saved;
 			temp = PathPart (g->unparsed);
+			saved = *temp;
 			*temp = 0;          /* cut of filepart */
 			t = strlen (g->unparsed);
+			if (t > 255)
+			{
+				*temp = saved;
+				FreeMemP (no->objectname, g);
+				FreeMemP (no, g);
+				pkt->dp_Res2 = ERROR_LINE_TOO_LONG;
+				return DOSFALSE;
+			}
 			if (!(no->unparsed = no->namemem = AllocMemP(t+2, g)))
+			{
+				*temp = saved;
 				goto memerror3;
+			}
 			ctodstr (g->unparsed, no->unparsed);
+			*temp = saved;
 			intltoupper (no->unparsed);
 			no->unparsed++;     /* make it a cstring!! */
 		}
@@ -1812,6 +2008,12 @@ static SIPTR dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	{
 		/* try to locate object */
 		found = FindObject (&oi, no->objectname+1, &filefi, &pkt->dp_Res2, g);
+		if (!found && pkt->dp_Res2 != ERROR_OBJECT_NOT_FOUND)
+		{
+			FreeMemP (no->objectname, g);
+			FreeMemP (no, g);
+			return DOSFALSE;
+		}
 		if (found && (IsVolume(filefi) || (ULONG)filefi.file.direntry > 2))
 		{
 			no->anodenr = IsVolume(filefi) ? ANODE_ROOTDIR : filefi.file.direntry->anode;
@@ -1822,6 +2024,7 @@ static SIPTR dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	if (IsDelDir (oi))
 	{
 		pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+		FreeMemP (no->namemem, g);
 		FreeMemP (no->objectname, g);
 		FreeMemP (no, g);
 		return DOSFALSE;
@@ -1841,6 +2044,7 @@ static SIPTR dd_AddNotify (struct DosPacket *pkt, globaldata *g)
 	if (found && (nr->nr_Flags & NRF_NOTIFY_INITIAL))
 		NotifyUser (nr, g);
 
+	pkt->dp_Res2 = 0;
 	return DOSTRUE;
 
   memerror3:
@@ -1991,7 +2195,12 @@ static SIPTR dd_Sleep(struct DosPacket *pkt, globaldata * g)
 	{
 		if (pkt->dp_Arg2 == DOSFALSE)
 		{
-			Awake(g);
+			if (!Awake(&pkt->dp_Res2, g))
+			{
+				g->sleep_wake_error = pkt->dp_Res2;
+				return DOSFALSE;
+			}
+			g->sleep_wake_error = 0;
 			g->sleeptask = NULL;
 			g->alarmsignal = 0;
 			return DOSTRUE;
@@ -2008,9 +2217,15 @@ static SIPTR dd_Sleep(struct DosPacket *pkt, globaldata * g)
 			return DOSFALSE;
 		else
 		{
+			if (pkt->dp_Arg3 < 0 || pkt->dp_Arg3 >= 32 || !pkt->dp_Arg4)
+			{
+				pkt->dp_Res2 = ERROR_BAD_NUMBER;
+				return DOSFALSE;
+			}
+			if (!Sleep(&pkt->dp_Res2, g))
+				return DOSFALSE;
 			g->sleeptask = (struct Task *)pkt->dp_Arg4;
 			g->alarmsignal = (ULONG)pkt->dp_Arg3;
-			Sleep(g);
 			return (SIPTR)g->sleepport;
 		}
 	}
@@ -2125,6 +2340,19 @@ static SIPTR dd_SetRollover(struct DosPacket *pkt, globaldata *g)
 	rlfile = (listentry_t *)pkt->dp_Arg2;
 	if (!CheckVolume(rlfile->volume, 1, error, g))
 		return 0;
+#if DELDIR
+	if (!IsVolumeEntry(rlfile) && !IsDelFile(rlfile->info))
+#else
+	if (!IsVolumeEntry(rlfile))
+#endif
+	{
+		UpdateLE((listentry_t *)rlfile, g);
+		if (rlfile->dirblocknr)
+		{
+			*error = ERROR_DISK_NOT_VALIDATED;
+			return DOSFALSE;
+		}
+	}
 	if ((*error = SetRollover((fileentry_t *)rlfile, (struct rolloverinfo *)pkt->dp_Arg3, g)))
 		return DOSFALSE;
 	return DOSTRUE;
@@ -2153,13 +2381,14 @@ static SIPTR dd_SetDeldir(struct DosPacket *pkt, globaldata *g)
 #endif
 
 	/* check if a volume is inserted */
-	if (!CheckVolume(g->currentvolume, 1, error, g))
+	if (!CheckVolume(g->currentvolume, pkt->dp_Arg2 != -1, error, g))
 		return DOSFALSE;
 
 	/* just an inquiry */
 	if (pkt->dp_Arg2 == -1)
 	{
-		*error = g->currentvolume->rblkextension->blk.deldirsize;
+		*error = g->currentvolume->rblkextension ?
+			g->currentvolume->rblkextension->blk.deldirsize : 0;
 		return DOSTRUE;
 	}
 
@@ -2200,6 +2429,9 @@ static SIPTR dd_SetFileSize(struct DosPacket *pkt, globaldata *g)
 		}
 	}
 
+	if (!CheckVolume(g->currentvolume, pkt->dp_Arg2 != 0, &pkt->dp_Res2, g))
+		return DOSFALSE;
+
 	if (g->currentvolume && g->currentvolume->rblkextension)
 	{
 		if (pkt->dp_Arg2)
@@ -2237,6 +2469,9 @@ static SIPTR dd_SetLargeFile(struct DosPacket *pkt, globaldata *g)
 		pkt->dp_Res2 = ERROR_BAD_NUMBER;
 		return DOSFALSE;
 	}
+
+	if (!CheckVolume(g->currentvolume, pkt->dp_Arg2 != 0, &pkt->dp_Res2, g))
+		return DOSFALSE;
 
 	if (g->currentvolume && g->currentvolume->rootblk && g->currentvolume->rblkextension)
 	{
@@ -2332,14 +2567,25 @@ static listentry_t *InitOS464(struct DosPacket *pkt, globaldata *g, BOOL errorty
 {
 	struct DosPacket64OS4 *dp = (struct DosPacket64OS4*)pkt;
 	listentry_t *listentry;
+	SIPTR err = 0;
 
 	dp->dp_Res0 = DP64_INIT;
 	dp->dp_Res2 = 0;
 	dp->dp_Res1 = errortype ? -1 : 0;
 	listentry = (listentry_t *)(IPTR)dp->dp_Arg1;
-	if (!CheckVolume(listentry->volume, 0, (SIPTR *)&dp->dp_Res2, g))
+	if (!listentry) {
+		dp->dp_Res2 = ERROR_INVALID_LOCK;
 		return NULL;
+	}
+	if (!CheckVolume(listentry->volume, dp->dp_Type == ACTION_CHANGE_FILE_SIZE64, &err, g)) {
+		dp->dp_Res2 = err;
+		return NULL;
+	}
 	UpdateLE(listentry, g);
+	if (listentry->dirblocknr) {
+		dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return NULL;
+	}
 	if (!IsFile(listentry->info)) {
 		dp->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
 		return NULL;
@@ -2413,4 +2659,3 @@ static void dd_ChangeFilePosition64(struct DosPacket *pkt, globaldata *g)
 }
 
 #endif
-

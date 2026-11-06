@@ -176,10 +176,15 @@ struct listentry *MakeListEntry (union objectinfo *info, listtype type, SIPTR *e
 		 * the extrafields
 		 */
 		GetExtraFields(info->file.direntry, &extrafields);
-		GetAnode(&linknode, info->file.direntry->anode, g);
-		if (!FetchObject(linknode.clustersize, extrafields.link, &newinfo, g))
+		if (!GetAnode(&linknode, info->file.direntry->anode, g))
 		{
-			*error = ERROR_OBJECT_NOT_FOUND;
+			*error = ERROR_DISK_NOT_VALIDATED;
+			FreeMemP(listentry, g);
+			return NULL;
+		}
+		if (!FetchObject(linknode.clustersize, extrafields.link, &newinfo, error, g))
+		{
+			FreeMemP(listentry, g);
 			return NULL;
 		}
 	}
@@ -200,7 +205,13 @@ struct listentry *MakeListEntry (union objectinfo *info, listtype type, SIPTR *e
 			listentry->anodenr = 0; break;
 
 		case SPECIAL_DELFILE:
-			dde = GetDeldirEntryQuick(newinfo.delfile.slotnr, g);	
+			dde = GetDeldirEntryQuick(newinfo.delfile.slotnr, g);
+			if (!dde)
+			{
+				FreeMemP(listentry, g);
+				*error = ERROR_DISK_NOT_VALIDATED;
+				return NULL;
+			}
 			listentry->anodenr = dde->anodenr;
 			break;
 
@@ -241,10 +252,12 @@ struct listentry *MakeListEntry (union objectinfo *info, listtype type, SIPTR *e
 			fe->originalsize = IsDelFile(newinfo) ? GetDDFileSize(dde, g) :
 					GetDEFileSize(newinfo.file.direntry, g);
 
-			/* Get anodechain. If it fails anodechain will become NULL. This has to be
-			 * taken into account by functions that use the chain
-			 */
 			fe->anodechain = GetAnodeChain (listentry->anodenr, g);
+			if (!fe->anodechain) {
+				*error = ERROR_NO_FREE_STORE;
+				FreeMemP(listentry, g);
+				return NULL;
+			}
 			fe->currnode = &fe->anodechain->head;
 
 #if ROLLOVER
@@ -252,8 +265,12 @@ struct listentry *MakeListEntry (union objectinfo *info, listtype type, SIPTR *e
 			/* check for rollover files */
 			if (IsRollover(newinfo))
 			{
-				GetExtraFields(newinfo.file.direntry, &extrafields);
-				SeekInFile(fe,extrafields.rollpointer,OFFSET_BEGINNING,error,g);
+				if (SeekInObject(fe, 0, OFFSET_BEGINNING, error, g) == -1)
+				{
+					DetachAnodeChain(fe->anodechain, g);
+					FreeMemP(listentry, g);
+					return NULL;
+				}
 			}
 #endif /* ROLLOVER */
 #undef fe
