@@ -133,9 +133,15 @@
 
 /* external globals
  */
+#if defined(__GNUC__) && !defined(__MORPHOS__) && !defined(__AROS__)
+extern ULONG DiskChangeHandler(register struct globaldata *g asm("a1"));
+#else
 extern void DiskChangeHandler(void);
+#endif
 #if defined(__SASC)
 extern void __asm ResetHandler(void);
+#elif defined(__GNUC__) && !defined(__MORPHOS__) && !defined(__AROS__)
+extern ULONG ResetHandler(register struct globaldata *g asm("a1"));
 #else
 extern void ResetHandler(void);
 #endif
@@ -380,7 +386,7 @@ static BOOL InstallDiskChangeHandler(struct globaldata *g)
 	di->is_Node.ln_Type = NT_INTERRUPT;
 	di->is_Node.ln_Name = intname;
 	di->is_Data = (APTR)g;
-	di->is_Code = DiskChangeHandler;
+	di->is_Code = (void (*)(void))DiskChangeHandler;
 
 	/* make special request structure for inthandler */
 	request = g->handlrequest = (struct IOExtTD *)
