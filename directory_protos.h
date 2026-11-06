@@ -15,7 +15,7 @@ void *AllocMemR(ULONG , ULONG , globaldata *g);
 
 BOOL dstricmp(DSTR , STRPTR );
 BOOL ddstricmp(DSTR , DSTR );
-UBYTE * BCPLtoCString(STRPTR , DSTR );
+UBYTE * BCPLtoCString(STRPTR , ULONG , DSTR );
 
 UBYTE * GetFullPath(union objectinfo * , STRPTR , union objectinfo * , SIPTR * , globaldata * );
 
@@ -25,7 +25,7 @@ BOOL FindObject(union objectinfo * , STRPTR , union objectinfo * , SIPTR * , glo
 
 BOOL GetParent(union objectinfo * , union objectinfo * , SIPTR * , globaldata * );
 
-BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, globaldata *g);
+BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, SIPTR *error, globaldata *g);
 
 BOOL ExamineFile(listentry_t * , struct FileInfoBlock * , FSIZE * , SIPTR * , globaldata * );
 
@@ -86,8 +86,8 @@ struct cdeldirblock *NewDeldirBlock(UWORD seqnr, globaldata *g);
 struct deldirentry *GetDeldirEntryQuick(ULONG ddnr, globaldata *g);
 ULONG SetDeldir(int nbr, globaldata *g);
 #endif
-void UpdateLinks(struct direntry *object, globaldata *g);
-void FreeAnodesInChain(ULONG anodenr, globaldata *g);
+BOOL UpdateLinks(struct direntry *object, globaldata *g);
+BOOL FreeAnodesInChain(ULONG anodenr, globaldata *g);
 
 FSIZE GetDEFileSize(struct direntry *direntry, globaldata *g);
 ULONG GetDEFileSize32(struct direntry *direntry, globaldata *g);
