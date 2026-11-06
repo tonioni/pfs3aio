@@ -288,13 +288,13 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size,
 			/* block directly behind file free ? */
 			if (field & j)
 			{
-				extend = true;
+				extend = TRUE;
 
 				/* if the position we want to allocate does not corresponds to the
 				 * rovingpointer, the rovingpointer should not be updated
 				 */
 				if (nr != g->rootblock->roving_ptr)
-					updateroving = false;
+					updateroving = FALSE;
 			}
 		}
 	}
