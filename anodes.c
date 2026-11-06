@@ -111,7 +111,7 @@ static struct canodeblock *big_NewAnodeBlock(UWORD , globaldata * );
 static struct cindexblock *NewIndexBlock(UWORD , globaldata * );
 static struct cindexblock *NewSuperBlock (UWORD seqnr, globaldata *g);
 static void MakeAnodeBitmap (BOOL formatting, globaldata *g);
-static void ReallocAnodeBitmap (ULONG newseqnr, globaldata *g);
+static BOOL ReallocAnodeBitmap (ULONG newseqnr, globaldata *g);
 
 
 /*********************************************************************/
@@ -158,14 +158,19 @@ static struct anodechain *MakeAnodeChain(ULONG anodenr, globaldata *g)
 		return NULL;
 
 	ac->refcount = 0;
+	ac->next = NULL;
 	node = &ac->head;
-	GetAnode(&node->an, anodenr, g);
+	node->next = NULL;
+	if (!GetAnode(&node->an, anodenr, g))
+		goto failure;
 	while (node->an.next)
 	{
 		if (!(newnode = AllocMemP(sizeof(struct anodechainnode), g)))
 			goto failure;
+		newnode->next = NULL;
 		node->next = newnode;
-		GetAnode(&newnode->an, node->an.next, g);
+		if (!GetAnode(&newnode->an, node->an.next, g))
+			goto failure;
 		node = newnode;
 	}
 
@@ -274,7 +279,8 @@ BOOL CorrectAnode (struct canode *anode, ULONG *anodeoffset, globaldata *g)
 			return DOSFALSE;
 
 		*anodeoffset -= anode->clustersize;
-		GetAnode(anode, anode->next, g);
+		if (!GetAnode(anode, anode->next, g))
+			return DOSFALSE;
 	}
 
 	return DOSTRUE;
@@ -283,12 +289,15 @@ BOOL CorrectAnode (struct canode *anode, ULONG *anodeoffset, globaldata *g)
 /*
  * Retrieve an anode from disk
  */
-void GetAnode (struct canode *anode, ULONG anodenr, globaldata *g)
+BOOL GetAnode (struct canode *anode, ULONG anodenr, globaldata *g)
 {
   ULONG temp;
   UWORD seqnr, anodeoffset;
   struct canodeblock *ablock;
 
+	if (!andata.anodesperblock ||
+		(!g->anodesplitmode && anodenr / andata.anodesperblock > 0xffffUL))
+		goto failed;
 	if(g->anodesplitmode)
 	{
 		anodenr_t *split = (anodenr_t *)&anodenr;
@@ -302,32 +311,40 @@ void GetAnode (struct canode *anode, ULONG anodenr, globaldata *g)
 		anodeoffset  = temp >> 16;
 	}
 	
-	ablock = GetAnodeBlock(seqnr, g);
+	anode->nr = anodenr;
+	ablock = anodeoffset < andata.anodesperblock ? GetAnodeBlock(seqnr, g) : NULL;
 	if(ablock)
 	{
 		anode->clustersize = ablock->blk.nodes[anodeoffset].clustersize;
 		anode->blocknr     = ablock->blk.nodes[anodeoffset].blocknr;
 		anode->next        = ablock->blk.nodes[anodeoffset].next;
 		anode->nr          = anodenr;
+		return TRUE;
 	}
 	else
 	{
+	failed:
 		anode->clustersize = anode->next = 0;
 		anode->blocknr     = ~0UL;
+		anode->nr          = anodenr;
 		// ErrorMsg (AFS_ERROR_DNV_ALLOC_INFO, NULL);
 		DBERR(ErrorTrace(5,"GetAnode","ERR: anode = 0x%lx\n",anodenr));
+		return FALSE;
 	}
 }
 
 
 /* saves and anode..
 */
-void SaveAnode (struct canode *anode, ULONG anodenr, globaldata *g)
+static BOOL SaveAnodeInternal (struct canode *anode, ULONG anodenr, globaldata *g, BOOL latch_failure)
 {
   ULONG temp;
   UWORD seqnr, anodeoffset;
   struct canodeblock *ablock;
 
+	if (!andata.anodesperblock ||
+		(!g->anodesplitmode && anodenr / andata.anodesperblock > 0xffffUL))
+		goto failed;
 	if (g->anodesplitmode)
 	{
 		anodenr_t *split = (anodenr_t *)&anodenr;
@@ -344,19 +361,48 @@ void SaveAnode (struct canode *anode, ULONG anodenr, globaldata *g)
 	anode->nr   = anodenr;
 
 	/* Save Anode */
-	ablock = GetAnodeBlock (seqnr, g);
+	ablock = anodeoffset < andata.anodesperblock ? GetAnodeBlock (seqnr, g) : NULL;
 	if (ablock)
 	{
+		if (!latch_failure)
+		{
+			MakeBlockDirty ((struct cachedblock *)ablock, g);
+			if (ablock->changeflag == CBLK_DIRTY_PENDING)
+				goto failed;
+		}
 		ablock->blk.nodes[anodeoffset].clustersize = anode->clustersize;
 		ablock->blk.nodes[anodeoffset].blocknr     = anode->blocknr;
 		ablock->blk.nodes[anodeoffset].next        = anode->next;
-		MakeBlockDirty ((struct cachedblock *)ablock, g);
+		if (latch_failure)
+			MakeBlockDirty ((struct cachedblock *)ablock, g);
+		return TRUE;
 	}
 	else
 	{
+	failed:
 		DBERR(ErrorTrace(5,"SaveAnode","ERR: anode = 0x%lx\n",anodenr));
-		// ErrorMsg (AFS_ERROR_DNV_ALLOC_BLOCK, NULL);
+		/* Most legacy callers cannot roll back their other changes. Do not
+		 * commit an incomplete transaction after such a failure. Update's
+		 * own callers propagate errors and can retry instead.
+		 */
+		if (latch_failure && !g->uip && g->currentvolume)
+		{
+			g->currentvolume->metadata_error = TRUE;
+			g->dirty = TRUE;
+		}
+		return FALSE;
 	}
+}
+
+BOOL SaveAnode (struct canode *anode, ULONG anodenr, globaldata *g)
+{
+	return SaveAnodeInternal(anode, anodenr, g, TRUE);
+}
+
+/* The caller can safely discard or retry its own operation on failure. */
+BOOL TrySaveAnode (struct canode *anode, ULONG anodenr, globaldata *g)
+{
+	return SaveAnodeInternal(anode, anodenr, g, FALSE);
 }
 
 
@@ -365,12 +411,15 @@ void SaveAnode (struct canode *anode, ULONG anodenr, globaldata *g)
  */
 ULONG AllocAnode (ULONG connect, globaldata *g)
 {
-	WORD i, j, k;
+	UWORD i;
+	WORD j, k;
 	struct canodeblock *ablock;
 	struct anode *anodes;
 	BOOL found = 0;
 	ULONG seqnr = 0, field;
 
+	if (!andata.anblkbitmap || !andata.anodesperblock)
+		return 0;
 	if (connect && g->anodesplitmode)
 	{
 		/* try to place new anode in same block */
@@ -389,17 +438,21 @@ ULONG AllocAnode (ULONG connect, globaldata *g)
 		for (i = andata.curranseqnr/32; i < andata.maxanseqnr/32 + 1; i++)
 		{
 			
-			DBERR(if (i >= andata.anblkbitmapsize / 4 || i < 0)
+			DBERR(if (i >= andata.anblkbitmapsize / 4)
 				ErrorTrace(5, "AllocAnode","ERR: anblkbitmap out of bounds %lu >= %lu\n", i, andata.anblkbitmapsize / 4));
 			
+			if (i >= andata.anblkbitmapsize / sizeof(*andata.anblkbitmap))
+				return 0;
 			field = andata.anblkbitmap[i];
 			if (field)
 			{
 				for (j = 31; j >= 0; j--)
 				{
-					if (field & (1 << j))
+					if (field & (1UL << j))
 					{
 						seqnr = i*32 + 31-j;
+						if (seqnr > MAX_ANODE_SEQNR)
+							return 0;
 						ablock = big_GetAnodeBlock(seqnr, g);
 						if (ablock)
 						{
@@ -413,7 +466,7 @@ ULONG AllocAnode (ULONG connect, globaldata *g)
 								goto found_it;
 							else
 								/* mark anodeblock as full */
-								andata.anblkbitmap[i] &= ~(1 << j);
+								andata.anblkbitmap[i] &= ~(1UL << j);
 						}
 						/* anodeblock does not exist */
 						else goto found_it;
@@ -443,6 +496,8 @@ ULONG AllocAnode (ULONG connect, globaldata *g)
 		}
 		else
 		{
+			if (seqnr > MAX_ANODE_SEQNR)
+				return 0;
 			if (!(ablock = big_NewAnodeBlock (seqnr, g)))
 				return 0;
 			anodes = ablock->blk.nodes;
@@ -475,7 +530,7 @@ ULONG AllocAnode (ULONG connect, globaldata *g)
  * frees an anode for later reuse
  * universal version
  */
-void FreeAnode (ULONG anodenr, globaldata *g)
+BOOL FreeAnode (ULONG anodenr, globaldata *g)
 {
   struct canode anode = {0};
   ULONG seqnr;
@@ -486,7 +541,8 @@ void FreeAnode (ULONG anodenr, globaldata *g)
 		anode.blocknr = (ULONG)~0L;
 	}
 
-	SaveAnode (&anode, anodenr, g);
+	if (!SaveAnode (&anode, anodenr, g))
+		return FALSE;
 	/* the anodenr encodes the block seqnr differently depending on
 	 * split mode (cf. GetAnode/SaveAnode); anodenr>>16 is only valid
 	 * in split mode - in non-split mode it marked the wrong block as
@@ -496,8 +552,10 @@ void FreeAnode (ULONG anodenr, globaldata *g)
 		seqnr = anodenr >> 16;
 	else
 		seqnr = anodenr / andata.anodesperblock;
-	if (seqnr/32 < andata.anblkbitmapsize)
-		andata.anblkbitmap[seqnr/32] |= 1 << (31 - (seqnr%32));
+	if (andata.anblkbitmap &&
+		seqnr/32 < andata.anblkbitmapsize / sizeof(*andata.anblkbitmap))
+		andata.anblkbitmap[seqnr/32] |= 1UL << (31 - (seqnr%32));
+	return TRUE;
 }
 
 
@@ -517,6 +575,8 @@ static struct canodeblock *big_GetAnodeBlock (UWORD seqnr, globaldata *g)
   struct cindexblock *indexblock;
   struct volumedata *volume = g->currentvolume;
 
+	if (!andata.indexperblock)
+		return NULL;
 	temp = divide (seqnr, andata.indexperblock);
 
 	/* not in cache, put it in */
@@ -556,7 +616,7 @@ static struct canodeblock *big_GetAnodeBlock (UWORD seqnr, globaldata *g)
 	}
 
 	/* check it */
-	if (ablock->blk.id != ABLKID)
+	if (ablock->blk.id != ABLKID || ablock->blk.seqnr != seqnr)
 	{
 		ULONG args[2];
 		args[0] = ablock->blk.id;
@@ -584,24 +644,37 @@ static struct canodeblock *big_NewAnodeBlock (UWORD seqnr, globaldata *g)
   struct canodeblock *blok;
   struct volumedata *volume = g->currentvolume;
   struct cindexblock *indexblock;
-  ULONG indexblnr;
+  ULONG indexblnr, oldmaxseqnr;
   LONG blocknr;
   UWORD indexoffset, oldlock;
 
 	/* get indexblock */
+	if (!andata.indexperblock)
+		return NULL;
 	indexblnr = seqnr/andata.indexperblock;
 	indexoffset = seqnr%andata.indexperblock;
+	oldmaxseqnr = andata.maxanseqnr;
+	if (!ReallocAnodeBitmap(seqnr, g))
+		return NULL;
 	if (!(indexblock = GetIndexBlock(indexblnr, g))) {
 		if (!(indexblock = NewIndexBlock(indexblnr, g))) {
 			DBERR(ErrorTrace(10,"big_NewAnodeBlock","ERR: NewIndexBlock %lu %lu %lu %lu\n", seqnr, indexblnr, indexoffset, andata.indexperblock));
+			andata.maxanseqnr = oldmaxseqnr;
 			return NULL;
 		}
+	}
+	if (indexblock->blk.index[indexoffset]) {
+		andata.maxanseqnr = oldmaxseqnr;
+		return NULL;
 	}
 
 	oldlock = indexblock->used;
 	LOCK(indexblock);
 	if (!(blok = (struct canodeblock *)AllocLRU(g)) || !(blocknr = AllocReservedBlock(g)) ) {
 		DBERR(ErrorTrace(10,"big_NewAnodeBlock","ERR: AllocLRU/AllocReservedBlock %lu %lu %lu\n", seqnr, indexblnr, indexoffset));
+		if (blok)
+			FreeLRU((struct cachedblock *)blok);
+		andata.maxanseqnr = oldmaxseqnr;
 		indexblock->used = oldlock;         // unlock block
 		return NULL;
 	}
@@ -620,7 +693,6 @@ static struct canodeblock *big_NewAnodeBlock (UWORD seqnr, globaldata *g)
 	MakeBlockDirty((struct cachedblock *)indexblock, g);
 	indexblock->used = oldlock;         // unlock block
 
-	ReallocAnodeBitmap (seqnr, g);
 	return blok;
 }
 
@@ -657,6 +729,8 @@ struct cindexblock *GetIndexBlock (UWORD nr, globaldata *g)
 	if (g->supermode) 
 	{
 		/* temp is chopped by auto cast */
+		if (!andata.indexperblock)
+			return NULL;
 		temp = divide(nr, andata.indexperblock);
 		if (!(superblk = GetSuperBlock (temp, g)))
 		{
@@ -689,7 +763,7 @@ struct cindexblock *GetIndexBlock (UWORD nr, globaldata *g)
 		return NULL;
 	}
 		
-	if (indexblk->blk.id == IBLKID)
+	if (indexblk->blk.id == IBLKID && indexblk->blk.seqnr == nr)
 	{
 		indexblk->volume     = volume;
 		indexblk->blocknr    = blocknr;
@@ -722,9 +796,12 @@ static struct cindexblock *NewIndexBlock (UWORD seqnr, globaldata *g)
   ULONG superblnr = 0;
   LONG blocknr;
   UWORD superoffset = 0;
+  UWORD oldlock = 0;
 
 	if (g->supermode)
 	{
+		if (!andata.indexperblock || seqnr / andata.indexperblock > MAXSUPER)
+			return NULL;
 		superblnr = seqnr/andata.indexperblock;
 		superoffset = seqnr%andata.indexperblock;
 		if (!(superblok = GetSuperBlock (superblnr, g)))
@@ -734,10 +811,14 @@ static struct cindexblock *NewIndexBlock (UWORD seqnr, globaldata *g)
 			} else {
 				DBERR(ErrorTrace(1, "NewIndexBlock", "OK. %lu %lu %lu %lu\n", seqnr, andata.indexperblock, superblnr, superoffset));		
 			}
+		if (superblok->blk.index[superoffset])
+			return NULL;
 
+		oldlock = superblok->used;
 		LOCK(superblok);
 	}
-	else if (seqnr > MAXSMALLINDEXNR) {
+	else if (seqnr > MAXSMALLINDEXNR ||
+		volume->rootblk->idx.small.indexblocks[seqnr]) {
 		return NULL;
 	}
 
@@ -747,6 +828,8 @@ static struct cindexblock *NewIndexBlock (UWORD seqnr, globaldata *g)
 		DBERR(ErrorTrace(1, "NewIndexBlock", "ERR: AllocLRU/AllocReservedBlock. %lu %lu %lu %lu\n", seqnr, blocknr, superblnr, superoffset));
 		if (blok)
 			FreeLRU((struct cachedblock *)blok);
+		if (superblok)
+			superblok->used = oldlock;
 		return NULL;
 	}
 
@@ -755,6 +838,7 @@ static struct cindexblock *NewIndexBlock (UWORD seqnr, globaldata *g)
 	if (g->supermode) {
 		superblok->blk.index[superoffset] = blocknr;
 		MakeBlockDirty((struct cachedblock *)superblok, g);
+		superblok->used = oldlock;
 	} else {
 		volume->rootblk->idx.small.indexblocks[seqnr] = blocknr;
 		volume->rootblockchangeflag = TRUE;
@@ -798,7 +882,8 @@ struct cindexblock *GetSuperBlock (UWORD nr, globaldata *g)
 	/* not in cache, put it in
 	 * first, get blocknr
 	 */
-	if ((nr>MAXSUPER) || !(blocknr = volume->rblkextension->blk.superindex[nr])) {
+	if (!volume->rblkextension || (nr>MAXSUPER) ||
+		!(blocknr = volume->rblkextension->blk.superindex[nr])) {
 		DBERR(ErrorTrace(1, "GetSuperBlock", "ERR: out of bounds. %lu %lu\n", nr, blocknr));
 		return NULL;
 	}
@@ -817,7 +902,7 @@ struct cindexblock *GetSuperBlock (UWORD nr, globaldata *g)
 		return NULL;
 	}
 		
-	if (superblk->blk.id == SBLKID)
+	if (superblk->blk.id == SBLKID && superblk->blk.seqnr == nr)
 	{
 		superblk->volume     = volume;
 		superblk->blocknr    = blocknr;
@@ -848,13 +933,14 @@ static struct cindexblock *NewSuperBlock (UWORD seqnr, globaldata *g)
 
 	DBERR(blok = NULL;)
 
-	if ((seqnr > MAXSUPER) ||
+	if (!volume->rblkextension || (seqnr > MAXSUPER) ||
 		!(blok = (struct cindexblock *)AllocLRU(g)) ) {
 		DBERR(ErrorTrace(1, "NewSuperBlock", "ERR: out of bounds or LRU error. %lu %p\n", seqnr, blok));
 		return NULL;
 	}
 
-	if (!(volume->rblkextension->blk.superindex[seqnr] = AllocReservedBlock(g)))
+	if (volume->rblkextension->blk.superindex[seqnr] ||
+		!(volume->rblkextension->blk.superindex[seqnr] = AllocReservedBlock(g)))
 	{
 		DBERR(ErrorTrace(1, "NewSuperBlock", "ERR: AllocReservedBlock. %lu %p\n", seqnr, blok));
 		FreeLRU((struct cachedblock *)blok);
@@ -890,16 +976,19 @@ static struct cindexblock *NewSuperBlock (UWORD seqnr, globaldata *g)
  * previous = previous in chain; or 0 if anode is head
  * head = anodenr of head of list
  */
-void RemoveFromAnodeChain (const struct canode *anode, ULONG previous, ULONG head, globaldata *g)
+BOOL RemoveFromAnodeChain (const struct canode *anode, ULONG previous, ULONG head, globaldata *g)
 {
   struct canode sparenode;
 
 	if(previous)
 	{
-		GetAnode(&sparenode, previous, g);
+		if (!GetAnode(&sparenode, previous, g))
+			return FALSE;
 		sparenode.next = anode->next;
-		SaveAnode(&sparenode, sparenode.nr, g);
-		FreeAnode(anode->nr, g);
+		if (!SaveAnode(&sparenode, sparenode.nr, g))
+			return FALSE;
+		if (!FreeAnode(anode->nr, g))
+			goto free_failed;
 	}
 	else
 	{
@@ -907,16 +996,28 @@ void RemoveFromAnodeChain (const struct canode *anode, ULONG previous, ULONG hea
 		if (anode->next)
 		{
 			/* There is a next entry -> becomes head */
-			GetAnode(&sparenode, anode->next, g);
-			SaveAnode(&sparenode, head, g); // overwrites [anode]
-			FreeAnode(anode->next, g);  
+			if (!GetAnode(&sparenode, anode->next, g) ||
+				!SaveAnode(&sparenode, head, g))
+				return FALSE;
+			if (!FreeAnode(anode->next, g))
+				goto free_failed;
 		}
 		else
 		{
 			/* No anode->next: Free list. */
-			FreeAnode(head, g);
+			if (!FreeAnode(head, g))
+				return FALSE;
 		}
 	}
+	return TRUE;
+
+free_failed:
+	/* The predecessor may already have been changed; this cannot be
+	 * retried as an ordinary unlink without reconstructing the chain.
+	 */
+	g->currentvolume->metadata_error = TRUE;
+	g->dirty = TRUE;
+	return FALSE;
 }
 
 
@@ -938,8 +1039,10 @@ void InitAnodes (struct volumedata *volume, BOOL formatting, globaldata *g)
 		andata.anodesperblock = (volume->rootblk->reserved_blksize - sizeof(anodeblock_t)) / sizeof(anode_t);
 		andata.indexperblock = (volume->rootblk->reserved_blksize - sizeof(indexblock_t)) / sizeof(LONG);
 		andata.maxanodeseqnr = g->supermode ?
-				((MAXSUPER+1) * andata.indexperblock * andata.indexperblock * andata.anodesperblock - 1) :
-				(MAXSMALLINDEXNR * andata.indexperblock - 1);
+				MAX_ANODE_SEQNR :
+				((MAXSMALLINDEXNR + 1) * andata.indexperblock - 1);
+		if (andata.maxanodeseqnr > MAX_ANODE_SEQNR)
+			andata.maxanodeseqnr = MAX_ANODE_SEQNR;
 		andata.reserved = andata.anodesperblock - RESERVEDANODES;
 		MakeAnodeBitmap (formatting, g);
 	}
@@ -968,6 +1071,8 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 
 	if (andata.anblkbitmap)
 		FreeMemP (andata.anblkbitmap, g);
+	andata.anblkbitmap = NULL;
+	andata.anblkbitmapsize = 0;
 
 	/* count number of anodeblocks and allocate bitmap */
 	if (formatting)
@@ -978,6 +1083,8 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 	{
 		if (g->supermode)
 		{
+			if (!g->currentvolume->rblkextension)
+				goto error;
 			for (s=MAXSUPER; s >= 0 && !g->currentvolume->rblkextension->blk.superindex[s]; s--);
 			if (s < 0)
 				goto error;
@@ -985,6 +1092,8 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 			sblk = GetSuperBlock (s, g);
 
 			DBERR(if (!sblk) ErrorTrace(1, "MakeAnodeBitmap", "ERR: GetSuperBlock returned NULL!. %ld\n", s));
+			if (!sblk)
+				goto error;
 
 			for (i=andata.indexperblock - 1; i >= 0 && !sblk->blk.index[i]; i--);
 		}
@@ -998,8 +1107,12 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 		iblk = GetIndexBlock (s * andata.indexperblock + i, g);
 
 		DBERR(if (!iblk) ErrorTrace(1, "MakeAnodeBitmap", "ERR: GetIndexBlock returned NULL!. %ld %ld\n", s, i));
+		if (!iblk)
+			goto error;
 
 		for (j=andata.indexperblock - 1; j >= 0 && !iblk->blk.index[j]; j--);
+		if (j < 0)
+			goto error;
 	}
 
 	if (g->supermode)
@@ -1012,8 +1125,16 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 		andata.maxanseqnr = i * andata.indexperblock + j;
 		size = ((i+1) * andata.indexperblock + 7) / 8;
 	}
+	if (andata.maxanseqnr > andata.maxanodeseqnr)
+		goto error;
+
 	andata.anblkbitmapsize = (size + 3) & ~3;
 	andata.anblkbitmap = AllocMemP (andata.anblkbitmapsize, g);
+	if (!andata.anblkbitmap)
+	{
+		andata.anblkbitmapsize = 0;
+		goto error;
+	}
 
 	for (i = 0; i < andata.anblkbitmapsize/4; i++)
 		andata.anblkbitmap[i] = 0xffffffff;         /* all available */
@@ -1021,24 +1142,26 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 	return;
 
  error:
+	g->currentvolume->metadata_error = TRUE;
 	ErrorMsg(AFS_ERROR_ANODE_ERROR, NULL, g);
 }
 
 
 /* test if new anodeseqnr causes change in anblkbitmap */
-static void ReallocAnodeBitmap (ULONG newseqnr, globaldata *g)
+static BOOL ReallocAnodeBitmap (ULONG newseqnr, globaldata *g)
 {
 	ULONG *newbitmap, newsize;
 	int t;
 
 	if (newseqnr > andata.maxanseqnr)
 	{
-		andata.maxanseqnr = newseqnr;
 		newsize = ((newseqnr/andata.indexperblock + 1) * andata.indexperblock + 7) / 8;
 		if (newsize > andata.anblkbitmapsize)
 		{
 			newsize = (newsize + 3) & ~3;   /* longwords */
 			newbitmap = AllocMemP (newsize, g);
+			if (!newbitmap)
+				return FALSE;
 			for (t=0; t < newsize/4; t++)
 				newbitmap[t] = 0xffffffff;
 			memcpy (newbitmap, andata.anblkbitmap, andata.anblkbitmapsize);
@@ -1046,5 +1169,7 @@ static void ReallocAnodeBitmap (ULONG newseqnr, globaldata *g)
 			andata.anblkbitmap = newbitmap;
 			andata.anblkbitmapsize = newsize;
 		}
+		andata.maxanseqnr = newseqnr;
 	}
+	return TRUE;
 }

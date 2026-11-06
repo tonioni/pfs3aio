@@ -120,6 +120,7 @@
 #define MAXDISKSIZE MAXDISKSIZE4K
 
 #define DNSIZE 32
+#define DELENTRIES_PER_BLOCK 31
 
 #if defined(__GNUC__) || defined(__VBCC__)
 /* Force SAS/C compatible alignment rules for all these structures */
@@ -362,6 +363,8 @@ struct extrafields
 /*
  * del dir
  */
+#define MAXDELDIR 31
+#define MAXDELDIR_BLOCKS (MAXDELDIR + 1)
 
 #if defined(__GNUC__) || defined(__VBCC__)
 #pragma pack(2)
@@ -374,10 +377,7 @@ struct deldirentry
 	UWORD creationday;		/* datestamp						*/
 	UWORD creationminute;
 	UWORD creationtick;
-	UBYTE filename[16];		/* filename; filling up to 30 chars	*/
-	// was previously filename[18]
-	// now last two bytes used for extended file size
-	UWORD fsizex;			/* extended bits 32-47 of fsize		*/
+	UBYTE filename[18];		/* last two bytes hold fsizex on large-file volumes */
 };
 
 struct deldirblock
@@ -394,7 +394,7 @@ struct deldirblock
 	UWORD creationday;
 	UWORD creationminute;
 	UWORD creationtick;
-	struct deldirentry entries[0];	/* 31 entries				*/
+	struct deldirentry entries[0];	/* DELENTRIES_PER_BLOCK entries	*/
 };
 
 #if defined(__GNUC__) || defined(__VBCC__)
@@ -500,6 +500,9 @@ struct cachedblock
 	UBYTE	dummy;					// pad to make offset even
 	UBYTE	data[0];				// the datablock;
 };
+
+/* Dirty contents whose copy-on-write relocation still needs to be linked. */
+#define CBLK_DIRTY_PENDING 2
 
 struct lru_cachedblock
 {
@@ -609,8 +612,6 @@ struct lru_cachedblock
 #define DELENTRY_PROT_AND_MASK 0xaa0f
 #define DELENTRY_PROT_OR_MASK 0x0005
 /* maximum number of entries per block, max deldirblock seqnr */
-#define DELENTRIES_PER_BLOCK 31
-#define MAXDELDIR 31
 #endif /* DELDIR */
 
 #define ST_ROLLOVERFILE -16
@@ -623,6 +624,7 @@ struct lru_cachedblock
 #define ANODE_BADBLOCKS		4	// not used yet
 #define ANODE_ROOTDIR		5
 #define ANODE_USERFIRST		6
+#define MAX_ANODE_SEQNR		0xffffUL
 
 /* Max size reported in DOS ULONG size fields */
 #define MAXFILESIZE32 0xffffffff
