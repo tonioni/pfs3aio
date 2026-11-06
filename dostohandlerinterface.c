@@ -206,6 +206,45 @@ static const struct functable functiontable1000[] =
  * Normal, not-inhibited packet processor
  */
 
+/* Only operations that may modify filesystem metadata are fail-stopped. */
+static BOOL PacketMutatesFilesystem(struct DosPacket *action)
+{
+	switch (action->dp_Type)
+	{
+		case ACTION_WRITE:
+		case ACTION_SET_FILE_SIZE:
+#if EXTENDED_PACKETS_OS4
+		case ACTION_CHANGE_FILE_SIZE64:
+#endif
+		case ACTION_FINDUPDATE:
+		case ACTION_FINDOUTPUT:
+		case ACTION_CREATE_DIR:
+		case ACTION_RENAME_DISK:
+		case ACTION_DELETE_OBJECT:
+		case ACTION_RENAME_OBJECT:
+		case ACTION_SET_PROTECT:
+		case ACTION_SET_COMMENT:
+		case ACTION_SET_DATE:
+		case ACTION_SET_OWNER:
+		case ACTION_MAKE_LINK:
+		case ACTION_KILL_EMPTY:
+		case ACTION_REMOVE_DIRENTRY:
+		case ACTION_CREATE_ROLLOVER:
+			return TRUE;
+		case ACTION_MORE_CACHE:
+			return action->dp_Arg1 != 0;
+		case ACTION_SET_ROLLOVER:
+			return action->dp_Arg2 && ((struct rolloverinfo *)BADDR(action->dp_Arg2))->set != 0;
+		case ACTION_SET_DELDIR:
+			return action->dp_Arg2 != -1;
+		case ACTION_SET_FNSIZE:
+		case ACTION_SET_LARGEFILE:
+			return action->dp_Arg2 != 0;
+		default:
+			return FALSE;
+	}
+}
+
 /* NormalCommands funtion: normal commandmode
  *
  * This function executes the operation specified by the passed packet. Can be
@@ -226,6 +265,24 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 	action->dp_Res2 = 0;
 
 	packettype = action->dp_Type;
+	if (g->currentvolume && g->currentvolume->metadata_error &&
+		PacketMutatesFilesystem(action))
+	{
+#if EXTENDED_PACKETS_OS4
+		if (packettype == ACTION_CHANGE_FILE_SIZE64)
+		{
+			struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
+			dp->dp_Res0 = DP64_INIT;
+			dp->dp_Res1 = 0;
+			dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			return;
+		}
+#endif
+		action->dp_Res1 = (packettype == ACTION_WRITE ||
+			packettype == ACTION_SET_FILE_SIZE) ? -1 : DOSFALSE;
+		action->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return;
+	}
 	if (packettype == ACTION_WRITE)
 	{
 		action->dp_Res1 = dd_WriteSFS (action, g);
@@ -315,12 +372,14 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 		/* 64 bit seek and size, values in a struct DosPacket64 */
 		case ACTION_CHANGE_FILE_POSITION64:
 			dd_ChangeFilePosition64(action, g);
+			g->timeout |= 1;
 			break;
 		case ACTION_GET_FILE_POSITION64:
 			dd_GetFilePosition64(action, g);
 			break;
 		case ACTION_CHANGE_FILE_SIZE64:
 			dd_ChangeFileSize64(action, g);
+			g->timeout |= 1;
 			break;
 		case ACTION_GET_FILE_SIZE64:
 			dd_GetFileSize64(action, g);
@@ -366,6 +425,23 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 		default:
 			action->dp_Res1 = NotKnown(action, g);
 			break;
+	}
+	if (g->currentvolume && g->currentvolume->metadata_error &&
+		PacketMutatesFilesystem(action))
+	{
+#if EXTENDED_PACKETS_OS4
+		if (packettype == ACTION_CHANGE_FILE_SIZE64)
+		{
+			struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
+			dp->dp_Res0 = DP64_INIT;
+			dp->dp_Res1 = 0;
+			dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			return;
+		}
+#endif
+		action->dp_Res1 = (packettype == ACTION_WRITE ||
+			packettype == ACTION_SET_FILE_SIZE) ? -1 : DOSFALSE;
+		action->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
 	}
 }
 
@@ -435,7 +511,6 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 		case ACTION_CREATE_DIR:     // CreateDir(..)
 		case ACTION_DELETE_OBJECT:  // DeleteFile(..)
 		case ACTION_RENAME_OBJECT:  // Rename(..)
-		case ACTION_WRITE:          // Write(..)
 		case ACTION_LOCATE_OBJECT:  // Lock(..)
 		case ACTION_COPY_DIR_FH:
 		case ACTION_COPY_DIR:       // DupLock(..) COULD be implemented ?
@@ -448,10 +523,8 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 		case ACTION_CHANGE_MODE:    // ChangeMode(type,obj,mode)
 		case ACTION_RENAME_DISK:    // Relabel(..)
 		case ACTION_EXAMINE_ALL:    // ExAll(lock,buff,size,type,ctl)
-		case ACTION_SET_FILE_SIZE:  // SetFileSize(file,off,mode)
 		case ACTION_SAME_LOCK:      // SameLock(lock1, lock2)
 		case ACTION_MAKE_LINK:      // MakeLink(name,targ,mode)
-		case ACTION_READ_LINK:      // ReadLink(port,lck,nam,buf,len)
 		case ACTION_ADD_NOTIFY:     // StartNotify(NotifyRequest)
 		case ACTION_REMOVE_NOTIFY:  // EndNotify(NotifyRequest)
 		case ACTION_MORE_CACHE:     // AddBuffers(..)
@@ -484,7 +557,10 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 #endif
 
 		case ACTION_READ:           // Read(..)
+		case ACTION_WRITE:          // Write(..)
 		case ACTION_SEEK:           // Seek(..)
+		case ACTION_SET_FILE_SIZE:  // SetFileSize(file,off,mode)
+		case ACTION_READ_LINK:      // ReadLink(port,lck,nam,buf,len)
 			action->dp_Res2 = ERROR_NOT_A_DOS_DISK;
 			action->dp_Res1 = -1;
 			break;
@@ -562,8 +638,38 @@ void SleepCommands(struct DosPacket *action, globaldata *g)
 		 * otherwise wake up
 		 */
 		default:
-			Alarm(g);
-			NormalCommands(action, g);
+			if (!g->sleep_wake_error && Alarm(&action->dp_Res2, g))
+				NormalCommands(action, g);
+			else
+			{
+				if (g->sleep_wake_error)
+					action->dp_Res2 = g->sleep_wake_error;
+				/* Close must still release an unrecoverable handle; no
+				 * metadata or notifications can safely be updated here. */
+				if (action->dp_Type == ACTION_END && action->dp_Arg1)
+				{
+					fileentry_t *fe = (fileentry_t *)action->dp_Arg1;
+					if (fe->checknotify && fe->le.volume)
+						fe->le.volume->metadata_error = TRUE;
+					RemoveListEntry(&fe->le, g);
+				}
+				action->dp_Res1 = (action->dp_Type == ACTION_READ ||
+					action->dp_Type == ACTION_WRITE || action->dp_Type == ACTION_SEEK ||
+					action->dp_Type == ACTION_SET_FILE_SIZE ||
+					action->dp_Type == ACTION_READ_LINK) ? -1 : DOSFALSE;
+#if EXTENDED_PACKETS_OS4
+				if (action->dp_Type == ACTION_CHANGE_FILE_POSITION64 ||
+					action->dp_Type == ACTION_GET_FILE_POSITION64 ||
+					action->dp_Type == ACTION_CHANGE_FILE_SIZE64 ||
+					action->dp_Type == ACTION_GET_FILE_SIZE64)
+				{
+					struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
+					dp->dp_Res0 = DP64_INIT;
+					dp->dp_Res1 = (action->dp_Type == ACTION_GET_FILE_POSITION64 ||
+						action->dp_Type == ACTION_GET_FILE_SIZE64) ? -1 : 0;
+				}
+#endif
+			}
 	}
 }
 

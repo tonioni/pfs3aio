@@ -2,7 +2,15 @@
 lru.c
  */
 
+#ifndef MIN_BUFFERS
+#define MIN_BUFFERS 10
+#endif
+#ifndef MAX_BUFFERS
+#define MAX_BUFFERS 600
+#endif
+
 BOOL InitLRU(globaldata *, UWORD);
+LONG ResizeLRU(globaldata *, LONG);
 void DeallocLRU(globaldata *);
 
 struct cachedblock * AllocLRU(globaldata * );

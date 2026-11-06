@@ -118,19 +118,24 @@ BOOL InitLRU (globaldata *g, UWORD reserved_blksize)
 
 	i = g->dosenvec->de_NumBuffers;
 
-	/* sanity checks. If HDToolbox default of 30, then 150,
-	 * otherwise round in range 70 -- 600
+	/* sanity checks. If HDToolbox default of 30, use 150 when Fast RAM is
+	 * available and 70 on Chip-RAM-only machines; otherwise clamp to
+	 * MIN_BUFFERS -- MAX_BUFFERS.
 	 */
-	if (i==30) i=150;
+	if (i == 30)
+		i = AvailMem(MEMF_FAST) ? 150 : 70;
 	if (i<MIN_BUFFERS) i = MIN_BUFFERS;
 	if (i>MAX_BUFFERS) i = MAX_BUFFERS;
-	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize = i;
+	g->glob_lrudata.poolsize = i;
 	g->uip = FALSE;
 	g->locknr = 1;
 
-	g->glob_lrudata.LRUarray = AllocVec(sizeof(struct lru_cachedblock*) * g->glob_lrudata.poolsize, 0);
+	g->glob_lrudata.LRUarray = AllocVec(sizeof(struct lru_cachedblock*) * g->glob_lrudata.poolsize, MEMF_CLEAR);
 	if (!g->glob_lrudata.LRUarray)
+	{
+		g->glob_lrudata.poolsize = 0;
 		return FALSE;
+	}
 	for(j = 0; j < g->glob_lrudata.poolsize; j++) {
 		g->glob_lrudata.LRUarray[j] = AllocVec((sizeof(struct lru_cachedblock) + reserved_blksize), g->dosenvec->de_BufMemType | MEMF_CLEAR);
 		if (!g->glob_lrudata.LRUarray[j]) {
@@ -149,7 +154,79 @@ BOOL InitLRU (globaldata *g, UWORD reserved_blksize)
 		MinAddHead(&g->glob_lrudata.LRUpool, g->glob_lrudata.LRUarray[i]);
 	}
 
+	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize;
 	return TRUE;
+}
+
+/* Build a replacement before discarding the old cache. The caller must commit
+ * dirty data first; allocation failure leaves every existing cache entry intact.
+ */
+LONG ResizeLRU(globaldata *g, LONG requested)
+{
+	struct lru_cachedblock **array, *node, *next;
+	LONG count, i;
+	BOOL warned = FALSE;
+
+	if (!g->glob_lrudata.reserved_blksize)
+		return 0;
+
+	if (requested < MIN_BUFFERS)
+		requested = MIN_BUFFERS;
+	if (requested > MAX_BUFFERS)
+		requested = MAX_BUFFERS;
+
+	for (count = requested; ; count = MIN_BUFFERS + (count - MIN_BUFFERS) / 2)
+	{
+		/* A failed attempt to grow must not replace the cache with a
+		 * smaller one just because the fallback size is easier to allocate.
+		 */
+		if (g->glob_lrudata.LRUarray && requested >= g->glob_lrudata.poolsize &&
+			count <= g->glob_lrudata.poolsize)
+			return requested == g->glob_lrudata.poolsize ? count : 0;
+		array = AllocVec(sizeof(*array) * count, MEMF_CLEAR);
+		if (array)
+		{
+			for (i = 0; i < count; i++)
+			{
+				array[i] = AllocVec(sizeof(struct lru_cachedblock) +
+					g->glob_lrudata.reserved_blksize,
+					g->dosenvec->de_BufMemType | MEMF_CLEAR);
+				if (!array[i])
+					break;
+			}
+			if (i == count)
+				break;
+			while (i > 0)
+				FreeVec(array[--i]);
+			FreeVec(array);
+		}
+		if (count == MIN_BUFFERS)
+			return 0;
+	}
+
+	if (g->glob_lrudata.LRUarray)
+	{
+		for (node = (struct lru_cachedblock *)g->glob_lrudata.LRUqueue.mlh_Head;
+			node && node->next; node = next)
+		{
+			next = node->next;
+			FlushBlock(&node->cblk, g);
+			MinRemove(node);
+		}
+	}
+	DeallocLRU(g);
+	g->glob_lrudata.LRUarray = array;
+	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize = count;
+	for (i = 0; i < count; i++)
+	{
+		if (!warned && (((ULONG)array[i]) & ~g->dosenvec->de_Mask))
+		{
+			ErrorMsg(AFS_WARNING_MEMORY_MASK, NULL, g);
+			warned = TRUE;
+		}
+		MinAddHead(&g->glob_lrudata.LRUpool, array[i]);
+	}
+	return count;
 }
 
 void DeallocLRU(globaldata *g)
@@ -157,10 +234,14 @@ void DeallocLRU(globaldata *g)
 	int j;
 	if (g->glob_lrudata.LRUarray) {
 		for(j = 0; j < g->glob_lrudata.poolsize; j++)
-			FreeVec(g->glob_lrudata.LRUarray[j]);
+			if (g->glob_lrudata.LRUarray[j])
+				FreeVec(g->glob_lrudata.LRUarray[j]);
+		FreeVec(g->glob_lrudata.LRUarray);
 	}
-	FreeVec (g->glob_lrudata.LRUarray);
 	g->glob_lrudata.LRUarray = NULL;
+	g->glob_lrudata.poolsize = 0;
+	NewList((struct List *)&g->glob_lrudata.LRUqueue);
+	NewList((struct List *)&g->glob_lrudata.LRUpool);
 }
 
 
@@ -191,6 +272,10 @@ retry:
 		{
 			/* skip locked blocks */
 			if (ISLOCKED(&lrunode->cblk))
+				continue;
+
+			/* Its blocknr is still the committed location. */
+			if (lrunode->cblk.changeflag == CBLK_DIRTY_PENDING)
 				continue;
 
 			if (lrunode->cblk.changeflag)
@@ -232,7 +317,7 @@ retry:
 	for (j = 0; j < NEW_LRU_ENTRIES; j++) {
 		if (!nlru)
 			break;
-		nlru[j + g->glob_lrudata.poolsize] = AllocVec((sizeof(struct lru_cachedblock) + SIZEOF_RESBLOCK), g->dosenvec->de_BufMemType | MEMF_CLEAR);
+		nlru[j + g->glob_lrudata.poolsize] = AllocVec((sizeof(struct lru_cachedblock) + g->glob_lrudata.reserved_blksize), g->dosenvec->de_BufMemType | MEMF_CLEAR);
 		if (!nlru[j + g->glob_lrudata.poolsize]) {
 			while (j >= 0) {
 				FreeVec(nlru[j + g->glob_lrudata.poolsize]);
@@ -370,7 +455,7 @@ void FlushBlock (struct cachedblock *block, globaldata *g)
 	}
 
 	/* wipe memory */
-	memset(block, 0, SIZEOF_CACHEDBLOCK);
+	memset(block, 0, sizeof(struct cachedblock) + g->glob_lrudata.reserved_blksize);
 }
 
 /* updates references of listentries to dirblock
@@ -414,16 +499,21 @@ void UpdateLE (listentry_t *le, globaldata *g)
 {
 	//DB(Trace(1,"UpdateLE","Listentry %lx\n", le));
 
+	if (!le || le->volume != g->currentvolume)
+		return;
+
 	/* don't update volumeentries or deldirs!! */
 #if DELDIR
-	if (!le || le->info.deldir.special <= SPECIAL_DELFILE)
+	if (le->info.deldir.special <= SPECIAL_DELFILE)
 #else
-	if (!le || IsVolumeEntry(le))
+	if (IsVolumeEntry(le))
 #endif
 		return;
 
-	if (le->dirblocknr)
-		LoadDirBlock (le->dirblocknr, g);
+	if (le->dirblocknr && !LoadDirBlock(le->dirblocknr, g))
+		return;
+	if (!le->info.file.dirblock)
+		return;
 
 	MakeLRU (le->info.file.dirblock);
 	LOCK(le->info.file.dirblock);
@@ -433,7 +523,8 @@ void UpdateLE_exa (lockentry_t *le, globaldata *g)
 {
 	//DB(Trace(1,"UpdateLE_exa","LE %lx\n", le));
 
-	if (!le) return;
+	if (!le || le->le.volume != g->currentvolume)
+		return;
 
 	if (le->le.type.flags.dir)
 	{
@@ -473,4 +564,3 @@ struct cachedblock *CheckCache (struct MinList *list, UWORD mask, ULONG blocknr,
 
 	return NULL;
 }
-
