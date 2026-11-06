@@ -246,7 +246,7 @@ static UBYTE debugbuf[120];
 static BOOL SameDisk(struct rootblock *, struct rootblock *);
 static BOOL SameDiskDL(struct rootblock *, struct DeviceList *);
 static void TakeOverLocks(struct FileLock *, globaldata *);
-static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g);
+static BOOL DiskInsertSequence(struct rootblock *rootblock, globaldata *g);
 static void DiskRemoveSequence(globaldata *g);
 
 void NewVolume (BOOL FORCE, globaldata *g)
@@ -286,31 +286,37 @@ void NewVolume (BOOL FORCE, globaldata *g)
 		{
 			if (oldstate)
 				DiskRemoveSequence (g);
+			if (g->currentvolume)
+			{
+				FreeBufmem(rootblock, g);
+				goto done;
+			}
 			/* Only now, with the old volume updated and removed, is it
 			 * safe to (re)initialize the LRU cache for the new volume's
 			 * reserved block size (InitLRU frees all cached blocks when
 			 * the size differs).
 			 */
-			if (InitLRU (g, rootblock->reserved_blksize))
+			if (!InitLRU (g, rootblock->reserved_blksize) ||
+				!DiskInsertSequence (rootblock, g))
 			{
-				DiskInsertSequence (rootblock, g);
-			}
-			else
-			{
-				/* treat like an unmountable disk (cf. GetCurrentRoot
-				 * nrd_error) */
-				FreeBufmem (rootblock, g);
+				/* A failed insertion may already own the root block
+				 * and have reattached outstanding locks. Discard its
+				 * uncommitted changes and remove it via the normal path. */
+				if (g->currentvolume)
+				{
+					g->currentvolume->metadata_error = TRUE;
+					g->dirty = FALSE;
+					DiskRemoveSequence(g);
+				}
+				else
+					FreeBufmem (rootblock, g);
 				g->disktype = ID_NOT_REALLY_DOS;
 				CreateInputEvent (TRUE, g);
-				g->currentvolume = NULL;
 			}
 		}
 	}
-	else
-	{
-		g->currentvolume = NULL;    /* @XL */
-	}
 
+done:
 	UnLockDosList(LDF_VOLUMES | LDF_WRITE);
 
 	UpdateAndMotorOff(g);
@@ -353,6 +359,7 @@ static void DiskRemoveSequence(globaldata *g)
 
 	/* disk removed */
 	g->currentvolume = NULL;
+	g->rootblock = NULL;
 	FlushDataCache (g);
 
 	/* -II- link locks in doslist 
@@ -397,7 +404,14 @@ BOOL SafeDiskRemoveSequence(globaldata *g)
 {
 	while (g->currentvolume) {    /* inefficient.. */
 		if (AttemptLockDosList(LDF_VOLUMES | LDF_WRITE)) {
+			if (g->currentvolume->metadata_error)
+				g->inhibit_metadata_error = TRUE;
 			DiskRemoveSequence(g);
+			/* The update attempt can itself latch an error before a later
+			 * iteration removes and possibly frees the volume.
+			 */
+			if (g->currentvolume && g->currentvolume->metadata_error)
+				g->inhibit_metadata_error = TRUE;
 			UnLockDosList(LDF_VOLUMES | LDF_WRITE);
 		} else {
 			return FALSE;
@@ -406,7 +420,7 @@ BOOL SafeDiskRemoveSequence(globaldata *g)
 	return TRUE;
 }
 
-static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
+static BOOL DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 {
   struct DosList *doslist;
   struct DosInfo *di;
@@ -422,7 +436,7 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 
 	/* -I- Search new disk in volumelist */
 
-	BCPLtoCString(diskname, rootblock->diskname);
+	BCPLtoCString(diskname, sizeof(diskname), rootblock->diskname);
 	di = BADDR(((struct RootNode *)DOSBase->dl_Root)->rn_Info);
 	doslist = BADDR(di->di_DevInfo);
 	
@@ -467,9 +481,10 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 				g->currentvolume = fe->le.volume;
 
 			/* update rootblock */
-			if (g->rootblock) FreeBufmem (g->rootblock, g);
+			FreeBufmem (g->currentvolume->rootblk, g);
 			g->rootblock =
 			g->currentvolume->rootblk = rootblock;
+			g->currentvolume->metadata_error = FALSE;
 
 			/* take over filelocks
 			** lockentries: takeover, change taskfield
@@ -507,26 +522,26 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 			added = AddDosEntry((struct DosList *)devlist);
 		}
 
-		/* make new volumestructure for inserted volume */
-		g->currentvolume = MakeVolumeData(rootblock, g);
-		MinAddHead(&g->volumes, g->currentvolume);
-		g->currentvolume->devlist = (struct DeviceList *)devlist;
-
 		/* check if things worked out */
 		if(!devlist || !added)      // duplicate disks or out of memory
 		{
 			ErrorMsg (AFS_ERROR_DOSLIST_ADD, NULL, g);
 			if(devlist)
 				FreeDosEntry((struct DosList *)devlist);
-			FreeVolumeResources(g->currentvolume, g);
-			g->currentvolume = NULL;
+			return FALSE;
 		}
 
-		CreateInputEvent(TRUE, g);
+		/* Only link a volume after its DosList entry was installed. */
+		g->currentvolume = MakeVolumeData(rootblock, g);
+		MinAddHead(&g->volumes, g->currentvolume);
+		g->currentvolume->devlist = devlist;
 	}
 
 	/* Reconfigure modules to new volume */
+	g->currentvolume->metadata_error = FALSE;
 	InitModules (g->currentvolume, FALSE, g);
+	if (g->currentvolume->metadata_error)
+		return FALSE;
 
 	/* create rootblockextension if its not there yet */
 	if (!g->currentvolume->rblkextension &&
@@ -537,32 +552,40 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 
 #if DELDIR
 	/* upgrade deldir */
-	if (rootblock->deldir)
+	if (rootblock->deldir &&
+		g->diskstate != ID_WRITE_PROTECTED &&
+		g->currentvolume->rblkextension)
 	{
 		struct cdeldirblock *ddblk;
 		int i, nr;
+		BOOL upgradeok = TRUE;
 
 		/* kill current deldir */
 		ddblk = (struct cdeldirblock *)AllocLRU(g);
-		if (ddblk)
+		if (!ddblk)
+			return FALSE;
+		if (RawRead ((UBYTE*)&ddblk->blk, RESCLUSTER, rootblock->deldir, g) != 0 ||
+			ddblk->blk.id != DELDIRID)
+			upgradeok = FALSE;
+		else
 		{
-			if (RawRead ((UBYTE*)&ddblk->blk, RESCLUSTER, rootblock->deldir, g) == 0)
+			for (i=0; i<DELENTRIES_PER_BLOCK; i++)
 			{
-				if (ddblk->blk.id == DELDIRID)
+				nr = ddblk->blk.entries[i].anodenr;
+				if (nr && !FreeAnodesInChain(nr, g))
 				{
-					for (i=0; i<31; i++)
-					{
-						nr = ddblk->blk.entries[i].anodenr;
-						if (nr)
-							FreeAnodesInChain(nr, g);
-					}
+					upgradeok = FALSE;
+					break;
 				}
 			}
-			FreeLRU ((struct cachedblock *)ddblk);
 		}
+		FreeLRU ((struct cachedblock *)ddblk);
+		if (!upgradeok)
+			return FALSE;
 
 		/* create new deldir */
-		SetDeldir(1, g);
+		if (SetDeldir(1, g))
+			return FALSE;
 		ResToBeFreed(rootblock->deldir, g);
 		rootblock->deldir = 0;
 		rootblock->options |= MODE_SUPERDELDIR;
@@ -574,7 +597,10 @@ static void DiskInsertSequence(struct rootblock *rootblock, globaldata *g)
 	rootblock->datestamp++;
 	g->dirty = TRUE;
 
+	CreateInputEvent(TRUE, g);
+
 	EXIT("DiskInsertSequence");
+	return TRUE;
 }
 
 /* check if rootblocks are of the same disk */
@@ -618,6 +644,7 @@ struct volumedata *MakeVolumeData (struct rootblock *rootblock, globaldata *g)
 
 	volume->rootblk = rootblock;
 	volume->rootblockchangeflag = FALSE;
+	volume->metadata_error = FALSE;
 
 	/* lijsten initieren */
 	for (list = &volume->fileentries; list <= &volume->notifylist; list++)
@@ -712,11 +739,20 @@ static void TakeOverLocks (struct FileLock *locklist, globaldata *g)
 */
 void FreeVolumeResources(struct volumedata *volume, globaldata *g)
 {
+	struct notifyobject *no, *next;
+
 	ENTER("Free volume resources");
 
 	if (volume)
 	{
 		FreeUnusedResources (volume, g);
+		for (no = HeadOf(&volume->notifylist); no && (next = no->next); no = next)
+		{
+			MinRemove (no);
+			FreeMemP (no->namemem, g);
+			FreeMemP (no->objectname, g);
+			FreeMemP (no, g);
+		}
 #if VERSION23
 		if (volume->rblkextension)
 			FreeBufmem (volume->rblkextension, g);
@@ -1004,16 +1040,24 @@ static void GetExtBlockGeometry(struct rootblock *rootblock, ULONG rblsize, glob
 {
 	struct rootblockextension *rext;
 	ULONG *env = (ULONG *)g->dosenvec;
-	
+	ULONG rescluster;
+
+	(void)rblsize;
 	if (g->trackdisk || env[DE_LOWCYL] != 0 || !(rootblock->options & MODE_EXTENSION) || !(rootblock->options & MODE_STORED_GEOM))
 		return;
+	if (rootblock->extension < rootblock->firstreserved || rootblock->extension > rootblock->lastreserved)
+		return;
 
-	rext = AllocBufmemR(rblsize << BLOCKSHIFT, g);
+	rescluster = rootblock->reserved_blksize >> BLOCKSHIFT;
+	if (!rescluster)
+		return;
+
+	rext = AllocBufmemR(rescluster << BLOCKSHIFT, g);
 	/* RawRead returns 0 on success. Apply the stored geometry only if the
 	 * extension block was actually read and is valid; a failed read must
 	 * not touch the DosEnvec (the buffer contents are undefined then).
 	 */
-	if (RawRead((UBYTE *)rext, rblsize, rootblock->extension, g) == 0 &&
+	if (RawRead((UBYTE *)rext, rescluster, rootblock->extension, g) == 0 &&
 		rext->id == EXTENSIONID && rext->dosenvec[1] != 0) {
 		int minlen = env[0] > rext->dosenvec[0] ? rext->dosenvec[0] : env[0];
 		if (minlen > 10)
@@ -1206,6 +1250,16 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 
 	error = RawRead(rbpt, rblsize, ROOTBLOCK, g);
 	if (error)
+	{
+		goto nrd_error;
+	}
+
+	/* The on-disk BSTR must fit inside the fixed diskname field. */
+	if (rbp->diskname[0] >= sizeof(rbp->diskname))
+		goto nrd_error;
+
+	if ((rbp->options & MODE_EXTENSION) &&
+		(rbp->extension < rbp->firstreserved || rbp->extension > rbp->lastreserved))
 	{
 		goto nrd_error;
 	}
@@ -1473,17 +1527,16 @@ void RequestCurrentVolumeBack(globaldata *g)
 
 	ENTER("GetCurrentVolumeBack");
 
-	BCPLtoCString(volumename, volume->rootblk->diskname);
+	BCPLtoCString(volumename, sizeof(volumename), volume->rootblk->diskname);
 
 	while(!ready)
 	{
 		ready = GetCurrentRoot(&rootblock, g) && SameDisk(volume->rootblk, rootblock);
+		if (rootblock)
+			FreeBufmem (rootblock, g);
 		if(!ready)
 			ErrorReport(ABORT_BUSY, REPORT_VOLUME, (IPTR)MKBADDR(volume->devlist), NULL);
 	}
-
-	if (rootblock)
-		FreeBufmem (rootblock, g);
 }   
 
 BOOL CheckCurrentVolumeBack (globaldata *g)
