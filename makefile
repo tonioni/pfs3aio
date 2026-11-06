@@ -1,6 +1,7 @@
 
 NOWDATE := "\"$(shell date "+%-d.%-m.%Y")\""
 NOWTIME := "\"$(shell date "+%T")\""
+.DEFAULT_GOAL := all
 
 CC=/opt/amiga/bin/m68k-amigaos-gcc
 
@@ -28,9 +29,19 @@ CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -nostartfiles -mregpar
 
 OBJS = startup.o boot.o init.o assroutines.o messages.o volume.o lock.o dostohandlerinterface.o anodes.o directory.o lru.o disk.o \
 	update.o allocation.o CheckAccess.o diskchange.o resethandler.o kswrapper.o format.o fsresource.o end.o
+C_OBJS = $(filter-out startup.o end.o,$(OBJS))
+MISSING_DEPS = $(foreach obj,$(C_OBJS),$(if $(wildcard $(obj:.o=.d)),,$(obj)))
 
-all: $(OBJS)
-	$(CC) -o pfs3aio $^ $(CFLAGS) $(LIBS)
+-include $(C_OBJS:.o=.d)
+
+.PHONY: all force-deps
+$(MISSING_DEPS): force-deps
+force-deps:
+
+all: pfs3aio
+
+pfs3aio: $(OBJS)
+	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 startup.o: startup.s
 	$(CC) $(CFLAGS) -I. -c -o $@ startup.s
@@ -41,62 +52,5 @@ end.o: end.s
 rawdofmt.o: rawdofmt.s
 	$(CC) $(CFLAGS) -I. -c -o $@ rawdofmt.s
 
-debug.o: debug.c
-	$(CC) $(CFLAGS) -I. -c -o $@ debug.c
-
-assroutines.o: assroutines.c
-	$(CC) $(CFLAGS) -I. -c -o $@ assroutines.c
-
-messages.o: messages.c
-	$(CC) $(CFLAGS) -I. -c -o $@ messages.c
-
-boot.o: boot.c
-	$(CC) $(CFLAGS) -I. -c -o $@ boot.c
-
-directory.o: directory.c
-	$(CC) $(CFLAGS) -I. -c -o $@ directory.c
-
-dostohandlerinterface.o: dostohandlerinterface.c dd_funcs.c
-	$(CC) $(CFLAGS) -I. -c -o $@ dostohandlerinterface.c
-
-disk.o: disk.c
-	$(CC) $(CFLAGS) -I. -c -o $@ disk.c
-
-init.o: init.c
-	$(CC) $(CFLAGS) -I. -c -o $@ init.c
-
-diskchange.o: diskchange.c
-	$(CC) $(CFLAGS) -I. -c -o $@ diskchange.c
-
-resethandler.o: resethandler.c
-	$(CC) $(CFLAGS) -I. -c -o $@ resethandler.c
-
-volume.o: volume.c
-	$(CC) $(CFLAGS) -I. -c -o $@ volume.c
-
-allocation.o: allocation.c
-	$(CC) $(CFLAGS) -I. -c -o $@ allocation.c
-
-lock.o: lock.c
-	$(CC) $(CFLAGS) -I. -c -o $@ lock.c
-
-anodes.o: anodes.c
-	$(CC) $(CFLAGS) -I. -c -o $@ anodes.c
-
-format.o: format.c
-	$(CC) $(CFLAGS) -I. -c -o $@ format.c
-
-lru.o: lru.c
-	$(CC) $(CFLAGS) -I. -c -o $@ lru.c
-
-update.o: update.c
-	$(CC) $(CFLAGS) -I. -c -o $@ update.c
-
-CheckAccess.o: CheckAccess.c
-	$(CC) $(CFLAGS) -I. -c -o $@ CheckAccess.c
-
-fsresource.o: fsresource.c
-	$(CC) $(CFLAGS) -I. -c -o $@ fsresource.c
-
-kswrapper.o: kswrapper.c
-	$(CC) $(CFLAGS) -I. -c -o $@ kswrapper.c
+$(C_OBJS): %.o: %.c
+	$(CC) $(CFLAGS) -I. -MMD -MP -c -o $@ $<
