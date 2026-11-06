@@ -312,6 +312,7 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 #endif
 
 #if EXTENDED_PACKETS_OS4
+		/* 64 bit seek and size, values in a struct DosPacket64 */
 		case ACTION_CHANGE_FILE_POSITION64:
 			dd_ChangeFilePosition64(action, g);
 			break;
@@ -326,18 +327,25 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 			break;
 #endif
 
+#if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
+		/* MorphOS packets, used by dos64.library in AROS to list 64 bit sizes on 32 bit m68k */
+		case ACTION_EXAMINE_OBJECT64:
+		case ACTION_EXAMINE_NEXT64:
+		case ACTION_EXAMINE_FH64:
+			action->dp_Res1 = dd_Examine64(action, g);
+			break;
+#endif
+
 #if EXTENDED_PACKETS_MORPHOS
 		/*
 		 * Note: If we ever support file sizes between 2^31 to 2^32-2 then SEEK64 needs
 		 * to be implemented. - Piru
 		 */
+		/* 64 bit values in the packet itself, a 32 bit handler cannot take them */
 		case ACTION_SEEK64:
 		case ACTION_SET_FILE_SIZE64:
 		case ACTION_LOCK_RECORD64:
 		case ACTION_FREE_RECORD64:
-		case ACTION_EXAMINE_OBJECT64:
-		case ACTION_EXAMINE_NEXT64:
-		case ACTION_EXAMINE_FH64:
 			action->dp_Res1 = NotKnown(action, g);
 			break;
 
@@ -450,6 +458,11 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 		case ACTION_WRITE_PROTECT:  // <sendpkt only>
 		case ACTION_END:            // Close(..)
 		case ACTION_CREATE_ROLLOVER:
+#if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
+		case ACTION_EXAMINE_OBJECT64:
+		case ACTION_EXAMINE_NEXT64:
+		case ACTION_EXAMINE_FH64:
+#endif
 
 			action->dp_Res2 = ERROR_NOT_A_DOS_DISK;
 			action->dp_Res1 = DOSFALSE;
@@ -481,9 +494,6 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 		case ACTION_SET_FILE_SIZE64:
 		case ACTION_LOCK_RECORD64:
 		case ACTION_FREE_RECORD64:
-		case ACTION_EXAMINE_OBJECT64:
-		case ACTION_EXAMINE_NEXT64:
-		case ACTION_EXAMINE_FH64:
 		case ACTION_NEW_READ_LINK:
 			action->dp_Res2 = ERROR_NOT_A_DOS_DISK;
 			action->dp_Res1 = DOSFALSE;

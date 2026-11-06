@@ -303,7 +303,6 @@ int stcu_d(char *out, unsigned int val);
 
 #define WITH(x) x;
 typedef unsigned char *DSTR;      /* pascal string: length, than characters     */
-typedef enum {false, true} bool;
 
 /*****************************************************************************/
 /* Rollover info structure                                                   */
@@ -857,6 +856,9 @@ typedef signed long long FSIZE;
 typedef signed long long SFSIZE;
 /* Limit to useful sane size, not real max for now */
 #define MAX_FILE_SIZE 0x7fffffffff
+#ifndef EXTENDED_PACKETS_OS4
+#define EXTENDED_PACKETS_OS4 1
+#endif
 #else
 typedef ULONG FSIZE;
 typedef LONG SFSIZE;
@@ -1083,6 +1085,36 @@ struct DosPacket64OS4
 	ULONG dp_Arg4;		/* 52 */
 	ULONG dp_Arg5;		/* 56 */
 };
+#endif
+
+#if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
+/* FileInfoBlock of the 64 bit examine packets (MorphOS V51): 64 bit values in the reserved area, high long first */
+struct FileInfoBlock64Packet
+{
+	ULONG fib_DiskKey;			/*   0 */
+	LONG  fib_DirEntryType;		/*   4 */
+	UBYTE fib_FileName[108];	/*   8 */
+	LONG  fib_Protection;		/* 116 */
+	LONG  fib_EntryType;		/* 120 */
+	LONG  fib_Size;				/* 124 */
+	LONG  fib_NumBlocks;		/* 128 */
+	struct DateStamp fib_Date;	/* 132 */
+	UBYTE fib_Comment[80];		/* 144 */
+	UWORD fib_OwnerUID;			/* 224 */
+	UWORD fib_OwnerGID;			/* 226 */
+	ULONG fib_Size64High;		/* 228 */
+	ULONG fib_Size64Low;		/* 232 */
+	ULONG fib_NumBlocks64High;	/* 236 */
+	ULONG fib_NumBlocks64Low;	/* 240 */
+	ULONG fib_Pad0[3];			/* 244 */
+	UWORD fib_Pad1;				/* 256 */
+	UBYTE fib_ActExtFlags;		/* 258 */
+	UBYTE fib_ReqExtFlags;		/* 259 */
+};
+
+typedef char fib64_size64_check[(__builtin_offsetof(struct FileInfoBlock64Packet, fib_Size64High) == 228) ? 1 : -1];
+typedef char fib64_extflags_check[(__builtin_offsetof(struct FileInfoBlock64Packet, fib_ActExtFlags) == 258) ? 1 : -1];
+typedef char fib64_total_check[(sizeof(struct FileInfoBlock64Packet) == 260) ? 1 : -1];
 #endif
 
 #ifndef ACTION_SEEK64

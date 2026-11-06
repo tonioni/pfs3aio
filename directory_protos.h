@@ -27,9 +27,9 @@ BOOL GetParent(union objectinfo * , union objectinfo * , SIPTR * , globaldata * 
 
 BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, globaldata *g);
 
-BOOL ExamineFile(listentry_t * , struct FileInfoBlock * , SIPTR * , globaldata * );
+BOOL ExamineFile(listentry_t * , struct FileInfoBlock * , FSIZE * , SIPTR * , globaldata * );
 
-BOOL ExamineNextFile(lockentry_t * , struct FileInfoBlock * , SIPTR * , globaldata * );
+BOOL ExamineNextFile(lockentry_t * , struct FileInfoBlock * , FSIZE * , SIPTR * , globaldata * );
 
 void GetNextEntry(lockentry_t * , globaldata * );
 

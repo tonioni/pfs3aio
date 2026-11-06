@@ -926,7 +926,7 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	// ARG1 = BSTR new disk name
 	// RES1 = BOOL Success/failure (DOSTRUE/DOSFALSE)
 
-	UBYTE newlabel[FNSIZE], *newname;
+	UBYTE newlabel[DNSIZE], *newname;
 	UBYTE newnamelen;
 
 #if MULTIUSER
@@ -937,37 +937,41 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	}
 #endif
 
-	BCPLtoCString(newlabel, (DSTR)BARG1(pkt));
+	DSTR newnamept = (DSTR)BARG1(pkt);
+	newnamelen = newnamept[0];
 
-	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g))
+ 	if (newnamelen >= DNSIZE - 1) {
+		pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
 		return DOSFALSE;
+ 	}
 
-	newnamelen = strlen(newlabel) + 2;
-	newname = AllocMem(newnamelen, MEMF_CLEAR | MEMF_PUBLIC);
-	if (newname) {
-		/* change rootblock */
-		if (RenameDisk(newlabel, g))
-		{
-				// change volume name
-				struct DeviceList *devlist = g->currentvolume->devlist;
-				UBYTE *oldname = BADDR(devlist->dl_Name);
-				strcpy(newname + 1, newlabel);
-				newname[0] = newnamelen;
-				devlist->dl_Name = MKBADDR(newname);
-				FreeMem(oldname, oldname[0] + 2);
-		}
-		else
-		{
-			FreeMem(newname, newnamelen);
-			pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
-			return DOSFALSE;
-		}
+	BCPLtoCString(newlabel, newnamept);
+
+	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g)) {
+		return DOSFALSE;
 	}
-	else
-	{
+
+	newname = AllocMem(newnamelen + 2, MEMF_CLEAR | MEMF_PUBLIC);
+	if (!newname) {
 		pkt->dp_Res2 = ERROR_NO_FREE_STORE;
 		return DOSFALSE;
 	}
+
+	/* change rootblock */
+	ULONG err = RenameDisk(newlabel, g);
+	if (err) {
+		FreeMem(newname, newnamelen + 2);
+		pkt->dp_Res2 = err;
+		return DOSFALSE;
+	}
+
+	// change volume name
+	struct DeviceList *devlist = g->currentvolume->devlist;
+	UBYTE *oldlabel = BADDR(devlist->dl_Name);
+	strcpy(newname + 1, newlabel);
+	newname[0] = newnamelen;
+	devlist->dl_Name = MKBADDR(newname);
+	FreeMem(oldlabel, oldlabel[0] + 2);
 
 	return DOSTRUE;
 }
@@ -1312,16 +1316,11 @@ static SIPTR dd_SetProperty(struct DosPacket *pkt, globaldata * g)
 /*
  * Examine directory contents
  */
-static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
+static SIPTR ExaminePacket(struct DosPacket *pkt, LONG type, struct FileInfoBlock *fib, FSIZE *size64, globaldata * g)
 {
-	// ARG1 = LOCK or filehandle of object to examine
-	// ARG2 = BPTR FileInfoBlock to fill in
-	// RES1 = Success/failure (DOSTRUE/DOSFALSE)
-	// RES2 = errorcode
-
 	listentry_t *listentry;
 
-	if (pkt->dp_Type == ACTION_EXAMINE_FH)
+	if (type == ACTION_EXAMINE_FH)
 		listentry = (listentry_t *) pkt->dp_Arg1;
 	else
 		listentry = ListEntryFromLock(pkt->dp_Arg1);
@@ -1340,15 +1339,67 @@ static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
 		return DOSFALSE;
 	}
 
-	if (pkt->dp_Type == ACTION_EXAMINE_NEXT)
-		return ExamineNextFile((lockentry_t *) listentry,
-							   (struct FileInfoBlock *)BARG2(pkt),
+	if (type == ACTION_EXAMINE_NEXT)
+		return ExamineNextFile((lockentry_t *) listentry, fib, size64,
 							   &pkt->dp_Res2, g);
 	else
-		return ExamineFile(listentry,
-						   (struct FileInfoBlock *)BARG2(pkt),
-						   &pkt->dp_Res2, g);
+		return ExamineFile(listentry, fib, size64, &pkt->dp_Res2, g);
 }
+
+static SIPTR dd_Examine(struct DosPacket *pkt, globaldata * g)
+{
+	// ARG1 = LOCK or filehandle of object to examine
+	// ARG2 = BPTR FileInfoBlock to fill in
+	// RES1 = Success/failure (DOSTRUE/DOSFALSE)
+	// RES2 = errorcode
+
+	return ExaminePacket(pkt, pkt->dp_Type, (struct FileInfoBlock *)BARG2(pkt), NULL, g);
+}
+
+#if LARGE_FILE_SIZE || EXTENDED_PACKETS_MORPHOS
+/* ACTION_EXAMINE_OBJECT64, _NEXT64 and _FH64: as the 32 bit packets, with the 64 bit size in a FileInfoBlock64Packet */
+static SIPTR dd_Examine64(struct DosPacket *pkt, globaldata * g)
+{
+	struct FileInfoBlock64Packet *fib = (struct FileInfoBlock64Packet *)BARG2(pkt);
+	FSIZE size = (FSIZE)-1;
+	ULONG blocks;
+	LONG type;
+	SIPTR res;
+
+	switch (pkt->dp_Type)
+	{
+		case ACTION_EXAMINE_NEXT64:
+			type = ACTION_EXAMINE_NEXT;
+			break;
+		case ACTION_EXAMINE_FH64:
+			type = ACTION_EXAMINE_FH;
+			break;
+		default:
+			type = ACTION_EXAMINE_OBJECT;
+			break;
+	}
+
+	res = ExaminePacket(pkt, type, (struct FileInfoBlock *)fib, &size, g);
+	if (res == DOSFALSE)
+		return res;
+
+	if (size == (FSIZE)-1)
+		size = (ULONG)fib->fib_Size;
+	blocks = (ULONG)fib->fib_NumBlocks;
+
+	fib->fib_Size = (size > 0x7FFFFFFF) ? 0 : (LONG)size;
+	fib->fib_Size64High = (ULONG)((unsigned long long)size >> 32);
+	fib->fib_Size64Low = (ULONG)size;
+	fib->fib_NumBlocks64High = 0;
+	fib->fib_NumBlocks64Low = blocks;
+	fib->fib_Pad0[0] = 0;
+	fib->fib_Pad0[1] = 0;
+	fib->fib_Pad0[2] = 0;
+	fib->fib_Pad1 = 0;
+	fib->fib_ActExtFlags = 0;
+	return res;
+}
+#endif
 
 static SIPTR dd_ExamineAllEnd(struct DosPacket *pkt, globaldata * g)
 {
@@ -1809,6 +1860,10 @@ static SIPTR dd_RemoveNotify (struct DosPacket *pkt, globaldata * g)
 
 	struct NotifyRequest *nr = (struct NotifyRequest *)pkt->dp_Arg1;
 	struct notifyobject *no;
+
+	if (!CheckVolume(g->currentvolume, 0, &pkt->dp_Res2, g)) {
+		return DOSFALSE;
+	}
 
 	/* 
 	 * BTW: pending messages that return after RemoveNotify

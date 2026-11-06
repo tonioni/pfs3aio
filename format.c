@@ -178,6 +178,11 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 		return DOSFALSE;
 	}
 
+	if (diskname[0] >= DNSIZE - 1) {
+		*error = ERROR_INVALID_COMPONENT_NAME;
+		return DOSFALSE;
+	}
+
 	if (g->softprotect && g->protectkey == ~0)
 		g->softprotect = g->protectkey = 0;
 

@@ -23,7 +23,7 @@
  * function prototypes
  */
 
-static BOOL RenameDisk(UBYTE *, globaldata *);
+static ULONG RenameDisk(UBYTE *, globaldata *);
 
 static void NotifyUser(struct NotifyRequest *nr, globaldata *g);
 static struct notifyobject *CheckNotify(ULONG parentanodenr, DSTR objectname,
@@ -136,30 +136,29 @@ do {                                                                   \
  * rename disk
  */
 
-static BOOL RenameDisk (UBYTE *newname, globaldata *g)  //%4.5
+static ULONG RenameDisk (UBYTE *newname, globaldata *g)  //%4.5
 {
-  UBYTE *diskname;
-  struct volumedata *volume = g->currentvolume;
+	UBYTE *diskname;
+	struct volumedata *volume = g->currentvolume;
+	UBYTE oldname[DNSIZE];
 
 	ENTER("RenameDisk");
 
-	if (g->currentvolume && (strlen(newname) < DNSIZE))
-	{
-		/* Write changes directly to disk to prevent disk recognition problems.
-		 * (So DON'T use updatedisk)
-		*/
-		diskname = volume->rootblk->diskname;
-		*diskname = strlen(newname);
-		CopyMem (newname, diskname+1, strlen(newname));
-		RawWrite ((UBYTE *)volume->rootblk, 1, ROOTBLOCK, g);   /* %7.2 */
+	/* Write changes directly to disk to prevent disk recognition problems.
+	 * (So DON'T use updatedisk)
+	*/
+	diskname = volume->rootblk->diskname;
+	CopyMem(diskname, oldname, DNSIZE);
+	*diskname = strlen(newname);
+	CopyMem(newname, diskname+1, *diskname);
+	ULONG err = RawWrite((UBYTE *)volume->rootblk, 1, ROOTBLOCK, g);   /* %7.2 */
+	if (!err) {
 		UpdateAndMotorOff(g);
 		volume->rootblockchangeflag = FALSE;
-		return DOSTRUE;
+	} else {
+		CopyMem(oldname, diskname, DNSIZE);
 	}
-	else
-	{
-		return DOSFALSE;
-	}
+	return err;
 }
 
 

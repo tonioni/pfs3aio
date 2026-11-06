@@ -1059,7 +1059,7 @@ SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, glo
 	if ((newoffset > (delfile ? GetDDFileSize(delfile, g) :
 		GetDEFileSize(file->le.info.file.direntry, g))) || (newoffset < 0))
 #else
-	if ((newoffset > GetDEFileSize(file->le.info.file.direntry)) || (newoffset < 0))
+	if ((newoffset > GetDEFileSize(file->le.info.file.direntry, g)) || (newoffset < 0))
 #endif
 	{
 		*error = ERROR_SEEK_ERROR;
