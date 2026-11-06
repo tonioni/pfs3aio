@@ -860,57 +860,40 @@ BOOL MakeBlockDirty (struct cachedblock *blk, globaldata *g)
  * contents pinned and retry linking them before writing any metadata/root.
  * Restart each scan because relocation may rehash the current block.
  */
-static BOOL RetryPendingList(struct cachedblock *blk, globaldata *g)
+static BOOL RetryPendingLists(struct MinList *list, UWORD count, BOOL *pending, globaldata *g)
 {
-	while (blk->next)
-	{
-		if (blk->changeflag == CBLK_DIRTY_PENDING)
-		{
-			MakeBlockDirty(blk, g);
-			return blk->changeflag != CBLK_DIRTY_PENDING;
-		}
-		blk = blk->next;
-	}
-	return TRUE;
-}
+	struct cachedblock *blk;
 
-static BOOL HasPendingList(struct cachedblock *blk)
-{
-	while (blk->next)
-	{
-		if (blk->changeflag == CBLK_DIRTY_PENDING)
-			return TRUE;
-		blk = blk->next;
-	}
-	return FALSE;
+	for (; count; count--, list++)
+		for (blk = (struct cachedblock *)HeadOf(list); blk->next; blk = blk->next)
+			if (blk->changeflag == CBLK_DIRTY_PENDING)
+			{
+				*pending = TRUE;
+				MakeBlockDirty(blk, g);
+				if (blk->changeflag == CBLK_DIRTY_PENDING)
+					return FALSE;
+				break;
+			}
+	return TRUE;
 }
 
 static BOOL RetryPendingBlocks(struct volumedata *volume, globaldata *g)
 {
-	UWORD i;
 	BOOL pending;
 	do
 	{
 		pending = FALSE;
-#define RETRY_LIST(list) do { \
-		struct cachedblock *head = (struct cachedblock *)HeadOf(list); \
-		if (HasPendingList(head)) { \
-			pending = TRUE; \
-			if (!RetryPendingList(head, g)) return FALSE; \
-		} \
-	} while (0)
-		for (i = 0; i <= HASHM_DIR; i++)
-			RETRY_LIST(&volume->dirblks[i]);
-		for (i = 0; i <= HASHM_ANODE; i++)
-			RETRY_LIST(&volume->anblks[i]);
-		RETRY_LIST(&volume->indexblks);
-		RETRY_LIST(&volume->superblks);
-		RETRY_LIST(&volume->bmblks);
-		RETRY_LIST(&volume->bmindexblks);
+		if (!RetryPendingLists((struct MinList *)volume->dirblks, HASHM_DIR + 1, &pending, g) ||
+			!RetryPendingLists((struct MinList *)volume->anblks, HASHM_ANODE + 1, &pending, g) ||
+			!RetryPendingLists((struct MinList *)&volume->indexblks, 1, &pending, g) ||
+			!RetryPendingLists((struct MinList *)&volume->superblks, 1, &pending, g) ||
+			!RetryPendingLists((struct MinList *)&volume->bmblks, 1, &pending, g) ||
+			!RetryPendingLists((struct MinList *)&volume->bmindexblks, 1, &pending, g)
 #if DELDIR
-		RETRY_LIST(&volume->deldirblks);
+			|| !RetryPendingLists((struct MinList *)&volume->deldirblks, 1, &pending, g)
 #endif
-#undef RETRY_LIST
+			)
+			return FALSE;
 #if VERSION23
 		if (volume->rblkextension &&
 			volume->rblkextension->changeflag == CBLK_DIRTY_PENDING)

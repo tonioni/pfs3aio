@@ -245,6 +245,27 @@ static BOOL PacketMutatesFilesystem(struct DosPacket *action)
 	}
 }
 
+static BOOL RejectMetadataMutation(struct DosPacket *action, globaldata *g)
+{
+	if (!g->currentvolume || !g->currentvolume->metadata_error ||
+		!PacketMutatesFilesystem(action))
+		return FALSE;
+#if EXTENDED_PACKETS_OS4
+	if (action->dp_Type == ACTION_CHANGE_FILE_SIZE64)
+	{
+		struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
+		dp->dp_Res0 = DP64_INIT;
+		dp->dp_Res1 = 0;
+		dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		return TRUE;
+	}
+#endif
+	action->dp_Res1 = (action->dp_Type == ACTION_WRITE ||
+		action->dp_Type == ACTION_SET_FILE_SIZE) ? -1 : DOSFALSE;
+	action->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+	return TRUE;
+}
+
 /* NormalCommands funtion: normal commandmode
  *
  * This function executes the operation specified by the passed packet. Can be
@@ -265,24 +286,8 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 	action->dp_Res2 = 0;
 
 	packettype = action->dp_Type;
-	if (g->currentvolume && g->currentvolume->metadata_error &&
-		PacketMutatesFilesystem(action))
-	{
-#if EXTENDED_PACKETS_OS4
-		if (packettype == ACTION_CHANGE_FILE_SIZE64)
-		{
-			struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
-			dp->dp_Res0 = DP64_INIT;
-			dp->dp_Res1 = 0;
-			dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
-			return;
-		}
-#endif
-		action->dp_Res1 = (packettype == ACTION_WRITE ||
-			packettype == ACTION_SET_FILE_SIZE) ? -1 : DOSFALSE;
-		action->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+	if (RejectMetadataMutation(action, g))
 		return;
-	}
 	if (packettype == ACTION_WRITE)
 	{
 		action->dp_Res1 = dd_WriteSFS (action, g);
@@ -426,23 +431,7 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 			action->dp_Res1 = NotKnown(action, g);
 			break;
 	}
-	if (g->currentvolume && g->currentvolume->metadata_error &&
-		PacketMutatesFilesystem(action))
-	{
-#if EXTENDED_PACKETS_OS4
-		if (packettype == ACTION_CHANGE_FILE_SIZE64)
-		{
-			struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
-			dp->dp_Res0 = DP64_INIT;
-			dp->dp_Res1 = 0;
-			dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
-			return;
-		}
-#endif
-		action->dp_Res1 = (packettype == ACTION_WRITE ||
-			packettype == ACTION_SET_FILE_SIZE) ? -1 : DOSFALSE;
-		action->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
-	}
+	RejectMetadataMutation(action, g);
 }
 
 

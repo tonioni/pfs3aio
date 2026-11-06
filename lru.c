@@ -100,9 +100,7 @@
 */
 BOOL InitLRU (globaldata *g, UWORD reserved_blksize)
 {
-  int i, j;
-  BOOL warned = FALSE;
-  UBYTE *array;
+  int i;
 
 	ENTER("InitLRU");
 
@@ -113,49 +111,18 @@ BOOL InitLRU (globaldata *g, UWORD reserved_blksize)
 
 	g->glob_lrudata.reserved_blksize = reserved_blksize;
 
-	NewList((struct List *)&g->glob_lrudata.LRUqueue);
-	NewList((struct List *)&g->glob_lrudata.LRUpool);
-
 	i = g->dosenvec->de_NumBuffers;
 
-	/* sanity checks. If HDToolbox default of 30, use 150 when Fast RAM is
-	 * available and 70 on Chip-RAM-only machines; otherwise clamp to
+	/* If HDToolbox default of 30, use 150 when Fast RAM is available and
+	 * 70 on Chip-RAM-only machines. ResizeLRU clamps to
 	 * MIN_BUFFERS -- MAX_BUFFERS.
 	 */
 	if (i == 30)
 		i = AvailMem(MEMF_FAST) ? 150 : 70;
-	if (i<MIN_BUFFERS) i = MIN_BUFFERS;
-	if (i>MAX_BUFFERS) i = MAX_BUFFERS;
-	g->glob_lrudata.poolsize = i;
 	g->uip = FALSE;
 	g->locknr = 1;
 
-	g->glob_lrudata.LRUarray = AllocVec(sizeof(struct lru_cachedblock*) * g->glob_lrudata.poolsize, MEMF_CLEAR);
-	if (!g->glob_lrudata.LRUarray)
-	{
-		g->glob_lrudata.poolsize = 0;
-		return FALSE;
-	}
-	for(j = 0; j < g->glob_lrudata.poolsize; j++) {
-		g->glob_lrudata.LRUarray[j] = AllocVec((sizeof(struct lru_cachedblock) + reserved_blksize), g->dosenvec->de_BufMemType | MEMF_CLEAR);
-		if (!g->glob_lrudata.LRUarray[j]) {
-			DeallocLRU(g);
-			return FALSE;
-		}
-		/* check memory against mask */
-		if (!warned && (((ULONG)g->glob_lrudata.LRUarray[j]) & ~g->dosenvec->de_Mask)) {
-			ErrorMsg (AFS_WARNING_MEMORY_MASK, NULL, g);
-			warned = TRUE;
-		}
-	}
-
-	array = (UBYTE *)g->glob_lrudata.LRUarray;
-	for(i=0;i<g->glob_lrudata.poolsize;i++) {
-		MinAddHead(&g->glob_lrudata.LRUpool, g->glob_lrudata.LRUarray[i]);
-	}
-
-	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize;
-	return TRUE;
+	return ResizeLRU(g, i) != 0;
 }
 
 /* Build a replacement before discarding the old cache. The caller must commit
