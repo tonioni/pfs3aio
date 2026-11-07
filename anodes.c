@@ -1038,6 +1038,11 @@ void InitAnodes (struct volumedata *volume, BOOL formatting, globaldata *g)
 		andata.curranseqnr = volume->rblkextension ? volume->rblkextension->blk.curranseqnr : 0;
 		andata.anodesperblock = (volume->rootblk->reserved_blksize - sizeof(anodeblock_t)) / sizeof(anode_t);
 		andata.indexperblock = (volume->rootblk->reserved_blksize - sizeof(indexblock_t)) / sizeof(LONG);
+		/* An anode block sequence number is 16 bits wide (anodenr_t.seqnr,
+		 * UWORD GetAnodeBlock() arguments, 16-bit DIVU quotient), so the
+		 * maximum can never exceed MAX_ANODE_SEQNR. This is a block count,
+		 * not an anode count, hence no multiplication by anodesperblock.
+		 */
 		andata.maxanodeseqnr = g->supermode ?
 				MAX_ANODE_SEQNR :
 				((MAXSMALLINDEXNR + 1) * andata.indexperblock - 1);
