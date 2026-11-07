@@ -5,3 +5,4 @@
 *.vs
 pfs3aio*
 boot
+/dist/

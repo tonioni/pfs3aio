@@ -1,0 +1,176 @@
+Short:        PFS3 All-In-One
+Author:       Toni Wilen
+Uploader:     stefan.reinauer@coreboot.org (Stefan Reinauer)
+Type:         disk/misc
+Version:      @VERSION@
+Architecture: m68k-amigaos
+
+This is improved all-in-one 100% OS 1.x/2.x/3.x/68000+ compatible
+port of open source version of Professional File System III (PFS3).
+Sources: https://github.com/tonioni/pfs3aio
+
+This product includes software developed by Michiel Pelt.
+
+Distribution build: @VERSION@
+See Build.txt for the exact source revision and compiler version.
+The distribution version is independent of the handler's embedded
+Professional-File-System-III version.
+
+Changes since 3.1:
+------------------
+
+See the source repository's commit history and the GitHub release notes.
+
+Previous release history (from Toni Wilen's Aminet 3.1 readme):
+
+3.1
+---
+
+- TD64 support check false negative fixed, v3.0 rejected many TD64 capable
+  HD controllers.
+- Always re-execute access mode test when removable drive is inserted
+  and before formatting.
+- Set default stack size back to original default of 4000 bytes from old
+  AROS compiled value of 6000. Saves stackswap 6k of RAM.
+- Always execute TD_MOTOR off after idle delay period, some HD controllers
+  only switch off activity led when TD_MOTOR off is executed.
+- Previous version's (3.0) OS 3.1.4 SCSIDIRECT support was very broken and
+  corrupts the partition. Reformat required if used with v3.0!
+- Fixed out of bounds buffer read when writing file to disk that does not
+  fill last disk block completely. It was harmless but can for example
+  cause MuGuardianAngel hits. (Original PFS3 bug/optimization)
+- Return faked (larger than real blocksize) InfoData structure block size
+  value if drive is larger than 16G as a workaround for programs
+  (including WB) that calculate in use percentage using 32-bit
+  "in use * 100 / total" formula where multiplication overflows if size
+  is about 20G or larger with 512 block size.
+- Removed Direct SCSI scsi_Actual validation after read or write operation.
+  Some SCSI controllers don't update it properly, causing pfs3aio to show
+  disk read or write error requester. Was added in 3.0.
+- Fixed softlinks, they have never worked previously. (Piru)
+
+3.0
+---
+
+- Bug fixes, including finally fixed nasty bug causing Wrong Index Block ID
+  (and others) if partition was >=5G and lots of small files were created
+  very quickly, for example unpacking archive with thousands of small files.
+  This bug has most likely existed since PFS3 introduced >=5G partition
+  support.
+- Compiled with m68k optimized GCC 6
+  (https://github.com/bebbo/amigaos-cross-toolchain), 16k smaller than
+  previous pfs3aio.
+- Some HD controllers modify MaxTransfer after filesystem has been
+  initialized, which was ignored by previous versions.
+- Automatic max transfer limit is only enabled if scsi.device version is v36
+  or newer and older than v50.
+- Limit Direct SCSI mode max transfer size to 65535 blocks (~32MB).
+- Automatically attempt to increase number of buffers if all buffers are in
+  use and more buffers are required.
+- Added support for new OS 3.1.4 filesystem mount flags. (SCSIDIRECT,
+  SUPERFLOPPY and DISABLENSD).
+- Shows more detailed information in error requesters (access mode, start
+  block, end block, SCSI details if SCSI Direct)
+- Includes unsupported and experimental >104G partition support. Shows
+  warning if enabled during formatting.
+- ACTION_DIE (unmount) stability fix.
+- Filename changed from pfs3_aio-handler to pfs3aio.
+
+2.3
+---
+
+- ROM resident priority increased. GVP tekscsi driver (that
+  normally can't load filesystems from RDB due to a driver bug)
+  can now automount PFS3 partitions if PFS3 is in ROM.
+- Fixed very old PFS3 bug that caused Wrong Index Block ID
+  error message. Only affected partitions larger than 5G.
+
+3.0 NOTE: This bug was not fully fixed until 3.0.
+
+2.2
+---
+
+- Handler is now rommable.
+- Reverted SVN rev#9 commit, it is not compatible with AmigaDOS and
+  can break some programs. ACTION_FINDOUTPUT must use exclusive lock.
+- 1.3 compatibility fix, AddSemaphore() is broken under 1.x.
+  Caused crash under 1.3 if more than one partition was mounted.
+- Added custom version for braindead boot ROMs that don't support
+  hunk relocation entries(!) One confirmed is some versions of
+  pbscsi.device. It also can be used safely on non-braindead systems.
+  Custom version is not rommable.
+
+2.1
+---
+
+- Fixed access fault when booting under KS 1.3.
+
+2.0
+---
+
+- Improved version of PFS3 for KS1.x
+- Direct SCSI merged with standard PFS3.
+- NSD support added.
+- Autodetects block access mode (TD, TD64, NSD, DirectSCSI),
+  does not mount any partitions that can't be fully or partially
+  accessed due to driver limits.
+- >256 block transfer ROM IDE driver bug workaround included.
+  ("Max Transfer" bug)
+
+Includes also all PFS3 for KS1.X updates:
+
+1.1
+---
+
+- Merged latest official SVN updates.
+- Compatible with KS 1.3 + 2.x extended ROM CDTV with v37 exec.
+- Enabled removable media support.
+- Fixed ACTION_DIE (unmount) crash.
+- WB 1.x C:Info reports correct state information.
+
+
+Read official PFS3 package documentation before using!
+(disk/misc/PFS3_53.lha)
+
+Fully compatible with official pfs3 and previous pfs3aio versions,
+no reformatting needed.
+
+Archive contents:
+-----------------
+
+pfs3aio: standard version.
+pfs3aio.readme: this readme.
+LICENSE: redistribution terms and disclaimer.
+versionhistory.doc: original PFS3 revision history and version definitions.
+Build.txt: distribution version, source revision and compiler version.
+
+This archive does not include pfs3aio-custom, utilities or pfsdoctor.
+Back up your data before replacing a filesystem handler.
+
+Autodetection details:
+----------------------
+
+If last block of partition is inside of first 4G of drive:
+
+- Test if standard CMD_READ can access last block.
+- Test if HD_SCSICMD Read(10) can access last block.
+
+If both tests failed, do not mount, show error requester.
+
+HD_SCSICMD test is needed because A590 pre-7.0 and CDTV SCSI CMD_READ have 1G
+limit, HD_SCSICMD does not have any limits. (Other old SCSI controllers may
+have similar restrictions.)
+
+If last block of partition is outside of first 4G of drive:
+
+- Test if NSD is supported and can access last block
+  (Only if DISABLENSD flag is not set).
+- Test if TD64 is supported and can access last block.
+- Test if HD_SCSICMD Read(10) can access last block.
+
+If all tests failed: do not mount, no requester shown.
+
+If DOSType = PDSx: test HD_SCSICMD Read(10) first.
+
+If SCSIDIRECT flag is set: always use Direct SCSI, HD_SCSICMD Read(10) test
+gets skipped and also uses SCSI commands to query drive size and geometry.
