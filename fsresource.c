@@ -27,20 +27,21 @@ void AddToFSResource(ULONG dostype, BPTR seglist, struct ExecBase *SysBase)
 {
   struct FileSysResource *FileSysResBase;
 
+	Forbid();
 	FileSysResBase = (struct FileSysResource *)OpenResource(FSRNAME);
 	if (!FileSysResBase) {
 		FileSysResBase = AllocMem(sizeof(struct FileSysResource), MEMF_CLEAR | MEMF_PUBLIC);
-		FileSysResBase->fsr_Creator = (UBYTE*)shortname;
-		NewList(&FileSysResBase->fsr_FileSysEntries);
-		FileSysResBase->fsr_Node.ln_Type = NT_RESOURCE;
-		FileSysResBase->fsr_Node.ln_Name = FSRNAME;
-		AddTail(&SysBase->ResourceList, &FileSysResBase->fsr_Node);
+		if (FileSysResBase) {
+			FileSysResBase->fsr_Creator = (UBYTE*)shortname;
+			NewList(&FileSysResBase->fsr_FileSysEntries);
+			FileSysResBase->fsr_Node.ln_Type = NT_RESOURCE;
+			FileSysResBase->fsr_Node.ln_Name = FSRNAME;
+			AddTail(&SysBase->ResourceList, &FileSysResBase->fsr_Node);
+		}
 	}
 	if (FileSysResBase)
 	{
 		struct FileSysEntry *fse,*nfse;
-
-		Forbid();
 
 		fse = (struct FileSysEntry *)FileSysResBase->fsr_FileSysEntries.lh_Head;
 		while ((nfse = (struct FileSysEntry *)fse->fse_Node.ln_Succ))
@@ -66,8 +67,8 @@ void AddToFSResource(ULONG dostype, BPTR seglist, struct ExecBase *SysBase)
 			AddHead(&FileSysResBase->fsr_FileSysEntries,&fse->fse_Node);
 		}
 
-		Permit();
 	}
+	Permit();
 }
 
 extern const ULONG PFS3FakeSeg[];

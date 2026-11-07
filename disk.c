@@ -166,6 +166,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <limits.h>
 #include "debug.h"
 
 // own includes
@@ -220,6 +221,22 @@ static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR 
 static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error, globaldata *g);
 static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g);
 static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g);
+
+/* File data never resides in the boot block. Check the anode before adding
+ * the offset so a corrupt zero anode cannot address another reserved block.
+ */
+static BOOL DataBlockNumber(struct anodechainnode *node, ULONG offset,
+	ULONG *blocknr, SIPTR *error)
+{
+	ULONG start = node->an.blocknr;
+	if (!start || start == (ULONG)-1 || offset > (ULONG)-2 - start)
+	{
+		*error = PFS_ERROR_INCONSISTENT;
+		return FALSE;
+	}
+	*blocknr = start + offset;
+	return TRUE;
+}
 
 /**********************************************************************/
 /*                            READ & WRITE                            */
@@ -343,142 +360,174 @@ SFSIZE ChangeObjectSize(fileentry_t *file, SFSIZE releof, LONG mode,
 
 #if ROLLOVER
 
+/* Rollover metadata stores both positions in 32 bits, even when large-file
+ * support is enabled. Offsets at the physical end are valid and distinct
+ * from zero until the next transfer wraps.
+ */
+static BOOL RolloverPosition(fileentry_t *file, struct extrafields *fields, ULONG *physicalsize, ULONG *virtualoffset, SIPTR *error, globaldata *g)
+{
+	FSIZE real = GetDEFileSize(file->le.info.file.direntry, g);
+	GetExtraFields(file->le.info.file.direntry, fields);
+	if (real <= 0 || real > (FSIZE)0xffffffffUL ||
+		fields->rollpointer > real || fields->virtualsize >= real ||
+		file->offset > real)
+	{
+		*error = PFS_ERROR_INCONSISTENT;
+		return FALSE;
+	}
+	*physicalsize = (ULONG)real;
+	if (file->offset >= fields->rollpointer)
+		*virtualoffset = (ULONG)file->offset - fields->rollpointer;
+	else
+		*virtualoffset = *physicalsize - (fields->rollpointer - (ULONG)file->offset);
+	return TRUE;
+}
+
 /* Read from rollover: at end of file,
  * goto start
  */
-static ULONG ReadFromRollover(fileentry_t *file, UBYTE *buffer, ULONG size,
-	SIPTR *error, globaldata *g)
+static ULONG ReadFromRollover(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g)
 {
-#define direntry_m file->le.info.file.direntry
-#define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
-
 	struct extrafields extrafields;
-	ULONG read = 0;
-	LONG q; // quantity
-	LONG end, virtualoffset, virtualend, t;
+	ULONG physicalsize, virtualoffset, remaining, q, t, read = 0;
 
 	DB(Trace(1,"ReadFromRollover","size = %lx offset = %lx\n",size,file->offset));
 	if (!size) return 0;
-	GetExtraFields(direntry_m,&extrafields);
+	if (!RolloverPosition(file, &extrafields, &physicalsize, &virtualoffset, error, g))
+		return (ULONG)-1;
 
 	/* limit access to end of file */
-	virtualoffset = file->offset - extrafields.rollpointer;
-	if (virtualoffset < 0) virtualoffset += filesize_m;
-	virtualend = virtualoffset + size;
-	virtualend = min(virtualend, extrafields.virtualsize);
-	end = virtualend - virtualoffset + file->offset;
-
-	if (end > filesize_m)
+	/* A different handle (or SetFileSize) may have shortened the virtual
+	 * file since this handle was positioned. Do not turn a negative
+	 * remaining length into a huge unsigned read.
+	 */
+	if (virtualoffset >= extrafields.virtualsize)
+		return 0;
+	remaining = min(size, extrafields.virtualsize - virtualoffset);
+	while (remaining)
 	{
-		q = filesize_m - file->offset;
-		if ((read = ReadFromFile(file, buffer, q, error, g)) != q)
-			return read;
-
-		end -= filesize_m;
-		buffer += q;
-		SeekInFile(file, 0, OFFSET_BEGINNING, error, g);
-	}
-
-	q = end - file->offset;
-	t = ReadFromFile(file, buffer, q, error, g);
-	if (t == -1)
-		return (ULONG)t;
-	else
+		q = min(remaining, physicalsize - (ULONG)file->offset);
+		if (!q)
+		{
+			if (SeekInFile(file, 0, OFFSET_BEGINNING, error, g) == -1)
+				return (ULONG)-1;
+			continue;
+		}
+		t = ReadFromFile(file, buffer, q, error, g);
+		if (t == (ULONG)-1)
+			return t;
 		read += t;
-
+		if (t != q)
+			return read;
+		remaining -= t;
+		buffer += t;
+	}
 	return read;
-
-#undef filesize_m
-#undef direntry_m
 }
 
 /* Write to rollover file. First write upto end of rollover. Then
  * flip to start.
  * Max virtualsize = filesize-1
  */
-static ULONG WriteToRollover(fileentry_t *file, UBYTE *buffer, ULONG size,
-	SIPTR *error, globaldata *g)
+static ULONG WriteToRollover(fileentry_t *file, UBYTE *buffer, ULONG size, SIPTR *error, globaldata *g)
 {
 #define direntry_m file->le.info.file.direntry
-#define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
 
 	struct extrafields extrafields;
 	struct direntry *destentry;
 	union objectinfo directory;
 	struct fileinfo fi;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
-	LONG written = 0;
-	LONG q; // quantity
-	LONG end, virtualend, virtualoffset, t;
+	ULONG physicalsize, virtualoffset, virtualend, remaining, written = 0, q, t;
 	BOOL extend = FALSE;
 
 	DB(Trace(1,"WriteToRollover","size = %lx offset=%lx, file=%lx\n",size,file->offset,file));
-	GetExtraFields(direntry_m,&extrafields);
-	end = file->offset + size;
+	if (!size)
+		return 0;
+	if (!RolloverPosition(file, &extrafields, &physicalsize, &virtualoffset, error, g))
+		return (ULONG)-1;
+
+	remaining = size;
+	while (remaining)
+	{
+		q = min(remaining, physicalsize - (ULONG)file->offset);
+		if (!q)
+		{
+			if (SeekInFile(file, 0, OFFSET_BEGINNING, error, g) == -1)
+			{
+				if (!written)
+					return (ULONG)-1;
+				break;
+			}
+			continue;
+		}
+		t = WriteToFile(file, buffer, q, error, g);
+		if (t == (ULONG)-1)
+		{
+			if (!written)
+				return (ULONG)-1;
+			break;
+		}
+		written += t;
+		if (t != q)
+			break;
+		remaining -= t;
+		buffer += t;
+	}
+
+	if (!written)
+		return 0;
 
 	/* new virtual size */
-	virtualoffset = file->offset - extrafields.rollpointer;
-	if (virtualoffset < 0) virtualoffset += filesize_m;
-	virtualend = virtualoffset + size;
+	virtualend = virtualoffset >= physicalsize - 1 ||
+		written >= physicalsize - 1 - virtualoffset ?
+		physicalsize - 1 : virtualoffset + written;
 	if (virtualend >= extrafields.virtualsize)
 	{
-		extrafields.virtualsize = min(filesize_m-1, virtualend);
+		extrafields.virtualsize = virtualend;
 		extend = TRUE;
 	}
 
-	while (end > filesize_m)
-	{
-		q = filesize_m - file->offset;
-		t = WriteToFile(file, buffer, q, error, g);
-		if (t == -1) return (ULONG)t;
-		written += t;
-		if (t != q) return (ULONG)written;
-		end -= filesize_m;
-		buffer += q;
-		SeekInFile(file, 0, OFFSET_BEGINNING, error, g);
-	}
-
-	q = end - file->offset;
-	t = WriteToFile(file, buffer, q, error, g);
-	if (t == -1)
-		return (ULONG)t;
-	else
-		written += t;
-
 	/* change rollpointer etc */
-	if (extend && extrafields.virtualsize == filesize_m - 1)
-		extrafields.rollpointer = end + 1;  /* byte PAST eof is offset 0 */
+	if (extend && extrafields.virtualsize == physicalsize - 1)
+	{
+		if ((ULONG)file->offset >= physicalsize - 1)
+			extrafields.rollpointer = (ULONG)file->offset - (physicalsize - 1);
+		else
+			extrafields.rollpointer = (ULONG)file->offset + 1;  /* byte PAST eof is offset 0 */
+	}
 	destentry = (struct direntry *)entrybuffer;
 	memcpy(destentry, direntry_m, direntry_m->next);
 	AddExtraFields(destentry, &extrafields);
 
 	/* commit changes */
 	if (!GetParent(&file->le.info, &directory, error, g))
-		return DOSFALSE;
-	else
-		ChangeDirEntry(file->le.info.file, destentry, &directory, &fi, g);
+		return (ULONG)-1;
+	if (!ChangeDirEntry(file->le.info.file, destentry, &directory, &fi, g))
+	{
+		*error = ERROR_DISK_FULL;
+		return (ULONG)-1;
+	}
 
 	return (ULONG)written;
 
 #undef direntry_m
-#undef filesize_m
 }
 
 static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, globaldata *g)
 {
-#define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
 #define direntry_m file->le.info.file.direntry
 
 	struct extrafields extrafields;
-	LONG oldvirtualoffset, virtualoffset;
+	ULONG physicalsize, oldvirtualoffset;
+	long long virtualoffset;
 	ULONG anodeoffset, blockoffset;
 
 	DB(Trace(1,"SeekInRollover","offset = %ld mode=%ld\n",offset,mode));
-	GetExtraFields(direntry_m,&extrafields);
-
-	/* do the seeking */
-	oldvirtualoffset = file->offset - extrafields.rollpointer;
-	if (oldvirtualoffset < 0) oldvirtualoffset += filesize_m;
+	if (!RolloverPosition(file, &extrafields, &physicalsize, &oldvirtualoffset, error, g))
+		return -1;
+	if (oldvirtualoffset > extrafields.virtualsize)
+		oldvirtualoffset = extrafields.virtualsize;
 
 	switch (mode)
 	{
@@ -487,11 +536,22 @@ static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR 
 			break;
 
 		case OFFSET_END:
-			virtualoffset = extrafields.virtualsize + offset;
+			if (offset > 0)
+			{
+				*error = ERROR_SEEK_ERROR;
+				return -1;
+			}
+			virtualoffset = (long long)extrafields.virtualsize + offset;
 			break;
 		
 		case OFFSET_CURRENT:
-			virtualoffset = oldvirtualoffset + offset;
+			if (offset > (long long)extrafields.virtualsize - oldvirtualoffset ||
+				offset < -(long long)oldvirtualoffset)
+			{
+				*error = ERROR_SEEK_ERROR;
+				return -1;
+			}
+			virtualoffset = (long long)oldvirtualoffset + offset;
 			break;
 		
 		default:
@@ -506,9 +566,10 @@ static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR 
 	}
 
 	/* calculate real offset */
-	file->offset = virtualoffset + extrafields.rollpointer;
-	if (file->offset > filesize_m)
-		file->offset -= filesize_m;
+	if ((ULONG)virtualoffset >= physicalsize - extrafields.rollpointer)
+		file->offset = (ULONG)virtualoffset - (physicalsize - extrafields.rollpointer);
+	else
+		file->offset = (ULONG)virtualoffset + extrafields.rollpointer;
 
 	/* calculate new values */
 	anodeoffset = file->offset >> BLOCKSHIFT;
@@ -521,26 +582,26 @@ static SFSIZE SeekInRollover(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR 
 
 	return oldvirtualoffset;
 
-#undef filesize_m
 #undef direntry_m
 }
 
 
-static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
-	SIPTR *error, globaldata *g)
+static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error, globaldata *g)
 {
-#define filesize_m GetDEFileSize(file->le.info.file.direntry, g)
 #define direntry_m file->le.info.file.direntry
 
+	listentry_t *fe;
 	struct extrafields extrafields;
-	SFSIZE virtualeof, virtualoffset;
+	long long virtualeof;
+	ULONG myanode, physicalsize, virtualoffset, feoffset;
 	union objectinfo directory;
 	struct fileinfo fi;
 	struct direntry *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 
 	DB(Trace(1,"ChangeRolloverSize","offset = %ld mode=%ld\n",releof,mode));
-	GetExtraFields(direntry_m,&extrafields);
+	if (!RolloverPosition(file, &extrafields, &physicalsize, &virtualoffset, error, g))
+		return -1;
 
 	switch (mode)
 	{
@@ -549,13 +610,21 @@ static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
 			break;
 
 		case OFFSET_END:
-			virtualeof = extrafields.virtualsize + releof;
+			if (releof > LLONG_MAX - (long long)extrafields.virtualsize)
+			{
+				*error = ERROR_SEEK_ERROR;
+				return -1;
+			}
+			virtualeof = (long long)extrafields.virtualsize + releof;
 			break;
 
 		case OFFSET_CURRENT:
-			virtualoffset = file->offset - extrafields.rollpointer;
-			if (virtualoffset < 0) virtualoffset += filesize_m;
-			virtualeof = virtualoffset + releof;
+			if (releof > LLONG_MAX - (long long)virtualoffset)
+			{
+				*error = ERROR_SEEK_ERROR;
+				return -1;
+			}
+			virtualeof = (long long)virtualoffset + releof;
 			break;
 		default: /* bogus parameter -> ERROR_SEEK_ERROR */
 			virtualeof = -1;
@@ -569,12 +638,10 @@ static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
 	}
 
 	/* change virtual size */
-	if (virtualeof >= filesize_m)
-		extrafields.virtualsize = filesize_m - 1;
+	if (virtualeof >= physicalsize)
+		extrafields.virtualsize = physicalsize - 1;
 	else
 		extrafields.virtualsize = virtualeof;
-
-	/* we don't update other filehandles or current offset here */
 
 	/* commit directoryentry changes */
 	destentry = (struct direntry *)entrybuffer;
@@ -583,13 +650,36 @@ static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
 
 	/* commit changes */
 	if (!GetParent(&file->le.info, &directory, error, g))
-		return DOSFALSE;
-	else
-		ChangeDirEntry(file->le.info.file, destentry, &directory, &fi, g);
+		return -1;
+	if (!ChangeDirEntry(file->le.info.file, destentry, &directory, &fi, g))
+	{
+		*error = ERROR_DISK_FULL;
+		return -1;
+	}
 
-	return virtualeof;
+	/* change filehandles (including own) */
+	if (g->currentvolume)
+	{
+		myanode = file->le.anodenr;
+		for (fe = HeadOf(&g->currentvolume->fileentries); fe && fe->next; fe = fe->next)
+		{
+			if (fe->anodenr == myanode && IsFileEntry(fe))
+			{
+				if (RolloverPosition((fileentry_t *)fe, &extrafields, &physicalsize, &feoffset, error, g) &&
+					feoffset > extrafields.virtualsize)
+				{
+					SeekInRollover((fileentry_t *)fe, extrafields.virtualsize, OFFSET_BEGINNING, error, g);
+				}
+			}
+		}
+	}
+	else if (virtualoffset > extrafields.virtualsize)
+	{
+		SeekInRollover(file, extrafields.virtualsize, OFFSET_BEGINNING, error, g);
+	}
 
-#undef filesize_m
+	return extrafields.virtualsize;
+
 #undef direntry_m
 }
 
@@ -605,7 +695,7 @@ static SFSIZE ChangeRolloverSize(fileentry_t *file, SFSIZE releof, LONG mode,
 static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 				SIPTR *error, globaldata *g)
 {
-	ULONG anodeoffset, blockoffset, blockstoread;
+	ULONG anodeoffset, blockoffset, blockstoread, blocknr;
 	ULONG fullblks, bytesleft;
 	ULONG t;
 	FSIZE tfs;
@@ -624,7 +714,10 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 #if DELDIR
 	if (IsDelFile(file->le.info)) {
 		if (!(dde = GetDeldirEntryQuick(file->le.info.delfile.slotnr, g)))
+		{
+			*error = PFS_ERROR_INCONSISTENT;
 			return -1;
+		}
 		tfs = GetDDFileSize(dde, g) - file->offset;
 	}
 	else
@@ -674,7 +767,8 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 		/* read first blockpart */
 		if (blockoffset)
 		{
-			data = CachedReadD(chnode->an.blocknr + anodeoffset, error, g);
+			if (DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+				data = CachedReadD(blocknr, error, g);
 			if (data)
 			{
 				NextBlockAC(&chnode, &anodeoffset, g);
@@ -700,7 +794,9 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 		else
 			t = blockstoread;
 
-		*error = DiskRead(dataptr, t, chnode->an.blocknr + anodeoffset, g);
+		if (!DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+			break;
+		*error = DiskRead(dataptr, t, blocknr, g);
 		if (!*error)
 		{
 			blockstoread -= t;
@@ -717,7 +813,9 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 			memcpy(buffer, data+blockoffset, size);
 		else if (bytesleft)
 		{
-			data = CachedReadD(chnode->an.blocknr+anodeoffset, error, g);
+			data = NULL;
+			if (DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+				data = CachedReadD(blocknr, error, g);
 			if (data)
 				memcpy(dataptr, data, bytesleft);
 		}
@@ -774,7 +872,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	ULONG totalblocks, oldblocksinfile;
 	FSIZE oldfilesize, newfileoffset;
 	ULONG newblocksinfile, bytestowrite, blockstofill;
-	ULONG anodeoffset, blockoffset;
+	ULONG anodeoffset, blockoffset, blocknr;
 	UBYTE *data = NULL, *dataptr;
 	BOOL directwrite = FALSE;
 	struct anodechainnode *chnode;
@@ -788,6 +886,11 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	totalblocks = (blockoffset + size + BLOCKSIZEMASK)>>BLOCKSHIFT;   /* total # changed blocks */
 	if (!(bytestowrite = size))                                     /* # bytes to be done */
 		return 0;
+	if (!chnode->an.blocknr)
+	{
+		*error = PFS_ERROR_INCONSISTENT;
+		return -1;
+	}
 
 	/* filesize extend */
 	oldfilesize = GetDEFileSize(file->le.info.file.direntry, g);
@@ -842,7 +945,8 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 		/* first blockpart */
 		if (blockoffset)
 		{
-			*error = DiskRead(dataptr, 1, chnode->an.blocknr + anodeoffset, g);
+			if (DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+				*error = DiskRead(dataptr, 1, blocknr, g);
 			bytestowrite += blockoffset;
 			if (bytestowrite<BLOCKSIZE)
 				bytestowrite = BLOCKSIZE;   /* the first could also be the last block */
@@ -865,14 +969,18 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 
 			if (blockoffset) 
 			{
-				slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, FALSE, g);
+				if (!DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+					goto wtf_error;
+				slotnr = CachedRead(blocknr, error, FALSE, g);
 				if (*error)
 					goto wtf_error;
 			}
 			else
 			{
 				/* for one block no offset growing file */
-				slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, TRUE, g);
+				if (!DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+					goto wtf_error;
+				slotnr = CachedRead(blocknr, error, TRUE, g);
 				if (*error)
 					goto wtf_error;
 			}
@@ -937,7 +1045,8 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 			}
 		}
 
-		*error = DiskWrite(writeptr, t, chnode->an.blocknr + anodeoffset, g);
+		if (DataBlockNumber(chnode, anodeoffset, &blocknr, error))
+			*error = DiskWrite(writeptr, t, blocknr, g);
 		if (!*error)
 		{
 			blockstofill  -= t;
@@ -959,12 +1068,15 @@ indirectlastwrite:
 	{
 		UBYTE *lastblock;
 
-		slotnr = CachedRead(chnode->an.blocknr + anodeoffset, error, FALSE, g);
-		if (!*error)
+		if (DataBlockNumber(chnode, anodeoffset, &blocknr, error))
 		{
-			lastblock = &g->dc.data[slotnr<<BLOCKSHIFT];
-			memcpy(lastblock, dataptr, bytestowrite);
-			MarkDataDirty(slotnr);
+			slotnr = CachedRead(blocknr, error, FALSE, g);
+			if (!*error)
+			{
+				lastblock = &g->dc.data[slotnr<<BLOCKSHIFT];
+				memcpy(lastblock, dataptr, bytestowrite);
+				MarkDataDirty(slotnr);
+			}
 		}
 	}
 
@@ -985,16 +1097,26 @@ indirectlastwrite:
 wtf_error:
 	if (newblocksinfile>oldblocksinfile)
 	{
+		BOOL freed;
 		/* restore old state of file */
 #if VERSION23
 		SetDEFileSize(file->le.info.file.direntry, oldfilesize, g);
 		MakeBlockDirty((struct cachedblock *)file->le.info.file.dirblock, g);
-		FreeBlocksAC(file->anodechain, newblocksinfile-oldblocksinfile, freeanodes, g);
+		freed = FreeBlocksAC(file->anodechain, newblocksinfile-oldblocksinfile, freeanodes, g);
 #else
-		FreeBlocksAC(file->anodechain, newblocksinfile-oldblocksinfile, freeanodes, g);
+		freed = FreeBlocksAC(file->anodechain, newblocksinfile-oldblocksinfile, freeanodes, g);
 		SetDEFileSize(file->le.info.file.direntry, oldfilesize, g);
 		MakeBlockDirty((struct cachedblock *)file->le.info.file.dirblock, g);
 #endif
+		/* We reach wtf_error with *error already set to the original
+		 * failure, which we keep. If the rollback free itself could not
+		 * be completed, FreeBlocksAC has recorded a postponed op and set
+		 * g->dirty so the extra blocks are reclaimed later; make sure an
+		 * error is reported in any case.
+		 */
+		if (!freed && !*error)
+			*error = (g->currentvolume && g->currentvolume->metadata_error) ?
+				PFS_ERROR_INCONSISTENT : ERROR_DISK_FULL;
 	}
 
 	DB(Trace(1,"WriteToFile","failed\n"));
@@ -1022,7 +1144,10 @@ SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, glo
 	DB(Trace(1,"SeekInFile","offset = %ld mode=%ld\n",offset,mode));
 	if (IsDelFile(file->le.info))
 		if (!(delfile = GetDeldirEntryQuick(file->le.info.delfile.slotnr, g)))
+		{
+			*error = PFS_ERROR_INCONSISTENT;
 			return -1;
+		}
 #endif
 
 	/* do the seeking */
@@ -1169,7 +1294,23 @@ SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error,
 		MakeBlockDirty((struct cachedblock *)file->le.info.file.dirblock, g);
 
 		t = oldblocksinfile - newblocksinfile;
-		FreeBlocksAC(file->anodechain, t, freeanodes, g);
+		/* FreeBlocksAC now reports failure when an anode could not be
+		 * saved or the free could not be completed. Propagate it instead
+		 * of silently returning success: the directory entry has already
+		 * been shrunk and FreeBlocksAC has recorded a postponed operation
+		 * (and set g->dirty) so the tail blocks are reclaimed later, but
+		 * the caller must learn the resize did not fully complete now.
+		 */
+		if (!FreeBlocksAC(file->anodechain, t, freeanodes, g))
+		{
+			/* PFS_ERROR_INCONSISTENT when a metadata save was actually
+			 * lost (latched flag), matching directory.c; otherwise the
+			 * free was merely incomplete (space pressure / postponed).
+			 */
+			*error = (g->currentvolume && g->currentvolume->metadata_error) ?
+				PFS_ERROR_INCONSISTENT : ERROR_DISK_FULL;
+			return -1;
+		}
 
 		/* PS: there will always be an anode left, since FreeBlocksAC
 		 * doesn't delete the last anode
@@ -1235,6 +1376,8 @@ static int CheckDataCache(ULONG blocknr, globaldata *g)
 {
 	int i;
 
+	if (!blocknr || blocknr == (ULONG)-1)
+		return -1;
 	for (i = 0; i < g->dc.size; i++)
 	{
 		if (g->dc.ref[i].blocknr == blocknr)
@@ -1284,6 +1427,11 @@ static int CachedRead(ULONG blocknr, SIPTR *error, BOOL fake, globaldata *g)
 	int i;
 
 	*error = 0;
+	if (!blocknr || blocknr == (ULONG)-1)
+	{
+		*error = PFS_ERROR_INCONSISTENT;
+		return -1;
+	}
 	i = CheckDataCache(blocknr, g);
 	if (i != -1) return i;
 	i = GetFreeSlot(error, g);
@@ -1332,6 +1480,8 @@ static int CachedWrite(UBYTE *data, ULONG blocknr, globaldata *g)
 	int i;
 	SIPTR error;
 
+	if (!blocknr || blocknr == (ULONG)-1)
+		return -1;
 	i = CheckDataCache(blocknr, g);
 	if (i == -1)
 	{
@@ -1460,10 +1610,10 @@ ULONG DiskRead(UBYTE *buffer, ULONG blockstoread, ULONG blocknr, globaldata *g)
 	DB(Trace(1, "DiskRead", "%ld blocks from %ld firstblock %ld\n",
 		 (ULONG)blockstoread, (ULONG)blocknr, g->firstblock));
 
-	if (blocknr == (ULONG)-1)  // blocknr of uninitialised anode
-		return 1;
 	if (!blockstoread)
 		return 0;
+	if (!blocknr || blockstoread > (ULONG)-1 - blocknr)
+		return PFS_ERROR_INCONSISTENT;
 
 	if (blockstoread == 1)
 	{
@@ -1520,10 +1670,10 @@ ULONG DiskWrite(UBYTE *buffer, ULONG blockstowrite, ULONG blocknr, globaldata *g
 	DB(Trace(1, "DiskWrite", "%ld blocks from %ld + %ld\n", blockstowrite, blocknr,
 			g->firstblock));
 
-	if (blocknr == (ULONG)-1)  // blocknr of uninitialised anode
-		return 1;
 	if (!blockstowrite)
 		return 0;
+	if (!blocknr || blockstowrite > (ULONG)-1 - blocknr)
+		return PFS_ERROR_INCONSISTENT;
 
 	if (blockstowrite == 1)
 	{
@@ -2219,13 +2369,13 @@ static BOOL testread_td(UBYTE *buffer, globaldata *g)
 	
 BOOL detectaccessmode(UBYTE *buffer, globaldata *g)
 {
-	UBYTE name[FNSIZE];
+	UBYTE name[256];
 	BOOL inside4G = g->lastblocknative < (0x80000000ul >> (BLOCKNATIVESHIFT - 1));
 	ULONG *env = (ULONG *)g->dosenvec;
 	BOOL disableNSD = (env[DE_INTERLEAVE] & DEF_DISABLENSD) != 0;
 	BOOL forceDS = (env[DE_INTERLEAVE] & DEF_SCSIDIRECT) != 0;
 
-	BCPLtoCString(name, (UBYTE *)BADDR(g->startup->fssm_Device));
+	BCPLtoCString(name, sizeof(name), (UBYTE *)BADDR(g->startup->fssm_Device));
 
 #if DETECTDEBUG
 	ULONG args[10];

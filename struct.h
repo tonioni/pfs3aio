@@ -238,6 +238,12 @@ int stcu_d(char *out, unsigned int val);
 #define SAVEDS
 #endif
 
+/* Returned when on-disk structures are found to be inconsistent or an
+ * internal operation fails in a way that should not happen on a healthy
+ * volume. There is no dedicated dos.library error for this state.
+ */
+#define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED
+
 /****************************************************************************/
 /* New actions (packets)                                                    */
 /****************************************************************************/
@@ -548,6 +554,7 @@ struct globaldata
 	struct volumedata *currentvolume;
 	ULONG changecount;                  /* diskchange counter. Should be initialized by NewVolume */
 	ULONG inhibitcount;
+	BOOL inhibit_metadata_error;       /* latch retained while the volume is inhibited */
 
 	/* disktype: ID_PFS_DISK/NO_DISK_PRESENT/UNREADABLE_DISK
 	 * (only valid if currentvolume==NULL) 
@@ -579,6 +586,7 @@ struct globaldata
 	UBYTE dirextension;                 /* flag: dirextension?                  */
 	UBYTE deldirenabled;                /* flag: deldir enabled?                */
 	UBYTE sleepmode;                    /* flag: sleepmode?                     */
+	SIPTR sleep_wake_error;             /* most recent rejected wake request */
 	UBYTE supermode;					/* flag: supermode? (104 bmi blocks)	*/
 	UBYTE tdmode;						/* ACCESS_x mode					*/
 	UBYTE largefile;					/* >4G file size support                */
@@ -709,6 +717,7 @@ struct volumedata
 	struct MinList notifylist;          /* list of notifications                */
 
 	BOOL    rootblockchangeflag;        /* indicates if rootblock dirty         */
+	BOOL    metadata_error;             /* an unchecked metadata save was lost */
 	WORD    numsofterrors;              /* number of soft errors on this disk   */
 	WORD    diskstate;                  /* normally ID_VALIDATED                */
 	ULONG   numblocks;                  /* total number of blocks               */
@@ -775,7 +784,7 @@ struct idlehandle
 #define FreeLRU(blk)                                    \
 {                                                       \
 	MinRemove(LRU_CHAIN(blk));                          \
-	memset(blk, 0, SIZEOF_CACHEDBLOCK);                 \
+	memset(blk, 0, sizeof(struct cachedblock) + g->glob_lrudata.reserved_blksize); \
 	MinAddHead(&g->glob_lrudata.LRUpool, LRU_CHAIN(blk));            \
 }
 
@@ -796,20 +805,20 @@ struct idlehandle
 /* other macro definitions                                                   */
 /*****************************************************************************/
 
-#define IsSoftLink(oi) ((IPTR)(oi).file.direntry>2 && ((oi).file.direntry->type==ST_SOFTLINK))
-#define IsRealDir(oi) ((IPTR)(oi).file.direntry>2 && ((oi).file.direntry->type==ST_USERDIR))
-#define IsDir(oi) ((IPTR)(oi).file.direntry>2 && ((oi).file.direntry->type)>0)
-#define IsFile(oi) ((IPTR)(oi).file.direntry>2 && ((oi).file.direntry->type)<=0)
+#define IsSoftLink(oi) ((IPTR)(oi).file.direntry>SPECIAL_FLUSHED && ((oi).file.direntry->type==ST_SOFTLINK))
+#define IsRealDir(oi) ((IPTR)(oi).file.direntry>SPECIAL_FLUSHED && ((oi).file.direntry->type==ST_USERDIR))
+#define IsDir(oi) ((IPTR)(oi).file.direntry>SPECIAL_FLUSHED && ((oi).file.direntry->type)>0)
+#define IsFile(oi) ((IPTR)(oi).file.direntry>SPECIAL_FLUSHED && ((oi).file.direntry->type)<=0)
 #define IsVolume(oi) ((oi).volume.root==0)
 #if DELDIR
 #define IsDelDir(oi) ((oi).deldir.special==SPECIAL_DELDIR)
 #define IsDelFile(oi) ((oi).deldir.special==SPECIAL_DELFILE)
 #endif /* DELDIR */
 #if ROLLOVER
-#define IsRollover(oi) ((IPTR)(oi).file.direntry>2 && ((oi).file.direntry->type==ST_ROLLOVERFILE))
+#define IsRollover(oi) ((IPTR)(oi).file.direntry>SPECIAL_FLUSHED && ((oi).file.direntry->type==ST_ROLLOVERFILE))
 #endif /* ROLLOVER */
 #define ISCURRENTVOLUME(v) (g->currentvolume && \
-	dstricmp(g->currentvolume->rootblk->diskname, v) == 0)
+	dstricmp(g->currentvolume->rootblk->diskname, v))
 #define IsSameOI(oi1, oi2) ((oi1.file.direntry == oi2.file.direntry) && \
 	(oi1.file.dirblock == oi2.file.dirblock))
 
@@ -894,8 +903,8 @@ struct delfileinfo
 /* info id's: delfile, deldir and flushed reference */
 #define SPECIAL_DELDIR 1
 #define SPECIAL_DELFILE 2
-#define SPECIAL_FLUSHED 3
 #endif /* DELDIR */
+#define SPECIAL_FLUSHED 3
 
 union objectinfo
 {
@@ -991,6 +1000,7 @@ typedef struct listentry
 	ULONG               dirblocknr;     /* set when block flushed and info is set to NULL   */
 	ULONG               dirblockoffset;
 	struct volumedata   *volume;        /* pointer to volume                                */
+	UBYTE               sleepref;       /* ordinary object requiring lookup after sleep */
 } listentry_t;
 
 /* de specifieke structuren */
@@ -1015,6 +1025,7 @@ typedef struct lockentry
 	struct fileinfo     nextentry;          // for examine
 	ULONG               nextdirblocknr;     // for flushed block only.. (dir/vollock only)
 	ULONG               nextdirblockoffset;
+	SIPTR               nexterror;          // deferred enumeration I/O failure
 } lockentry_t;
 
 // *lock -> *fileentry
