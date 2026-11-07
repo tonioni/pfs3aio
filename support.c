@@ -164,13 +164,11 @@ BOOL ddstricmp (DSTR dstr1, DSTR dstr2)
 {
   BOOL result;
   UBYTE temp[PATHSIZE];
-  UWORD i;
 
 	if (!dstr1 || !dstr2)
 		return FALSE;
 
-	for (i = 0; i <= *dstr1; i++)
-		temp[i] = dstr1[i];
+	strncpy (temp, dstr1, *dstr1 + 1);
 	intltoupper (temp);
 	result = intlcmp (temp,dstr2);
 	return result;
