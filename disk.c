@@ -231,7 +231,7 @@ static BOOL DataBlockNumber(struct anodechainnode *node, ULONG offset,
 	ULONG start = node->an.blocknr;
 	if (!start || start == (ULONG)-1 || offset > (ULONG)-2 - start)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 	*blocknr = start + offset;
@@ -372,7 +372,7 @@ static BOOL RolloverPosition(fileentry_t *file, struct extrafields *fields, ULON
 		fields->rollpointer > real || fields->virtualsize >= real ||
 		file->offset > real)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 	*physicalsize = (ULONG)real;
@@ -715,7 +715,7 @@ static ULONG ReadFromFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 	if (IsDelFile(file->le.info)) {
 		if (!(dde = GetDeldirEntryQuick(file->le.info.delfile.slotnr, g)))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return -1;
 		}
 		tfs = GetDDFileSize(dde, g) - file->offset;
@@ -888,7 +888,7 @@ static ULONG WriteToFile(fileentry_t *file, UBYTE *buffer, ULONG size,
 		return 0;
 	if (!chnode->an.blocknr)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 
@@ -1116,7 +1116,7 @@ wtf_error:
 		 */
 		if (!freed && !*error)
 			*error = (g->currentvolume && g->currentvolume->metadata_error) ?
-				ERROR_DISK_NOT_VALIDATED : ERROR_DISK_FULL;
+				PFS_ERROR_INCONSISTENT : ERROR_DISK_FULL;
 	}
 
 	DB(Trace(1,"WriteToFile","failed\n"));
@@ -1145,7 +1145,7 @@ SFSIZE SeekInFile(fileentry_t *file, SFSIZE offset, LONG mode, SIPTR *error, glo
 	if (IsDelFile(file->le.info))
 		if (!(delfile = GetDeldirEntryQuick(file->le.info.delfile.slotnr, g)))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return -1;
 		}
 #endif
@@ -1303,12 +1303,12 @@ SFSIZE ChangeFileSize(fileentry_t *file, SFSIZE releof, LONG mode, SIPTR *error,
 		 */
 		if (!FreeBlocksAC(file->anodechain, t, freeanodes, g))
 		{
-			/* ERROR_DISK_NOT_VALIDATED when a metadata save was actually
+			/* PFS_ERROR_INCONSISTENT when a metadata save was actually
 			 * lost (latched flag), matching directory.c; otherwise the
 			 * free was merely incomplete (space pressure / postponed).
 			 */
 			*error = (g->currentvolume && g->currentvolume->metadata_error) ?
-				ERROR_DISK_NOT_VALIDATED : ERROR_DISK_FULL;
+				PFS_ERROR_INCONSISTENT : ERROR_DISK_FULL;
 			return -1;
 		}
 
@@ -1429,7 +1429,7 @@ static int CachedRead(ULONG blocknr, SIPTR *error, BOOL fake, globaldata *g)
 	*error = 0;
 	if (!blocknr || blocknr == (ULONG)-1)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 	i = CheckDataCache(blocknr, g);
@@ -1613,7 +1613,7 @@ ULONG DiskRead(UBYTE *buffer, ULONG blockstoread, ULONG blocknr, globaldata *g)
 	if (!blockstoread)
 		return 0;
 	if (!blocknr || blockstoread > (ULONG)-1 - blocknr)
-		return ERROR_DISK_NOT_VALIDATED;
+		return PFS_ERROR_INCONSISTENT;
 
 	if (blockstoread == 1)
 	{
@@ -1673,7 +1673,7 @@ ULONG DiskWrite(UBYTE *buffer, ULONG blockstowrite, ULONG blocknr, globaldata *g
 	if (!blockstowrite)
 		return 0;
 	if (!blocknr || blockstowrite > (ULONG)-1 - blocknr)
-		return ERROR_DISK_NOT_VALIDATED;
+		return PFS_ERROR_INCONSISTENT;
 
 	if (blockstowrite == 1)
 	{

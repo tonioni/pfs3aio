@@ -178,7 +178,7 @@ struct listentry *MakeListEntry (union objectinfo *info, listtype type, SIPTR *e
 		GetExtraFields(info->file.direntry, &extrafields);
 		if (!GetAnode(&linknode, info->file.direntry->anode, g))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			FreeMemP(listentry, g);
 			return NULL;
 		}
@@ -209,7 +209,7 @@ struct listentry *MakeListEntry (union objectinfo *info, listtype type, SIPTR *e
 			if (!dde)
 			{
 				FreeMemP(listentry, g);
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return NULL;
 			}
 			listentry->anodenr = dde->anodenr;

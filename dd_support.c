@@ -119,7 +119,7 @@ do {                                                                   \
 		UpdateLE ((listentry_t *)(fe), g);                          \
 		if ((fe)->le.dirblocknr)                                    \
 		{                                                           \
-			*error = ERROR_DISK_NOT_VALIDATED;                      \
+			*error = PFS_ERROR_INCONSISTENT;                        \
 			return DOSFALSE;                                        \
 		}                                                           \
 		fi = &(fe)->le.info;                                        \
@@ -151,9 +151,9 @@ static ULONG RenameDisk (UBYTE *newname, globaldata *g)  //%4.5
 
 	/* Never write a root containing uncommitted or lost metadata. */
 	if (volume->metadata_error)
-		return ERROR_DISK_NOT_VALIDATED;
+		return PFS_ERROR_INCONSISTENT;
 	if (g->dirty && (!UpdateDisk(g) || g->dirty || volume->metadata_error))
-		return g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+		return g->softprotect ? ERROR_DISK_WRITE_PROTECTED : PFS_ERROR_INCONSISTENT;
 
 	/* Write the renamed, already committed root directly. */
 	diskname = volume->rootblk->diskname;
@@ -331,7 +331,7 @@ static BOOL Sleep (SIPTR *error, globaldata *g)
 			(g->dirty && (!UpdateDisk(g) || g->dirty)) ||
 			UpdateDataCache(g))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return FALSE;
 		}
 
@@ -349,7 +349,7 @@ static BOOL Sleep (SIPTR *error, globaldata *g)
 				if ((le->dirblocknr && !LoadDirBlock(le->dirblocknr, g)) ||
 					!le->info.file.dirblock)
 				{
-					*error = ERROR_DISK_NOT_VALIDATED;
+					*error = PFS_ERROR_INCONSISTENT;
 					return FALSE;
 				}
 				le->diranodenr = le->info.file.dirblock->blk.anodenr;
@@ -495,7 +495,7 @@ static BOOL Awake (SIPTR *error, globaldata *g)
 		}
 		if (!andata.anblkbitmap)
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			goto rollback;
 		}
 
@@ -528,7 +528,7 @@ static BOOL Awake (SIPTR *error, globaldata *g)
 				struct deldirentry *dde = GetDeldirEntryQuick(le->info.delfile.slotnr, g);
 				if (!dde || dde->anodenr != le->anodenr)
 				{
-					*error = ERROR_DISK_NOT_VALIDATED;
+					*error = PFS_ERROR_INCONSISTENT;
 					goto rollback;
 				}
 			}
@@ -558,7 +558,7 @@ static BOOL Awake (SIPTR *error, globaldata *g)
 					struct deldirentry *dde = GetDeldirEntryQuick(le->info.delfile.slotnr, g);
 					if (!dde)
 					{
-						*error = ERROR_DISK_NOT_VALIDATED;
+						*error = PFS_ERROR_INCONSISTENT;
 						goto rollback;
 					}
 					filesize = GetDDFileSize(dde, g);
@@ -575,7 +575,7 @@ static BOOL Awake (SIPTR *error, globaldata *g)
 						(FSIZE)fields.rollpointer > filesize ||
 						(FSIZE)fields.virtualsize >= filesize)
 					{
-						*error = ERROR_DISK_NOT_VALIDATED;
+						*error = PFS_ERROR_INCONSISTENT;
 						goto rollback;
 					}
 				}
@@ -593,7 +593,7 @@ static BOOL Awake (SIPTR *error, globaldata *g)
 				if ((offset < filesize || fe->blockoffset) &&
 					!CorrectAnodeAC(&node, &anodeoffset, g))
 				{
-					*error = ERROR_DISK_NOT_VALIDATED;
+					*error = PFS_ERROR_INCONSISTENT;
 					goto rollback;
 				}
 			}
@@ -646,7 +646,7 @@ rollback:
 	return FALSE;
 
 failed:
-	*error = ERROR_DISK_NOT_VALIDATED;
+	*error = PFS_ERROR_INCONSISTENT;
 	return FALSE;
 }
 

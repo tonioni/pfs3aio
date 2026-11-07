@@ -509,7 +509,7 @@ static BOOL GetDir(STRPTR dirname, union objectinfo *path, SIPTR *error, globald
 		GetExtraFields(path->file.direntry, &extrafields);
 		if (!GetAnode(&linknode, path->file.direntry->anode, g))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		if (!FetchObject(linknode.clustersize, extrafields.link, path, error, g))
@@ -548,7 +548,7 @@ static BOOL GetObject(STRPTR objectname, union objectinfo *path, SIPTR *error, g
 	lookup = SearchInDir(anodenr, objectname, path, g);
 	if (lookup < 0)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	found = lookup != 0;
@@ -674,7 +674,7 @@ BOOL GetParent(union objectinfo *childfi, union objectinfo *parentfi, SIPTR *err
 	// -III- get parentdirectory and find direntry
 	if (!GetAnode(&anode, parentanodenr, g))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 	while (!found && !eod)
@@ -705,7 +705,7 @@ BOOL GetParent(union objectinfo *childfi, union objectinfo *parentfi, SIPTR *err
 	if (!found)
 	{
 		DB(Trace(1, "GetParent", "DiskNotValidated %ld\n", childanodenr));
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 
@@ -843,7 +843,7 @@ BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, SIPTR
 	return TRUE;
 
 read_error:
-	*error = ERROR_DISK_NOT_VALIDATED;
+	*error = PFS_ERROR_INCONSISTENT;
 	return FALSE;
 }
 
@@ -941,7 +941,7 @@ BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, FSIZE *size64, S
 		{
 			if (!FillDelfileFib(NULL, info->delfile.slotnr, fib, g))
 			{
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 			return DOSTRUE;
@@ -951,7 +951,7 @@ BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, FSIZE *size64, S
 		{
 			if (!FillFib(file->info.file.direntry, file->info.file.dirblock, fib, size64, g))
 			{
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 		}
@@ -962,7 +962,7 @@ BOOL ExamineFile(listentry_t *file, struct FileInfoBlock * fib, FSIZE *size64, S
 	/* prepare examinenext */
 	if (file && file->type.flags.dir && !GetFirstEntry((lockentry_t *)file, g))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -1018,7 +1018,7 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib, FSIZE *size6
 		{
 			if (!FillDelfileFib(dde, fib->fib_DiskKey, fib, g))
 			{
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 			fib->fib_DiskKey++;
@@ -1042,7 +1042,7 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib, FSIZE *size6
 
 	if (file->nexterror || file->nextdirblocknr)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	/* Check if end of dir */
@@ -1059,7 +1059,7 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib, FSIZE *size6
 		fib->fib_DiskKey = (IPTR)file;  // I use it as dir-block-number
 		if (!FillFib(direntry, file->nextentry.dirblock, fib, size64, g))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 	}
@@ -1153,7 +1153,7 @@ static BOOL GetFirstEntry(lockentry_t *le, globaldata * g)
 	le->nextdirblocknr = le->nextdirblockoffset = 0;
 	if (!GetFirstNonEmptyDE(le->le.anodenr, &le->nextentry, &le->nextanode, g))
 	{
-		le->nexterror = ERROR_DISK_NOT_VALIDATED;
+		le->nexterror = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 	return TRUE;
@@ -1215,7 +1215,7 @@ static void RemakeNextEntry(lockentry_t *file, struct FileInfoBlock *fib, global
 			file->nextentry.direntry = NULL;
 			file->nextanode = anodenr;
 			if (lookup < 0)
-				file->nexterror = ERROR_DISK_NOT_VALIDATED;
+				file->nexterror = PFS_ERROR_INCONSISTENT;
 		}
 		else
 		{
@@ -1229,7 +1229,7 @@ static void RemakeNextEntry(lockentry_t *file, struct FileInfoBlock *fib, global
 				{
 					file->nextentry.dirblock = NULL;
 					file->nextentry.direntry = NULL;
-					file->nexterror = ERROR_DISK_NOT_VALIDATED;
+					file->nexterror = PFS_ERROR_INCONSISTENT;
 					return;
 				}
 				file->nextanode = anode.nr;
@@ -1258,7 +1258,7 @@ void GetNextEntry(lockentry_t *file, globaldata * g)
 		{
 			file->nextentry.direntry = NULL;
 			file->nextentry.dirblock = NULL;
-			file->nexterror = ERROR_DISK_NOT_VALIDATED;
+			file->nexterror = PFS_ERROR_INCONSISTENT;
 		}
 	}
 }
@@ -1505,7 +1505,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 		if (!GetFirstEntry(object, g))
 		{
 			ctrl->eac_Entries = 0;
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 	}
@@ -1526,7 +1526,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 		if (object->nexterror || object->nextdirblocknr)
 		{
 			eod = FALSE;
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			break;
 		}
 		if (!(eod = (object->nextentry.dirblock == NULL)))
@@ -1571,7 +1571,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 	ctrl->eac_LastKey = (IPTR)object;
 	ctrl->eac_Entries = j;
 
-	if (*error == ERROR_DISK_NOT_VALIDATED)
+	if (*error == PFS_ERROR_INCONSISTENT)
 		return DOSFALSE;
 	if (eod)
 	{
@@ -1663,7 +1663,7 @@ ULONG NewFile (BOOL found, union objectinfo *directory, STRPTR filename, union o
 			GetExtraFields(info.file.direntry, &extrafields);
 			anodenr = extrafields.link;
 			if (!GetAnode(&linknode, info.file.direntry->anode, g))
-				return ERROR_DISK_NOT_VALIDATED;
+				return PFS_ERROR_INCONSISTENT;
 			if (!FetchObject(linknode.clustersize, anodenr, &info, &error, g))
 				return error;
 			
@@ -1699,7 +1699,7 @@ ULONG NewFile (BOOL found, union objectinfo *directory, STRPTR filename, union o
 				if (ddslot < 0)
 				{
 					DetachAnodeChain(achain, g);
-					return ERROR_DISK_NOT_VALIDATED;
+					return PFS_ERROR_INCONSISTENT;
 				}
 
 				/* make replacement anode, because we want to reuse the old one */
@@ -1715,7 +1715,7 @@ ULONG NewFile (BOOL found, union objectinfo *directory, STRPTR filename, union o
 					FreeAnode(achain->head.an.nr, g);
 					info.file.direntry->anode = achain->head.an.nr = anodenr;
 					DetachAnodeChain(achain, g);
-					return ERROR_DISK_NOT_VALIDATED;
+					return PFS_ERROR_INCONSISTENT;
 				}
 				anode.clustersize = 0;
 				anode.blocknr = 0xffffffff;
@@ -1725,14 +1725,14 @@ ULONG NewFile (BOOL found, union objectinfo *directory, STRPTR filename, union o
 					FreeAnode(achain->head.an.nr, g);
 					info.file.direntry->anode = achain->head.an.nr = anodenr;
 					DetachAnodeChain(achain, g);
-					return ERROR_DISK_NOT_VALIDATED;
+					return PFS_ERROR_INCONSISTENT;
 				}
 				if (!AddToDeldir(&info, ddslot, g))
 				{
 					FreeAnode(achain->head.an.nr, g);
 					info.file.direntry->anode = achain->head.an.nr = anodenr;
 					DetachAnodeChain(achain, g);
-					return ERROR_DISK_NOT_VALIDATED;
+					return PFS_ERROR_INCONSISTENT;
 				}
 				info.file.direntry->anode = anodenr;
 			}
@@ -1752,7 +1752,7 @@ ULONG NewFile (BOOL found, union objectinfo *directory, STRPTR filename, union o
 					if (!SaveAnode(&anode, anodenr, g))
 					{
 						DetachAnodeChain(achain, g);
-						return ERROR_DISK_NOT_VALIDATED;
+						return PFS_ERROR_INCONSISTENT;
 					}
 				}
 
@@ -1766,7 +1766,7 @@ ULONG NewFile (BOOL found, union objectinfo *directory, STRPTR filename, union o
 					do_deldir ? keepanodes : freeanodes, g))
 				{
 					DetachAnodeChain(achain, g);
-					return ERROR_DISK_NOT_VALIDATED;
+					return PFS_ERROR_INCONSISTENT;
 				}
 				DetachAnodeChain(achain, g);
 			}
@@ -1871,7 +1871,7 @@ lockentry_t *NewDir(union objectinfo *parent, STRPTR dirname, SIPTR *error, glob
 	lookup = SearchInDir(parentnr, dirname, &info, g);
 	if (lookup < 0)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return NULL;
 	}
 	if (lookup)
@@ -2030,7 +2030,7 @@ BOOL DeleteObject(union objectinfo * info, SIPTR *error, globaldata * g)
 	remapped = RemapLinks(&info->file, g);
 	if (remapped < 0)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (!remapped)
@@ -2056,7 +2056,7 @@ BOOL DeleteObject(union objectinfo * info, SIPTR *error, globaldata * g)
 				if (ddslot < 0 || !AddToDeldir(info, ddslot, g))
 				{
 					DetachAnodeChain(achain, g);
-					*error = ERROR_DISK_NOT_VALIDATED;
+					*error = PFS_ERROR_INCONSISTENT;
 					return DOSFALSE;
 				}
 			}
@@ -2065,13 +2065,13 @@ BOOL DeleteObject(union objectinfo * info, SIPTR *error, globaldata * g)
 			if (!FreeBlocksAC(achain, ULONG_MAX, do_deldir ? keepanodes : freeanodes, g))
 			{
 				DetachAnodeChain(achain, g);
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 			if (!do_deldir && !FreeAnode(achain->head.an.nr, g))
 			{
 				DetachAnodeChain(achain, g);
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 			DetachAnodeChain(achain, g);
@@ -2105,7 +2105,7 @@ static BOOL DeleteDir(union objectinfo *info, SIPTR *error, globaldata * g)
 		for (t=1; chnode.next; t++)
 			if (!GetAnode(&chnode, chnode.next, g))
 			{
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 
@@ -2121,7 +2121,7 @@ static BOOL DeleteDir(union objectinfo *info, SIPTR *error, globaldata * g)
 			if (!GetAnode(&anode, anode.next, g))
 			{
 				volume->metadata_error = TRUE;
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 
@@ -2129,7 +2129,7 @@ static BOOL DeleteDir(union objectinfo *info, SIPTR *error, globaldata * g)
 			if (!FreeAnode(anode.nr, g))
 			{
 				volume->metadata_error = TRUE;
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 			dirblk = (struct cdirblock *)CheckCache(volume->dirblks, HASHM_DIR, anode.blocknr, g);
@@ -2194,7 +2194,7 @@ static BOOL DirIsEmpty(ULONG anodenr, SIPTR *error, globaldata * g)
 
 	if (!GetAnode(&anode, anodenr, g))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	dirblok = LoadDirBlock(anode.blocknr, g);
@@ -2203,7 +2203,7 @@ static BOOL DirIsEmpty(ULONG anodenr, SIPTR *error, globaldata * g)
 	{
 		if (!GetAnode(&anode, anode.next, g))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		dirblok = LoadDirBlock(anode.blocknr, g);
@@ -2211,7 +2211,7 @@ static BOOL DirIsEmpty(ULONG anodenr, SIPTR *error, globaldata * g)
 
 	if (!dirblok)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if ((FIRSTENTRY(dirblok)->next) == 0)    /* not empty->entries present */
@@ -2352,18 +2352,18 @@ BOOL RenameAndMove (union objectinfo *sourcedi, union objectinfo *srcinfo,
 		g->rootblock->reserved_blksize - ((IPTR)srcdirentry - (IPTR)&srcinfo->file.dirblock->blk) < offsetof(struct direntry, startofname) + 1 ||
 		srcdirentry->next > g->rootblock->reserved_blksize - ((IPTR)srcdirentry - (IPTR)&srcinfo->file.dirblock->blk))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (srcdirentry->next <= offsetof(struct direntry, startofname) + srcdirentry->nlength)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	srccomment = COMMENT(srcdirentry);
 	if (*srccomment > srcdirentry->next - offsetof(struct direntry, startofname) - srcdirentry->nlength - 1)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (strlen(destname) > FILENAMESIZE - 1)
@@ -2421,7 +2421,7 @@ BOOL RenameAndMove (union objectinfo *sourcedi, union objectinfo *srcinfo,
 		destfieldoffset + (g->dirextension ? fieldsize : 0) > 255 ||
 		destfieldoffset + (g->dirextension ? fieldsize : 0) > sizeof(entrybuffer))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	memcpy((UBYTE *)&destentry->startofname, destname, destentry->nlength);
@@ -2453,7 +2453,7 @@ BOOL RenameAndMove (union objectinfo *sourcedi, union objectinfo *srcinfo,
 		if (!MoveLink(destentry, destanodenr, g))
 		{
 			g->currentvolume->metadata_error = TRUE;
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		PFSDoNotify (&destinfo.file, TRUE, g);
@@ -2475,7 +2475,7 @@ BOOL RenameAndMove (union objectinfo *sourcedi, union objectinfo *srcinfo,
 		if (!GetAnode(&anode, anode.nr, g))
 		{
 			g->currentvolume->metadata_error = TRUE;
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		for (anodeoffset = 0; gadoor; gadoor = NextBlock (&anode, &anodeoffset, g))
@@ -2539,7 +2539,7 @@ BOOL AddComment(union objectinfo * info, STRPTR comment, SIPTR *error, globaldat
 	if (sourceentry->next < sizeof(struct direntry) ||
 		offsetof(struct direntry, startofname) + sourceentry->nlength >= sourceentry->next)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	srccomment = COMMENT(sourceentry);
@@ -2550,7 +2550,7 @@ BOOL AddComment(union objectinfo * info, STRPTR comment, SIPTR *error, globaldat
 		destfieldoffset + (g->dirextension ? fieldsize : 0) > 255 ||
 		(size_t)(destfieldoffset + (g->dirextension ? fieldsize : 0)) > sizeof(entrybuffer))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -2752,7 +2752,7 @@ LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, UL
 	linklen = linkfi->file.direntry->fsize;
 	if (linklen >= BLOCKSIZE)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 	softblock = AllocVec(BLOCKSIZE, 0);
@@ -2773,7 +2773,7 @@ LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, UL
 	if (!GetAnode(&anode, linkfi->file.direntry->anode, g))
 	{
 		FreeVec(softblock);
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 	if ((rc = DiskRead(softblock, 1, anode.blocknr, g)))
@@ -2785,7 +2785,7 @@ LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, UL
 	if (softblock[linklen] != 0 || memchr(softblock, 0, linklen))
 	{
 		FreeVec(softblock);
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 
@@ -2920,7 +2920,7 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 	lookup = SearchInDir(anodenr, linkname, newlink, g);
 	if (lookup < 0)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (lookup)
@@ -2968,7 +2968,7 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 
 	if (!GetAnode(&anode, de->anode, g))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		goto error3;
 	}
 	memcpy(softblock, softlink, targetlen);
@@ -3070,7 +3070,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	lookup = SearchInDir(anodenr, linkname, &info, g);
 	if (lookup < 0)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (lookup)
@@ -3128,7 +3128,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 		ULONG linkanode = newlink->file.direntry->anode;
 		RemoveDirEntry(newlink->file, g);
 		FreeAnode(linkanode, g);
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -3174,7 +3174,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 			ULONG linkanode = newlink->file.direntry->anode;
 			RemoveDirEntry(newlink->file, g);
 			FreeAnode(linkanode, g);
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 	}
@@ -3186,7 +3186,7 @@ link_read_error:
 		ULONG linkanode = newlink->file.direntry->anode;
 		RemoveDirEntry(newlink->file, g);
 		FreeAnode(linkanode, g);
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 }
@@ -3316,7 +3316,7 @@ BOOL CreateRollover(union objectinfo *dir, STRPTR rollname, ULONG size,
 	lookup = SearchInDir(anodenr, rollname, result, g);
 	if (lookup < 0)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (lookup)
@@ -4444,7 +4444,7 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 	/* get node to remove */
 	if (!GetAnode(&linknode, link->direntry->anode, g))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	GetExtraFields(link->direntry, &extrafields);
@@ -4456,7 +4456,7 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 	if (!FetchObject(linknode.clustersize, extrafields.link, &object, error, g))
 	{
 		g->currentvolume->metadata_error = TRUE;
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	GetExtraFields(object.file.direntry, &extrafields);
@@ -4469,7 +4469,7 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 		AddExtraFields((struct direntry *)entrybuffer, &extrafields);
 		if (!GetParent(&object, &directory, error, g)) {
 			g->currentvolume->metadata_error = TRUE;
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;	// should never happen
 		}
 		else {
@@ -4495,7 +4495,7 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 			linklist.next = linknode.next;
 			if (!SaveAnode(&linklist, linklist.nr, g))
 			{
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 		}
@@ -4508,7 +4508,7 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 
 link_failure:
 	g->currentvolume->metadata_error = TRUE;
-	*error = ERROR_DISK_NOT_VALIDATED;
+	*error = PFS_ERROR_INCONSISTENT;
 	return DOSFALSE;
 }
 
@@ -4713,7 +4713,7 @@ static struct deldirentry *SearchInDeldir(STRPTR delname, union objectinfo *resu
 	/* 4.3: get deldir block */
 	if (!(dblk = GetDeldirBlock(slotnr/DELENTRIES_PER_BLOCK, g)))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 
@@ -4722,7 +4722,7 @@ static struct deldirentry *SearchInDeldir(STRPTR delname, union objectinfo *resu
 	dde = &dblk->blk.entries[offset];
 	if (dde->filename[0] >= sizeof(dde->filename))
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return NULL;
 	}
 	if (intlcmp(intl_name, dde->filename))
@@ -4756,7 +4756,7 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, 
 	{
 		if (!GetAnode(&anode, anode.nr, g) || (taken = BlockTaken(&anode, g)) < 0)
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return FALSE;
 		}
 		if (taken)
@@ -4764,7 +4764,7 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, 
 			/* free attached anodechain */
 			if (!FreeAnodesInChain(dde->anodenr, g))
 			{
-				*error = ERROR_DISK_NOT_VALIDATED;
+				*error = PFS_ERROR_INCONSISTENT;
 				return FALSE;
 			}
 			dde->anodenr = 0;
@@ -4896,7 +4896,7 @@ static struct deldirentry *GetDeldirEntry(IPTR *ddnr, SIPTR *error, globaldata *
 
 	if (!rext || rext->blk.deldirsize > MAXDELDIR_BLOCKS)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return NULL;
 	}
 	count = rext->blk.deldirsize * DELENTRIES_PER_BLOCK;
@@ -4905,7 +4905,7 @@ static struct deldirentry *GetDeldirEntry(IPTR *ddnr, SIPTR *error, globaldata *
 		/* get deldirentry */
 		if (!(ddblk = GetDeldirBlock(*ddnr/DELENTRIES_PER_BLOCK, g)))
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			break;
 		}
 
@@ -4915,7 +4915,7 @@ static struct deldirentry *GetDeldirEntry(IPTR *ddnr, SIPTR *error, globaldata *
 		if (dde->filename[0] >= sizeof(dde->filename))
 		{
 			ddblk->used = oldlock;
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return NULL;
 		}
 
@@ -5291,7 +5291,7 @@ ULONG SetDeldir(int nbr, globaldata *g)
 	}
 
 	if (!UpdateDisk(g))
-		return ERROR_DISK_NOT_VALIDATED;
+		return PFS_ERROR_INCONSISTENT;
 
 	for (i = nbr; i < rext->blk.deldirsize; i++)
 	{

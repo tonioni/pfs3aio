@@ -238,6 +238,12 @@ int stcu_d(char *out, unsigned int val);
 #define SAVEDS
 #endif
 
+/* Returned when on-disk structures are found to be inconsistent or an
+ * internal operation fails in a way that should not happen on a healthy
+ * volume. There is no dedicated dos.library error for this state.
+ */
+#define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED
+
 /****************************************************************************/
 /* New actions (packets)                                                    */
 /****************************************************************************/

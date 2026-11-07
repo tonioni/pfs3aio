@@ -245,7 +245,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 	rootblock->options |= MODE_EXTENSION;
 	InitModules (volume, TRUE, g);
 	if (volume->metadata_error) {
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		goto failure;
 	}
 
@@ -279,7 +279,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 #endif
 
 	if (!UpdateDisk (g)) {
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		goto failure;
 	}
 	FreeVolumeResources (volume, g);

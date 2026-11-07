@@ -334,7 +334,7 @@ static SIPTR dd_DupLock(struct DosPacket *pkt, globaldata * g)
 	UpdateLE((listentry_t *)srcfe, g);
 	if (srcfe->le.dirblocknr)
 	{
-		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -421,7 +421,7 @@ static SIPTR dd_CreateDir(struct DosPacket *pkt, globaldata * g)
 	{
 		if (newdirle)
 			RemoveListEntry((listentry_t *)newdirle, g);
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -462,7 +462,7 @@ static SIPTR dd_Parent(struct DosPacket *pkt, globaldata * g)
 		UpdateLE((listentry_t *)childfe, g);
 		if (childfe->le.dirblocknr)
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		childfi = &childfe->le.info;
@@ -662,7 +662,7 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 	if (pkt->dp_Type != ACTION_FINDINPUT &&
 		g->currentvolume && g->currentvolume->metadata_error)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -749,7 +749,7 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 	if (pkt->dp_Type != ACTION_FINDINPUT &&
 		g->currentvolume && g->currentvolume->metadata_error)
 	{
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -768,7 +768,7 @@ static SIPTR dd_Open(struct DosPacket *pkt, globaldata * g)
 		g->currentvolume && g->currentvolume->metadata_error)
 	{
 		RemoveListEntry(filefe, g);
-		*error = ERROR_DISK_NOT_VALIDATED;
+		*error = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -798,7 +798,7 @@ static SIPTR dd_OpenFromLock(struct DosPacket *pkt, globaldata * g)
 	UpdateLE(lockentry, g);
 	if (lockentry->dirblocknr)
 	{
-		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	if (!IsFile(lockentry->info))
@@ -844,7 +844,7 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 		FSIZE size;
 		if (fe->le.volume && fe->le.volume->metadata_error)
 		{
-			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 			ok = FALSE;
 			goto close_entry;
 		}
@@ -853,7 +853,7 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 		UpdateLE((listentry_t *) fe, g);
 		if (fe->le.dirblocknr)
 		{
-			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		Touch(&fe->le.info.file, g);
@@ -862,7 +862,7 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 			if (!UpdateLinks(fe->le.info.file.direntry, g))
 			{
 				fe->le.volume->metadata_error = TRUE;
-				pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+				pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 				ok = FALSE;
 			}
 
@@ -870,7 +870,7 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 		fe->checknotify = 0;
 		if (fe->le.volume->metadata_error)
 		{
-			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 			ok = FALSE;
 		}
 	}
@@ -908,7 +908,7 @@ static SIPTR dd_ChangeMode(struct DosPacket *pkt, globaldata * g)
 		UpdateLE(listentry, g);
 		if (listentry->dirblocknr)
 		{
-			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 	}
@@ -944,7 +944,7 @@ static SIPTR dd_SeekRead(struct DosPacket *pkt, globaldata * g)
 	UpdateLE(listentry, g);
 	if (listentry->dirblocknr)
 	{
-		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 
@@ -987,7 +987,7 @@ static SIPTR dd_WriteSFS(struct DosPacket *pkt, globaldata * g)
 	UpdateLE(listentry, g);
 	if (listentry->dirblocknr)
 	{
-		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return -1;
 	}
 
@@ -1089,7 +1089,7 @@ static SIPTR dd_AddBuffers(struct DosPacket *pkt, globaldata * g)
 		(g->dirty && (!UpdateDisk(g) || g->dirty ||
 			g->currentvolume->metadata_error)))
 	{
-		pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -1192,7 +1192,7 @@ static SIPTR dd_Flush(struct DosPacket *pkt, globaldata * g)
 		 (g->dirty && (!UpdateDisk(g) || g->dirty ||
 		  g->currentvolume->metadata_error))))
 	{
-		pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 	FreeUnusedResources(g->currentvolume, g);
@@ -1216,7 +1216,7 @@ static SIPTR dd_WriteProtect(struct DosPacket *pkt, globaldata * g)
 			 (g->dirty && (!UpdateDisk(g) || g->dirty ||
 			  g->currentvolume->metadata_error))))
 		{
-			pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = g->softprotect ? ERROR_DISK_WRITE_PROTECTED : PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		/* updatedisk can cause a softprotect, so check again */
@@ -1256,7 +1256,7 @@ static SIPTR dd_SerializeDisk(struct DosPacket *pkt, globaldata * g)
 	if ((g->currentvolume && g->currentvolume->metadata_error) ||
 		(g->inhibitcount && g->inhibit_metadata_error))
 	{
-		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -1456,7 +1456,7 @@ static SIPTR ExaminePacket(struct DosPacket *pkt, LONG type, struct FileInfoBloc
 		UpdateLE(listentry, g);
 		if (listentry->dirblocknr)
 		{
-			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		UpdateLE_exa((lockentry_t *) listentry, g);
@@ -1583,7 +1583,7 @@ static SIPTR dd_ExamineAll(struct DosPacket *pkt, globaldata * g)
 		UpdateLE(listentry, g);
 		if (listentry->dirblocknr)
 		{
-			pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 		UpdateLE_exa((lockentry_t *) listentry, g);
@@ -1674,7 +1674,7 @@ static SIPTR dd_MakeLink(struct DosPacket *pkt, globaldata * g)
 	UpdateLE((listentry_t *)targetle, g);
 	if (targetle->le.dirblocknr)
 	{
-		pkt->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return DOSFALSE;
 	}
 
@@ -1712,7 +1712,7 @@ static SIPTR dd_ReadLink(struct DosPacket *pkt, globaldata * g)
 		UpdateLE((listentry_t *)parentle, g);
 		if (parentle->le.dirblocknr)
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return -1;
 		}
 		parentfi = &parentle->le.info;
@@ -2349,7 +2349,7 @@ static SIPTR dd_SetRollover(struct DosPacket *pkt, globaldata *g)
 		UpdateLE((listentry_t *)rlfile, g);
 		if (rlfile->dirblocknr)
 		{
-			*error = ERROR_DISK_NOT_VALIDATED;
+			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;
 		}
 	}
@@ -2583,7 +2583,7 @@ static listentry_t *InitOS464(struct DosPacket *pkt, globaldata *g, BOOL errorty
 	}
 	UpdateLE(listentry, g);
 	if (listentry->dirblocknr) {
-		dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		dp->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return NULL;
 	}
 	if (!IsFile(listentry->info)) {

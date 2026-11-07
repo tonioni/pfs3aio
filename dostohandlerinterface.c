@@ -256,13 +256,13 @@ static BOOL RejectMetadataMutation(struct DosPacket *action, globaldata *g)
 		struct DosPacket64OS4 *dp = (struct DosPacket64OS4 *)action;
 		dp->dp_Res0 = DP64_INIT;
 		dp->dp_Res1 = 0;
-		dp->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+		dp->dp_Res2 = PFS_ERROR_INCONSISTENT;
 		return TRUE;
 	}
 #endif
 	action->dp_Res1 = (action->dp_Type == ACTION_WRITE ||
 		action->dp_Type == ACTION_SET_FILE_SIZE) ? -1 : DOSFALSE;
-	action->dp_Res2 = ERROR_DISK_NOT_VALIDATED;
+	action->dp_Res2 = PFS_ERROR_INCONSISTENT;
 	return TRUE;
 }
 
