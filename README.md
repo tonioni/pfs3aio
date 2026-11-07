@@ -10,6 +10,7 @@ creating archives (not the extraction-only `lhasa` utility):
 
 ```
 make
+make largefile
 make check
 make lha
 ```
@@ -24,9 +25,36 @@ emulated-handler tests and their additional dependencies.
 - `pfs3aio_<version>.lha`
 - `pfs3aio_<version>.readme`
 
-The archive contains the standard `pfs3aio` handler, Aminet readme, license,
-revision history and `Build.txt` with the Git revision and compiler version.
-It does not contain `pfs3aio-custom`, utilities, or pfsdoctor.
+The archive contains these four handlers, the Aminet readme, license,
+revision history and `Build.txt` with the Git revision and compiler version:
+
+- `pfs3aio`: normal build (`LARGE_FILE_SIZE=0`).
+- `pfs3aio-custom`: normal build wrapped for broken RDB filesystem loaders.
+- `pfs3aio-largefile`: large-file build (`LARGE_FILE_SIZE=1`).
+- `pfs3aio-largefile-custom`: large-file build with the same custom wrapper.
+
+The archive does not contain utilities or pfsdoctor. Large-file support is
+opt-in: choose the large-file handler explicitly; the normal handler does
+not gain support for large-file volumes.
+
+`make` builds the normal pair. `make largefile` builds the large-file pair;
+`make all-variants` builds all four. Objects and generated dependency files
+are isolated in `build/normal` and `build/largefile`, so switching variants
+cannot reuse objects compiled with the other setting. `make lha` builds
+all four, while `make archive` packages four already-built handlers (used
+by CI after downloading the matrix artifacts).
+
+Both unwrapped handlers link to one CODE hunk using `pfs3aio.ld`, including
+libnix's ctype-table pointer. The freestanding link maps `_SysBase` to the
+ExecBase pointer at address 4 rather than requiring C runtime startup.
+
+The custom wrapper embeds its normal executable verbatim and applies that
+executable's relocations in-place on first entry, then flushes the CPU
+cache on Exec v36 or later before entering the handler. It is not
+ROMmable. It is only needed for controller loaders which cannot handle
+relocations. `tools/hunk.py` rejects unsupported hunk layouts and checks
+that each custom executable has one CODE hunk, no outer relocations and
+an unchanged embedded handler.
 
 The distribution version comes from `git describe --tags --dirty --always`,
 with a leading `v` or `release_` removed. It can be overridden with
@@ -40,9 +68,11 @@ the uploader details and add release-specific changes before a release.
 
 ## GitHub Actions
 
-CI builds the handler and LHA on branch pushes and pull requests, runs the
-native regression tests, and uploads both the handler and distribution pair
-as workflow artifacts. The build uses Stefan Reinauer's m68k-amigaos-gcc
+CI builds the normal and large-file pairs in separate matrix jobs on branch
+pushes and pull requests, runs the native regression tests, then packages
+the downloaded handlers into an LHA without rebuilding them. Both handler
+pairs and the distribution pair are uploaded as workflow artifacts. The
+build uses Stefan Reinauer's m68k-amigaos-gcc
 13.4 container (`stefanreinauer/amiga-gcc:gcc-v13.4`).
 
 Pushing a `v*` or `release_*` tag runs the same build and tests, then creates

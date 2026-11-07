@@ -32,7 +32,43 @@ jobs:
         run: make check
 
   build:
-    name: Build handler and LHA
+    name: Build ${{ matrix.variant }} handlers
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: normal
+            large_file_size: 0
+            target: pfs3aio
+          - variant: largefile
+            large_file_size: 1
+            target: pfs3aio-largefile
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mark checkout as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build handler and custom wrapper
+        run: make -j2 LARGE_FILE_SIZE=${{ matrix.large_file_size }} all
+
+      - name: Upload handlers
+        uses: actions/upload-artifact@v6
+        with:
+          name: pfs3aio-handlers-${{ matrix.variant }}
+          path: |
+            ${{ matrix.target }}
+            ${{ matrix.target }}-custom
+          if-no-files-found: error
+
+  package:
+    name: Package both build variants
+    needs: [test, build]
     runs-on: ubuntu-latest
     container: stefanreinauer/amiga-gcc:gcc-v13.4
     steps:
@@ -44,6 +80,16 @@ jobs:
       - name: Mark checkout as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Download built handlers
+        uses: actions/download-artifact@v7
+        with:
+          pattern: pfs3aio-handlers-*
+          merge-multiple: true
+          path: .
+
+      - name: Restore executable permissions
+        run: chmod +x pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom
+
       - name: Build distribution
         env:
           RELEASE_TAG: ${{ inputs.release-tag }}
@@ -52,17 +98,10 @@ jobs:
           if [ -n "$RELEASE_TAG" ]; then
             version="${RELEASE_TAG#release_}"
             version="${version#v}"
-            make -j2 lha FULL_VERSION="$version"
+            make archive FULL_VERSION="$version"
           else
-            make -j2 lha
+            make archive
           fi
-
-      - name: Upload handler
-        uses: actions/upload-artifact@v6
-        with:
-          name: pfs3aio-handler
-          path: pfs3aio
-          if-no-files-found: error
 
       - name: Upload distribution
         uses: actions/upload-artifact@v6

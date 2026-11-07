@@ -139,12 +139,21 @@ Archive contents:
 -----------------
 
 pfs3aio: standard version.
+pfs3aio-custom: standard version for broken RDB loaders that cannot handle
+relocations. Single CODE hunk, no outer relocations. Not ROMmable.
+pfs3aio-largefile: optional LARGE_FILE_SIZE=1 build with large-file support.
+pfs3aio-largefile-custom: large-file build for the same broken RDB loaders.
 pfs3aio.readme: this readme.
 LICENSE: redistribution terms and disclaimer.
 versionhistory.doc: original PFS3 revision history and version definitions.
 Build.txt: distribution version, source revision and compiler version.
 
-This archive does not include pfs3aio-custom, utilities or pfsdoctor.
+Both standard and large-file handlers are single-hunk executables.
+Custom versions relocate the embedded standard executable on first entry.
+Large-file support requires explicitly installing a large-file handler;
+the normal handler does not support large-file volumes.
+
+This archive does not include utilities or pfsdoctor.
 Back up your data before replacing a filesystem handler.
 
 Autodetection details:
