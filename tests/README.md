@@ -20,6 +20,7 @@ apply the fixes and they pass. Covered:
 
 | test | fix it proves |
 |------|---------------|
+| `reserved_bitmap_live.c` | Reject inconsistent reserved ranges and undersized root bitmaps before allocation; preserve exact-capacity and partial-word bitmaps |
 | `blocksize_live.c`      | logical block size normalized to a power of two (blockshift/blocklogshift agree) |
 | `partlimit_live.c`      | partition end saturates instead of wrapping past 2^32 sectors (no inverted partition) |
 | `ds_retry_live.c`       | DirectSCSI retry restarts in range instead of re-applying blocklogshift and writing outside the partition |
