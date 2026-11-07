@@ -5,4 +5,7 @@
 *.info
 *.vs
 pfs3aio*
+!/pfs3aio.ld
 boot
+/dist/
+/build/

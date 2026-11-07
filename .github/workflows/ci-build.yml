@@ -1,0 +1,113 @@
+name: pfs3aio CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-tag:
+        description: Exact version tag for a release build
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Native regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install test shell
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Run live-source tests
+        run: make check
+
+  build:
+    name: Build ${{ matrix.variant }} handlers
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: normal
+            large_file_size: 0
+            target: pfs3aio
+          - variant: largefile
+            large_file_size: 1
+            target: pfs3aio-largefile
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mark checkout as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build handler and custom wrapper
+        run: make -j2 LARGE_FILE_SIZE=${{ matrix.large_file_size }} all
+
+      - name: Upload handlers
+        uses: actions/upload-artifact@v6
+        with:
+          name: pfs3aio-handlers-${{ matrix.variant }}
+          path: |
+            ${{ matrix.target }}
+            ${{ matrix.target }}-custom
+          if-no-files-found: error
+
+  package:
+    name: Package both build variants
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mark checkout as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Download built handlers
+        uses: actions/download-artifact@v7
+        with:
+          pattern: pfs3aio-handlers-*
+          merge-multiple: true
+          path: .
+
+      - name: Restore executable permissions
+        run: chmod +x pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom
+
+      - name: Build distribution
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          set -eu
+          if [ -n "$RELEASE_TAG" ]; then
+            version="${RELEASE_TAG#release_}"
+            version="${version#v}"
+            make archive FULL_VERSION="$version"
+          else
+            make archive
+          fi
+
+      - name: Upload distribution
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-artifacts
+          path: |
+            dist/*.lha
+            dist/*.readme
+          if-no-files-found: error

@@ -1,0 +1,46 @@
+name: pfs3aio Draft Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "release_*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: draft-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test release
+    uses: ./.github/workflows/ci-build.yml
+    with:
+      release-tag: ${{ github.ref_name }}
+
+  release:
+    name: Create GitHub draft release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download distribution
+        uses: actions/download-artifact@v7
+        with:
+          name: release-artifacts
+          path: artifacts
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: pfs3aio ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/*.lha
+            artifacts/*.readme
