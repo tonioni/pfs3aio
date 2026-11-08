@@ -234,7 +234,7 @@ static BOOL PacketMutatesFilesystem(struct DosPacket *action)
 		case ACTION_MORE_CACHE:
 			return action->dp_Arg1 != 0;
 		case ACTION_SET_ROLLOVER:
-			return action->dp_Arg2 && ((struct rolloverinfo *)BADDR(action->dp_Arg2))->set != 0;
+			return action->dp_Arg3 && ((struct rolloverinfo *)action->dp_Arg3)->set != 0;
 		case ACTION_SET_DELDIR:
 			return action->dp_Arg2 != -1;
 		case ACTION_SET_FNSIZE:
@@ -431,7 +431,12 @@ void NormalCommands(struct DosPacket *action, globaldata *g)
 			action->dp_Res1 = NotKnown(action, g);
 			break;
 	}
-	RejectMetadataMutation(action, g);
+	/* Open and CreateDir return a new entry/lock and check metadata_error
+	 * themselves; failing them afterwards would leak what they returned.
+	 */
+	if (packettype != ACTION_FINDUPDATE && packettype != ACTION_FINDOUTPUT &&
+		packettype != ACTION_CREATE_DIR)
+		RejectMetadataMutation(action, g);
 }
 
 
