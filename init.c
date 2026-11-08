@@ -693,6 +693,8 @@ void InitModules (struct volumedata *volume, BOOL formatting, globaldata *g)
 	if (volume->metadata_error)
 		return;
 	InitAllocation (volume, g);
+	if (volume->metadata_error)
+		return;
 
 #if VERSION23
 	if (!formatting)

@@ -149,11 +149,41 @@ static struct cindexblock *NewBitmapIndexBlock(UWORD , globaldata * );
  */
 VOID InitAllocation (struct volumedata *volume, globaldata *g)
 {
-  ULONG t;
+  ULONG t, reserved, rootbytes, bitmaplongs;
   rootblock_t *rootblock = volume->rootblk;
+
+	/* Do not leave another volume's bitmap usable after a failed init. */
+	alloc_data.res_bitmap = NULL;
+	alloc_data.numreserved = 0;
+	alloc_data.res_roving = 0;
 
 	if (g->harddiskmode)
 	{
+		/* The bitmap lives in the rootblock allocation, not in a full
+		 * reserved block of its own. Validate its capacity before using
+		 * any on-disk count as an array bound or allocation boundary.
+		 */
+		if (!volume->rescluster ||
+			rootblock->firstreserved < ROOTBLOCK ||
+			rootblock->lastreserved < rootblock->firstreserved ||
+			rootblock->lastreserved >= volume->numblocks ||
+			!rootblock->rblkcluster || rootblock->rblkcluster > 521)
+			goto invalid;
+		reserved = rootblock->lastreserved - rootblock->firstreserved + 1;
+		if (reserved % volume->rescluster ||
+			rootblock->rblkcluster > reserved)
+			goto invalid;
+		reserved /= volume->rescluster;
+		rootbytes = (ULONG)rootblock->rblkcluster * volume->bytesperblock;
+		if (rootbytes < sizeof(*rootblock) + sizeof(bitmapblock_t))
+			goto invalid;
+		bitmaplongs = (rootbytes - sizeof(*rootblock) -
+			sizeof(bitmapblock_t)) / sizeof(ULONG);
+		if (reserved > bitmaplongs * 32 ||
+			rootblock->reserved_free > reserved)
+			goto invalid;
+		alloc_data.numreserved = reserved;
+
 		alloc_data.clean_blocksfree = rootblock->blocksfree;
 		alloc_data.alloc_available = rootblock->blocksfree - rootblock->alwaysfree;
 		alloc_data.longsperbmb = LONGS_PER_BMB;
@@ -173,7 +203,10 @@ VOID InitAllocation (struct volumedata *volume, globaldata *g)
 			{
 				rootblock->options |= MODE_EXTROVING;
 				g->dirty = TRUE;
-				volume->rblkextension->blk.reserved_roving *= 32;
+				if (volume->rblkextension->blk.reserved_roving >= (reserved + 31) / 32)
+					volume->rblkextension->blk.reserved_roving = 0;
+				else
+					volume->rblkextension->blk.reserved_roving *= 32;
 			}
 			alloc_data.res_roving = volume->rblkextension->blk.reserved_roving;
 			alloc_data.rovingbit = volume->rblkextension->blk.rovingbit;
@@ -184,7 +217,8 @@ VOID InitAllocation (struct volumedata *volume, globaldata *g)
 			alloc_data.rovingbit = 0;
 		}
 
-		alloc_data.numreserved = (rootblock->lastreserved - rootblock->firstreserved + 1)/(volume->rescluster);
+		if (alloc_data.res_roving >= reserved)
+			alloc_data.res_roving = 0;
 		if (alloc_data.reservedtobefreed)
 			FreeMem(alloc_data.reservedtobefreed, sizeof(*alloc_data.reservedtobefreed) * alloc_data.rtbf_size);
 		alloc_data.reservedtobefreed = NULL;
@@ -196,6 +230,11 @@ VOID InitAllocation (struct volumedata *volume, globaldata *g)
 	{
 		ErrorMsg (AFS_ERROR_ANODE_INIT, NULL, g);
 	}
+	return;
+
+invalid:
+	volume->metadata_error = TRUE;
+	ErrorMsg(AFS_ERROR_DNV_ALLOC_INFO, NULL, g);
 }
 
 
@@ -979,12 +1018,15 @@ void UndoFreeList (globaldata *g)
 ULONG AllocReservedBlock (globaldata *g)
 {
   struct volumedata *vol = g->currentvolume;
-  ULONG *bitmap = alloc_data.res_bitmap->bitmap;
+  ULONG *bitmap;
   ULONG *free = &g->rootblock->reserved_free;
   ULONG blocknr;
   LONG i, j;
 
   ENTER("AllocReservedBlock");
+	if (vol->metadata_error || !alloc_data.res_bitmap || !alloc_data.numreserved)
+		return 0;
+	bitmap = alloc_data.res_bitmap->bitmap;
 
   /* Check if allocation possible 
    * (really necessary?)
@@ -1062,6 +1104,9 @@ ULONG AllocReservedBlockSave (globaldata *g)
 VOID FreeReservedBlock (ULONG blocknr, globaldata *g)
 {
   ULONG *bitmap, t, mask;
+
+	if (g->currentvolume->metadata_error || !alloc_data.res_bitmap)
+		return;
 
 	if (blocknr >= g->rootblock->firstreserved &&
 		blocknr <= g->rootblock->lastreserved && blocknr &&

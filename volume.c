@@ -1084,6 +1084,7 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
   ULONG error;
   struct IOExtTD *request = g->request;
   int rblsize;
+  UWORD resblksize;
   struct rootblock *rbp;
   UBYTE *rbpt;
 
@@ -1243,13 +1244,16 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 	 * has been removed.
 	 */
 
+	resblksize = rbp->reserved_blksize;
 	FreeBufmem(rbpt, g);
 	*rootblock = AllocBufmemR (rblsize << BLOCKSHIFT, g);
 	rbp = *rootblock;
 	rbpt = (UBYTE*)rbp;
 
 	error = RawRead(rbpt, rblsize, ROOTBLOCK, g);
-	if (error)
+	/* The second read must describe the buffer we actually allocated. */
+	if (error || rbp->rblkcluster != rblsize ||
+		rbp->reserved_blksize != resblksize)
 	{
 		goto nrd_error;
 	}
