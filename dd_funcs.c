@@ -1072,7 +1072,7 @@ static SIPTR dd_AddBuffers(struct DosPacket *pkt, globaldata * g)
 	// RES1 = BOOL Success/failure (DOSTRUE/DOSFALSE)
 	// RES2 = new total number of cache buffers or failurecode (if res1 = DOSFALSE)
 
-	LONG numbuffers = g->dosenvec->de_NumBuffers;
+	LONG numbuffers = g->glob_lrudata.poolsize;
 	LONG delta = (LONG)pkt->dp_Arg1;
 
 	if (!g->currentvolume || !g->rootblock || !g->glob_lrudata.LRUarray)
@@ -1093,11 +1093,17 @@ static SIPTR dd_AddBuffers(struct DosPacket *pkt, globaldata * g)
 		return DOSFALSE;
 	}
 
-	/* Saturate before adding, including the most negative LONG. */
+	/* Saturate before adding, including the most negative LONG. A positive
+	 * delta never shrinks the cache (it may be above MAX_BUFFERS) and
+	 * ResizeLRU enforces the minimum for a negative one.
+	 */
 	if (delta < -numbuffers)
 		numbuffers = 0;
 	else if (delta > MAX_BUFFERS - numbuffers)
-		numbuffers = MAX_BUFFERS;
+	{
+		if (numbuffers < MAX_BUFFERS)
+			numbuffers = MAX_BUFFERS;
+	}
 	else
 		numbuffers += delta;
 	numbuffers = ResizeLRU(g, numbuffers);
