@@ -22,7 +22,8 @@ It needs only a host C compiler. It prints one line per assertion plus a
 `live: N passed, M failed` summary and exits non-zero if anything failed. `run.sh`
 finds the tests with `live/*_live.c`, so a new test needs no registration; the
 `@src`/`@func` tags in its header name the functions it lifts (matched at column 0
-of the source, as a definition). Each test is written to FAIL on a tree that still
+of the source, as a definition of exactly that name; if a name is defined more than
+once, such as a `DEBUGMODE` stub, the last definition is used). Each test is written to FAIL on a tree that still
 has the bug it covers and to PASS once it is fixed. Covered:
 
 | test | fix it proves |
@@ -49,12 +50,34 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `dd_relabel_live.c` | `dd_Relabel` refuses empty names, `:` and `/` and names over 30 characters before touching the volume; the new name is an `AllocVec` block that `FreeDosEntry` can free, and a failed write frees it again |
 | `newfile_live.c` | `NewFile` on an overwrite whose `AddToDeldir` fails puts the old chain's head back in the original anode and frees the replacement, instead of leaving the old data blocks orphaned |
 | `format_reject_live.c` | `FDSFormat` writes nothing to the disk on any failure (bad DosEnvec, tiny partition, reserved area larger than the partition, a failing bitmap, root directory or deldir) and a rejected DosEnvec leaves the geometry in use alone; the boot block is written last |
+| `anode_range_live.c` | `GetAnode`/`SaveAnodeInternal` reject exactly the anode numbers the old divide-based test rejected (every `anodesperblock` 1..0xFFFF, brute-forced), without a 32-bit divide; split mode ignores the limit. Passes on master too: a guard that the 68000 rewrite changed nothing |
+| `anode_walk_live.c` | `CorrectAnode` stops on a looping or self-linked anode chain instead of walking forever; long valid chains still resolve and reduce the offset correctly |
+| `dblk_walk_live.c` | `GetAnodeOfDBlk` fails on a broken or looping chain and reports the previous anode; `UpdateDBLK` and `RemoveEmptyDBlocks` honour the failure |
+| `resizelru_live.c` | The real `ResizeLRU` clamps to `MIN_BUFFERS`/`MAX_BUFFERS`, never grows past the maximum, keeps its counts consistent through growth, shrinking and a failed allocation, and leaves locked, unlinked and pending blocks alone |
+| `dir_links_live.c` | The link-list walks (`UpdateLinks`, `UpdateLinkDir`, `MoveLink`, `CreateLink`) stop at `MAXWALK` on a cyclic list; `CreateLink` refuses a volume, soft-link or dir-link target with `ERROR_OBJECT_WRONG_TYPE` and reports `ERROR_DISK_FULL` (freeing the anode); `CreateRollover` reports `ERROR_DISK_FULL` on each failure path |
+| `dir_deletelink_live.c` | `DeleteLink` fetches the master before changing anything (an unreadable master fails with nothing modified, a missing one is a dangling link and fine) and refetches it afterwards; `RemapLinks` sets the new parent of a promoted directory, not of a file |
+| `dir_setparent_live.c` | `SetDirParent` updates every dirblock of a multi-block, multi-anode directory and fails on an unreadable anode or block; `RenameAndMove` refuses a move into the directory's own subtree or a broken parent chain, and fails with `metadata_error` if the new parent cannot be written |
+| `dir_misc_live.c` | `KillEmpty` deletes real directories only (not a link to one); `DeleteDir` ends on a looping chain; `NewDir` reports `ERROR_OBJECT_IN_USE` and releases the anode and entry when it cannot be listed |
+| `dir_entries_live.c` | `ExamineAll`/`FillInData` return `PFS_ERROR_INCONSISTENT` for an entry whose name and comment do not fit it instead of retrying it forever (a plain "does not fit the buffer" stays 0); `SearchInDir` and `SearchInDeldir` handle maximum-length names without overflowing their buffer |
+| `dd_openfromlock_live.c` | `dd_OpenFromLock` adds the new fileentry before removing the lock (a failed open leaves the lock usable), hiding the lock from its own conflict check meanwhile |
+| `dd_makelink_live.c` | `dd_MakeLink` refuses a hard link to a volume lock, soft link, link to a dir or deldir file with `ERROR_OBJECT_WRONG_TYPE` before `CreateLink` is called; files, real dirs and file links still get through |
+| `dd_signalidle_live.c` | `dd_SignalIdle` reports a failed allocation as `ERROR_NO_FREE_STORE` and queues nothing; valid handles are queued and unlinked from the head, middle and tail |
+| `packet_dispatch_live.c` | `PacketMutatesFilesystem` reads the `rolloverinfo` of `ACTION_SET_ROLLOVER` from the right argument; `NormalCommands` does not overwrite the reply of FINDUPDATE/FINDOUTPUT/CREATE_DIR with a metadata-error rejection (which would leak the entry they returned) but still rejects every other mutation |
+| `volume_probe_live.c` | `ProbeRootBlock` refuses a rootblock without `MODE_HARDDISK` or with `rblkcluster` outside 1..521, retries with 512-byte blocks once, resets the block size first and never touches the data cache |
+| `getcurrentroot_live.c` | `GetCurrentRoot` restores block size, softprotect, protectkey and the error handler after a probe and reports the block size it found; `CheckCurrentVolumeBack` accepts any readable disk when there is no current volume |
+| `newvolume_live.c` | `SwitchBlockSize` rolls geometry and data cache back when it cannot allocate; `NewVolume` invalidates only clean data-cache slots (dirty ones still belong to the old volume), switches block size only when it differs, and inserts nothing if that fails |
+| `drivegeom_live.c` | `GetDriveGeometry` saturates the total sector count instead of wrapping (which would defeat the maximum-size check of `FDSFormat`) and tolerates a zero cylinder size |
+| `init_checks_live.c` | `DoPostponed` fails a corrupt "blocks done" count instead of wrapping the free-space counters, and `alloc_available` saturates at zero |
+| `initialize_live.c` | `Initialize` rejects a DosEnvec too short to locate the partition and a `de_SizeBlock` outside 1..1024 before allocating anything; defaults `de_MaxTransfer` 0 to 0x20000 and keeps other values; assigns the allocator pointers before every failure return (`Quit` uses them after a failed init); works on `envcopy` for a table without a DosType and in place for one that has it; calls `AddToFSResource` only when `de_TableSize >= DE_DOSTYPE` |
+| `fsresource_live.c` | `AddToFSResource` ignores a zero DosType or a NULL seglist; a valid pair is registered, a duplicate DosType keeps the old entry, and failed allocations leave nothing half-built |
+| `datacache_live.c` | `InitDataCache` frees both blocks and resets the size after a failed allocation; `FreeDataCache` resets the size, so a later loop over the slots cannot touch freed memory |
 
-Not covered by a live test: fixes that are one-liners inside large functions
-(e.g. the `numblocks` formula in `NewVolume`) or that are inseparable from the
-AmigaOS runtime (the remaining update/commit, cache, directory and geometry
-paths). Those are covered by the black-box layer below and by code review in
-the fix PR.
+Not covered by a live test: code that cannot run without AmigaOS or the m68k
+assembler: the startup path (`startup.s`, `FailStartup`), `Quit`, the stack
+release in `assroutines.asm`, and the large-file
+(`EXTENDED_PACKETS_OS4`) packet paths. The black-box layer below only exercises
+them indirectly (every run mounts the handler and shuts it down again); the
+failure branches there rest on code review in the fix PR.
 
 ## black-box AmiFUSE suite — functional / regression / atomicity
 
