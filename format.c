@@ -144,8 +144,8 @@
  * Contents
  */
 static void ShowVersion (globaldata *g);
-static ULONG MakeBootBlock(globaldata *g);
-static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g);
+static ULONG MakeBootBlock(BOOL write, globaldata *g);
+static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, SIPTR *error, globaldata *g);
 static BOOL MakeBitmap (globaldata *g);
 static BOOL MakeRootDir (SIPTR *error, globaldata *g);
 static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize);
@@ -193,7 +193,6 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 
 	// logical blocksize = size_block * sectors per block
 	ULONG cbs = (env[DE_SIZEBLOCK] << 2) * env[DE_SECSPERBLK];
-	CalculateBlockSize(g, 0, cbs);
 
 	ShowVersion (g);
 
@@ -215,22 +214,29 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 	
 	// block size might have changed
 	// (formatting old pfs3 partition that ignored DE_SECSPERBLK)
-	// reallocate data cache
-	if (!InitDataCache(g)) {
+	// reallocate data cache. Only done after the checks above, so a
+	// rejected format leaves the geometry of the previous volume intact.
+	if (!SwitchBlockSize (cbs, g->blocksize, g)) {
 		*error = ERROR_NO_FREE_STORE;
 		return DOSFALSE;	
 	}
 
-	err = MakeBootBlock (g);
+	// partition without any usable block (invalid DosEnvec)
+	if (g->lastblock < g->firstblock) {
+		*error = ERROR_BAD_NUMBER;
+		return DOSFALSE;
+	}
+
+	// only detect the access mode here: the boot block is written
+	// below, after everything that can fail has succeeded
+	err = MakeBootBlock (FALSE, g);
 	if (err != 0) {
 		*error = err;
  		return DOSFALSE;
 	}
 
-	if (!(rootblock = MakeRootBlock (diskname, rsblocks, g))) {
-		*error = ERROR_NO_FREE_STORE;
+	if (!(rootblock = MakeRootBlock (diskname, rsblocks, error, g)))
 		return DOSFALSE;
-	}
 
 	/*  make volumedata BEFORE rext ! (bug 00135) */
 	g->currentvolume = volume = MakeVolumeData (rootblock, g);
@@ -277,6 +283,11 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 	rootblock->options |= MODE_DELDIR | MODE_SUPERDELDIR;
 	g->dirty = TRUE;
 #endif
+
+	if ((err = MakeBootBlock (TRUE, g)) != 0) {
+		*error = err;
+		goto failure;
+	}
 
 	if (!UpdateDisk (g)) {
 		*error = PFS_ERROR_INCONSISTENT;
@@ -353,26 +364,26 @@ static void ShowVersion (globaldata *g)
 
 
 /*
- * creates & writes the two bootblocks
+ * write == FALSE: only detect the access mode (reads only).
+ * write == TRUE: creates & writes the two bootblocks
  */
-static ULONG MakeBootBlock (globaldata *g)
+static ULONG MakeBootBlock (BOOL write, globaldata *g)
 {
   struct bootblock *bbl;
-  ULONG error;
+  ULONG error = 0;
 
 	if (!(bbl = AllocBufmem (2 * BLOCKSIZE, g)))
 		return ERROR_NO_FREE_STORE;
 
-#if ACCESS_DETECT
-	if (!detectaccessmode((UBYTE*)bbl, g)) {
-		FreeBufmem (bbl, g);
-		return ERROR_OBJECT_TOO_LARGE;
+	if (write) {
+		memset (bbl, 0, 2*BLOCKSIZE);
+		bbl->disktype = ID_PFS_DISK;
+		error = RawWrite ((UBYTE *)bbl, 2, BOOTBLOCK1, g);
 	}
+#if ACCESS_DETECT
+	else if (!detectaccessmode((UBYTE*)bbl, g))
+		error = ERROR_OBJECT_TOO_LARGE;
 #endif
-
-	memset (bbl, 0, 2*BLOCKSIZE);
-	bbl->disktype = ID_PFS_DISK;
-	error = RawWrite ((UBYTE *)bbl, 2, BOOTBLOCK1, g);
 	FreeBufmem (bbl, g);
 	return error;
 }
@@ -382,13 +393,15 @@ static ULONG MakeBootBlock (globaldata *g)
  * including reserved bitmap
  * (will be written by Update and freed by FreeVolumeRes.)
  */
-static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
+static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, SIPTR *error, globaldata *g)
 {
 	struct rootblock *rbl;
 	struct DateStamp time;
 	ULONG numreserved;
 	ULONG rescluster;
 	ULONG resblocksize;
+	ULONG numblocks;
+	ULONG reserved;
 	ULONG options = 0, disktype = ID_PFS_DISK;
 	ULONG *env = (ULONG*)g->dosenvec;
 
@@ -430,8 +443,34 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 		resblocksize = 4096;
 	}
 
-	if (!(rbl = AllocBufmem (BLOCKSIZE, g)))
+	rescluster = resblocksize >> BLOCKSHIFT;
+	if (rsblocks == 0) {
+		numreserved = CalcNumReserved (g, resblocksize);
+	} else {
+		if (rsblocks > MAXNUMRESERVED) {
+			rsblocks = MAXNUMRESERVED;
+		}
+		numreserved = (rsblocks + 31) & ~31;
+		if (numreserved < 32) {
+			numreserved = 32;
+		}
+	}
+
+	/* The reserved area (it starts at the rootblock) must leave room for
+	 * data blocks, otherwise the free block counters below underflow.
+	 * Partitions this small are not usable anyway.
+	 */
+	numblocks = g->lastblock - g->firstblock + 1;
+	reserved = rescluster*numreserved + ROOTBLOCK;
+	if (numblocks < 128 || numblocks <= reserved) {
+		*error = ERROR_DISK_FULL;
 		return NULL;
+	}
+
+	if (!(rbl = AllocBufmem (BLOCKSIZE, g))) {
+		*error = ERROR_NO_FREE_STORE;
+		return NULL;
+	}
 
 	memset (rbl, 0, BLOCKSIZE);
 	DateStamp (&time);
@@ -455,6 +494,7 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 
 	if (!InitLRU(g, resblocksize)) {
 		FreeBufmem(rbl, g);
+		*error = ERROR_NO_FREE_STORE;
 		return NULL;
 	}
 
@@ -475,7 +515,6 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 #endif
 	}
 
-	rescluster = resblocksize >> BLOCKSHIFT;
 	rbl->reserved_blksize = resblocksize;
 
 #if LARGE_FILE_SIZE > 1
@@ -487,16 +526,8 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 	rbl->creationminute = (UWORD)time.ds_Minute;
 	rbl->creationtick = (UWORD)time.ds_Tick;
 	rbl->protection	= 0xf0;
-	if (rsblocks == 0) {
-		numreserved = CalcNumReserved (g, resblocksize);
-	} else {
-		numreserved = (rsblocks + 31) & ~31;
-		if (numreserved < 32) {
-			numreserved = 32;
-		}
-	}
-	rbl->firstreserved = 2;
-	rbl->lastreserved = rescluster*numreserved + rbl->firstreserved - 1;
+	rbl->firstreserved = ROOTBLOCK;
+	rbl->lastreserved = reserved - 1;
 	rbl->reserved_free = numreserved;
 	/* usable blocks = lastblock - firstblock + 1 (NOT
 	 * dg_TotalSectors >> blocklogshift, which counts one block too many
@@ -504,7 +535,7 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g)
 	 * size; the bitmap would then contain a phantom block past the end
 	 * of the partition)
 	 */
-	rbl->blocksfree = (g->lastblock - g->firstblock + 1) - rescluster*numreserved - rbl->firstreserved;
+	rbl->blocksfree = numblocks - reserved;
 	rbl->alwaysfree = rbl->blocksfree/20;
 	// rbl->roving_ptr = 0;
 
