@@ -32,10 +32,19 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `partlimit_live.c`      | partition end saturates instead of wrapping past 2^32 sectors (no inverted partition) |
 | `ds_retry_live.c`       | DirectSCSI retry restarts in range instead of re-applying blocklogshift and writing outside the partition |
 | `ds_maxtransfer_live.c` | DirectSCSI maxtransfer in native sectors (a 16 KiB MaxTransfer with 4 KB blocks no longer rounds to 0) |
-| `freeanode_live.c`      | FreeAnode marks the correct anodeblock in non-split mode |
+| `freeanode_live.c`      | FreeAnode marks the correct anodeblock (non-split and split mode, reserved anodes), reports a failed SaveAnode as FALSE without marking, ignores out-of-range seqnrs |
 | `update_cleanup_live.c` | Deferred reserved frees are persisted by a root-only write after the primary commit |
 | `writeback_live.c` | Relative writeback deadline survives one-second reads and continuous packet traffic; idle flushing, retries and inhibit remain safe |
 | `directory_bounds_live.c` | Reject oversized directory entries and out-of-entry names/comments before caching; safely rewrite valid entries with maximum-length strings |
+| `dd_close_live.c` | `dd_Close` always removes the fileentry (failed volume check, flushed dirblock, ghost volume), so a ghost volume can die |
+| `allocation_live.c` | `InitAllocation`: corrupt free-space counters cannot make the allocator wrap, and the bitmap block count stays within what `GetBitmapBlock` can address |
+| `anodechain_live.c` | `MakeAnodeChain` fails on an anode chain whose `next` links loop instead of allocating until memory runs out; long valid chains still build |
+| `blocksize_zero_live.c` | `CalculateBlockSize` with a zero (or wrapping) `de_SizeBlock` falls back to 512 bytes instead of spinning forever |
+| `dir_integrity_live.c` | `IsChildOf` treats a `GetParent` failure or a cyclic parent chain as an error |
+| `lru_alloc_live.c` | `AllocLRU` never evicts the block it just handed out (no double hand-out) and gives up instead of looping when the cache cannot grow |
+| `partlimit_failclosed_live.c` | `SetPartitionLimits` fails closed (firstblock > lastblock) for invalid geometry; valid partitions keep their limits |
+| `dosenvec_short_live.c` | `PadDosEnvec`: a DosEnvec shorter than de_DosType (but with the cylinder range) is copied and padded with defaults, never read or written past its end, and holds no DosType (so it is neither registered under, nor tested for, a garbage DosType); tables too short to locate the partition are refused |
+| `bitmapindex_live.c` | `CheckBitmapIndex` rejects a supermode rootblock whose bitmap index points outside the reserved area at mount; formatter-written layouts are accepted |
 
 Not covered by a live test: fixes that are one-liners inside large functions
 (e.g. the `numblocks` formula in `NewVolume`) or that are inseparable from the
