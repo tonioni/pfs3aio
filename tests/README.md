@@ -15,8 +15,15 @@ zsh tests/live/run.sh                        # test this checkout's source (../.
 SRCROOT=/path/to/other/tree zsh tests/live/run.sh
 ```
 
-It needs only a host C compiler. On unpatched upstream master all of these fail;
-apply the fixes and they pass. Covered:
+The test binaries and extracted functions are written to `build/tests/live` (see
+[Generated files](#generated-files)), never into `tests/`.
+
+It needs only a host C compiler. It prints one line per assertion plus a
+`live: N passed, M failed` summary and exits non-zero if anything failed. `run.sh`
+finds the tests with `live/*_live.c`, so a new test needs no registration; the
+`@src`/`@func` tags in its header name the functions it lifts (matched at column 0
+of the source, as a definition). Each test is written to FAIL on a tree that still
+has the bug it covers and to PASS once it is fixed. Covered:
 
 | test | fix it proves |
 |------|---------------|
