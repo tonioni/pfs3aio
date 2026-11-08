@@ -226,6 +226,38 @@ static UBYTE debugbuf[120];
 /*                                MAIN                                */
 /**********************************************************************/
 
+/* These two also run without globaldata, so they use their own SysBase */
+#undef SysBase
+
+void ReturnPacket (struct DosPacket *packet, struct MsgPort *sender, globaldata *g)
+{
+  struct ExecBase *SysBase = *((struct ExecBase **)4);
+  struct MsgPort *rec = packet->dp_Port;
+
+	packet->dp_Link->mn_Node.ln_Name = (UBYTE*)packet;
+	packet->dp_Link->mn_Node.ln_Succ = NULL;
+	packet->dp_Link->mn_Node.ln_Pred = NULL;
+	packet->dp_Port = sender;
+	PutMsg (rec, packet->dp_Link);
+}
+
+/* Fail the startup packet, DOS would wait forever for a reply */
+static void FailStartup (struct MsgPort *msgport, LONG error)
+{
+  struct ExecBase *SysBase = *((struct ExecBase **)4);
+  struct DosPacket *pkt;
+  struct DeviceNode *devnode;
+
+	WaitPort (msgport);
+	pkt = (struct DosPacket *)GetMsg (msgport)->mn_Node.ln_Name;
+	devnode = (struct DeviceNode *)BADDR(pkt->dp_Arg3);
+	if (devnode)
+		devnode->dn_Task = NULL;
+	RES1(pkt) = DOSFALSE;
+	RES2(pkt) = error;
+	ReturnPacket (pkt, msgport, NULL);
+}
+
 void SAVEDS EntryPoint (void)
 {
 	/* globals */
@@ -245,10 +277,12 @@ void SAVEDS EntryPoint (void)
 
 	/* init globaldata */
 	g = AllocMem(sizeof(struct globaldata), MEMF_CLEAR);
+	msgport = &((struct Process *)FindTask (NULL))->pr_MsgPort;
 	if (!g)
 	{
+		FailStartup (msgport, ERROR_NO_FREE_STORE);
 		Alert (AG_NoMemory);
-		Wait (0);
+		return;
 	}
 	g->g_SysBase = SysBase;
 	g->largeDiskSafeOS = SysBase->LibNode.lib_Version >= OS_VERSION_SAFE_LARGE_DISK;
@@ -264,7 +298,6 @@ void SAVEDS EntryPoint (void)
 	if (g->v37DOS && g->v37EXEC)
 #endif
 	UtilityBase = OpenLibrary ("utility.library",0L);
-	msgport = &((struct Process *)FindTask (NULL))->pr_MsgPort;
 
 	if (!IntuitionBase ||
 #ifndef KSWRAPPER
@@ -272,8 +305,10 @@ void SAVEDS EntryPoint (void)
 #endif
 		!DOSBase)
 	{
-		NormalErrorMsg (AFS_ERROR_LIBRARY_PROBLEM, NULL, 1);
-		Wait (0);
+		if (IntuitionBase)
+			NormalErrorMsg (AFS_ERROR_LIBRARY_PROBLEM, NULL, 1);
+		FailStartup (msgport, ERROR_INVALID_RESIDENT_LIBRARY);
+		goto closelibs;
 	}
 
 	//DebugMsg("Requester debug enabled");
@@ -469,23 +504,15 @@ terminate:
 	if (muBase)
 		CloseLibrary((struct Library *) muBase);
 #endif
+closelibs:
 	if (UtilityBase)
 		CloseLibrary(UtilityBase);
-	CloseLibrary((struct Library *) DOSBase);
-	CloseLibrary((struct Library *) IntuitionBase);
+	if (DOSBase)
+		CloseLibrary((struct Library *) DOSBase);
+	if (IntuitionBase)
+		CloseLibrary((struct Library *) IntuitionBase);
 
 	FreeMem(g, sizeof(struct globaldata));
-}
-
-void ReturnPacket (struct DosPacket *packet, struct MsgPort *sender, globaldata *g)
-{
-  struct MsgPort *rec = packet->dp_Port;
-
-	packet->dp_Link->mn_Node.ln_Name = (UBYTE*)packet;
-	packet->dp_Link->mn_Node.ln_Succ = NULL;
-	packet->dp_Link->mn_Node.ln_Pred = NULL;
-	packet->dp_Port = sender;
-	PutMsg (rec, packet->dp_Link);
 }
 
 static void SetTimer (int micros, globaldata *g)

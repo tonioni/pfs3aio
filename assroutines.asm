@@ -119,13 +119,18 @@ ss_after
 		move.l	TC_SPLOWER(a0),a3
 		lea	-4(a7),a7
 		move.l	(a7)+,a0
+		move.l	a0,a2
 		jsr	_LVOStackSwap(a6)
 
-	; free stack
+	; free stack (6000 bytes, see @InitStack) and StackSwapStruct
 
 		move.l	a3,a1
-		move.l	#5000,d0
+		move.l	#6000,d0
 		jsr	_LVOFreeMem(a6)	
+
+		move.l	a2,a1
+		move.l	#StackSwapStruct_SIZEOF,d0
+		jsr	_LVOFreeMem(a6)
 
 	; exit AFS
 

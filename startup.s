@@ -52,7 +52,7 @@ _entrypoint:
 		jsr	_LVOAllocMem(a6)
 		move.l	d0,a3
 		tst.l d0
-		beq end
+		beq nostack
 		add.l	#12,d0
 		move.l	d0,(a3)
 		add.l	#4000,d0
@@ -107,6 +107,39 @@ _entrypoint:
 end:
 		moveq	#0,d0	
 		rts
+
+	/* no memory for the stack: fail the startup packet (DOSFALSE,
+	 * ERROR_NO_FREE_STORE) instead of leaving DOS waiting forever */
+nostack:
+		sub.l	a1,a1
+		jsr	_LVOFindTask(a6)
+		add.l	#92,d0			/* pr_MsgPort */
+		move.l	d0,a3
+		move.l	a3,a0
+		jsr	_LVOWaitPort(a6)
+		move.l	a3,a0
+		jsr	_LVOGetMsg(a6)
+		move.l	d0,a0
+		move.l	10(a0),a1		/* ln_Name: the DosPacket */
+		moveq	#0,d0
+		move.l	d0,12(a1)		/* dp_Res1 = DOSFALSE */
+		moveq	#103,d0
+		move.l	d0,16(a1)		/* dp_Res2 = ERROR_NO_FREE_STORE */
+		move.l	28(a1),d0		/* dp_Arg3: DeviceNode */
+		beq.b	1f
+		lsl.l	#2,d0
+		move.l	d0,a0
+		clr.l	8(a0)			/* dn_Task */
+1:
+		move.l	4(a1),a0		/* reply port */
+		move.l	a3,4(a1)		/* dp_Port = our port */
+		move.l	a1,d0
+		move.l	(a1),a1			/* dp_Link */
+		move.l	d0,10(a1)		/* ln_Name = packet */
+		clr.l	(a1)
+		clr.l	4(a1)
+		jsr	_LVOPutMsg(a6)
+		bra.b	end
 
 myStackSwap:
 
