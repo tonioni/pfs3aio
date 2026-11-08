@@ -11,6 +11,13 @@ struct cindexblock *GetSuperBlock (UWORD nr, globaldata *g);
 BOOL NextBlock(struct canode * , ULONG * , globaldata * );
 BOOL CorrectAnode(struct canode * , ULONG * , globaldata * );
 BOOL GetAnode(struct canode * , ULONG , globaldata * );
+/* state of a walk along an anode chain, see GetNextAnode */
+struct anodewalk
+{
+	ULONG mark;		/* anode number to compare with, set to the first anode of the chain */
+	ULONG steps;	/* set to 0 */
+};
+BOOL GetNextAnode(struct canode *anode, ULONG anodenr, struct anodewalk *walk, globaldata *g);
 BOOL SaveAnode(struct canode * , ULONG , globaldata * );
 BOOL TrySaveAnode(struct canode * , ULONG , globaldata * );
 ULONG AllocAnode(ULONG connect, globaldata *g);

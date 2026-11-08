@@ -146,12 +146,29 @@ void DetachAnodeChain(struct anodechain *chain, globaldata *g)
 
 
 /*
+ * Follows an anode chain: reads the anode that is linked from the previous
+ * one. Fails if it was already visited by this walk (Brent's cycle detection),
+ * so a corrupt chain that loops back (also onto itself) cannot be followed
+ * endlessly. Valid chains never revisit an anode, so they are never rejected.
+ */
+BOOL GetNextAnode(struct canode *anode, ULONG anodenr, struct anodewalk *walk, globaldata *g)
+{
+	if (anodenr == walk->mark)
+		return FALSE;
+	walk->steps++;
+	if (!(walk->steps & (walk->steps - 1)))
+		walk->mark = anodenr;
+	return GetAnode(anode, anodenr, g);
+}
+
+/*
  * makes anodechain
  */
 static struct anodechain *MakeAnodeChain(ULONG anodenr, globaldata *g)
 {
 	struct anodechain *ac;
 	struct anodechainnode *node, *newnode;
+	struct anodewalk walk;
 
 	ENTER("MakeAnodeChain");
 	if (!(ac = AllocMemP(sizeof(struct anodechain), g)))
@@ -163,13 +180,15 @@ static struct anodechain *MakeAnodeChain(ULONG anodenr, globaldata *g)
 	node->next = NULL;
 	if (!GetAnode(&node->an, anodenr, g))
 		goto failure;
+	walk.mark = anodenr;
+	walk.steps = 0;
 	while (node->an.next)
 	{
 		if (!(newnode = AllocMemP(sizeof(struct anodechainnode), g)))
 			goto failure;
 		newnode->next = NULL;
 		node->next = newnode;
-		if (!GetAnode(&newnode->an, node->an.next, g))
+		if (!GetNextAnode(&newnode->an, node->an.next, &walk, g))
 			goto failure;
 		node = newnode;
 	}
@@ -273,13 +292,17 @@ BOOL NextBlock (struct canode *anode, ULONG *anodeoffset, globaldata *g)
  */
 BOOL CorrectAnode (struct canode *anode, ULONG *anodeoffset, globaldata *g)
 {
+	struct anodewalk walk;
+
+	walk.mark = anode->nr;
+	walk.steps = 0;
 	while(*anodeoffset >= anode->clustersize)
 	{
 		if(!anode->next)
 			return DOSFALSE;
 
 		*anodeoffset -= anode->clustersize;
-		if (!GetAnode(anode, anode->next, g))
+		if (!GetNextAnode(anode, anode->next, &walk, g))
 			return DOSFALSE;
 	}
 

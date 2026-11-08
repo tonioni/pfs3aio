@@ -149,7 +149,7 @@ static struct cindexblock *NewBitmapIndexBlock(UWORD , globaldata * );
  */
 VOID InitAllocation (struct volumedata *volume, globaldata *g)
 {
-  ULONG t, reserved, rootbytes, bitmaplongs;
+  ULONG t, n, reserved, rootbytes, bitmaplongs;
   rootblock_t *rootblock = volume->rootblk;
 
 	/* Do not leave another volume's bitmap usable after a failed init. */
@@ -184,12 +184,27 @@ VOID InitAllocation (struct volumedata *volume, globaldata *g)
 			goto invalid;
 		alloc_data.numreserved = reserved;
 
-		alloc_data.clean_blocksfree = rootblock->blocksfree;
-		alloc_data.alloc_available = rootblock->blocksfree - rootblock->alwaysfree;
+		/* corrupt counters must not wrap: more free blocks than the
+		 * volume has is clamped, and the alwaysfree reserve may not
+		 * make alloc_available wrap
+		 */
+		t = rootblock->blocksfree;
+		if (t > volume->numblocks)
+			t = volume->numblocks;
+		alloc_data.clean_blocksfree = t;
+		alloc_data.alloc_available = (t > rootblock->alwaysfree) ? t - rootblock->alwaysfree : 0;
 		alloc_data.longsperbmb = LONGS_PER_BMB;
 
 		t = (volume->numblocks - (rootblock->lastreserved + 1) + 31)/32;
 		t = (t+LONGS_PER_BMB-1)/LONGS_PER_BMB;
+
+		/* GetBitmapBlock cannot address more bitmap blocks than this;
+		 * a larger count would make a failed sweep run (almost) forever
+		 */
+		n = (UWORD)(g->supermode ? MAXBITMAPINDEX + 1 : MAXSMALLBITMAPINDEX + 1);
+		n *= andata.indexperblock;	/* 16x16 bit multiply */
+		if (t > n)
+			t = n;
 		alloc_data.no_bmb = t;
 		alloc_data.bitmapstart = rootblock->lastreserved + 1;
 		memset (alloc_data.tobefreed, 0, TBF_CACHE_SIZE*2*sizeof(ULONG));

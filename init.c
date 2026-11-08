@@ -785,11 +785,15 @@ static void DoPostponed (struct volumedata *volume, globaldata *g)
 
 			case PP_FREEBLOCKS_KEEP:
 
+				/* corrupt "blocks done" must not wrap the counters */
+				if (postponed->argument3 > alloc_data.clean_blocksfree)
+					goto failed;
 				achain = GetAnodeChain (postponed->argument1, g);
 				if (!achain)
 					goto failed;
 				alloc_data.clean_blocksfree -= postponed->argument3;
-				alloc_data.alloc_available -= postponed->argument3;
+				alloc_data.alloc_available = (alloc_data.alloc_available > postponed->argument3) ?
+					alloc_data.alloc_available - postponed->argument3 : 0;
 				if (!FreeBlocksAC (achain, postponed->argument2, keepanodes, g))
 				{
 					DetachAnodeChain(achain, g);
