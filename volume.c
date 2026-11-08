@@ -1308,6 +1308,8 @@ end_error:
 
 static void SetPartitionLimits(globaldata *g)
 {
+	ULONG lo, hi, cs, one, mask, maxcyl, first, end;
+
 	/* g->geom is not allocated yet when called from the early
 	 * CalculateBlockSize() in Initialize(); the limits are recomputed
 	 * via GetDriveGeometry() once the geometry is known.
@@ -1315,26 +1317,45 @@ static void SetPartitionLimits(globaldata *g)
 	if (!g->geom)
 		return;	
 
-	g->firstblocknative = g->dosenvec->de_LowCyl * g->geom->dg_CylSectors;
-	/* saturate instead of wrapping at 2^32 sectors (2TB with 512-byte
-	 * sectors): a wrapped end made lastblock ~0xFFFFFFFF, which
-	 * disabled the partition bounds checks entirely (losing the last
-	 * partial block by saturating is the safe direction)
+	lo = g->dosenvec->de_LowCyl;
+	hi = g->dosenvec->de_HighCyl;
+	cs = g->geom->dg_CylSectors;
+	one = 1UL << g->blocklogshift;
+	mask = one - 1;
+
+	/* An invalid partition (no cylinder size, start beyond 2^32
+	 * sectors, LowCyl > HighCyl, HighCyl ~0 as left by a geometry
+	 * without cylinders, less than one logical block) fails closed:
+	 * firstblock > lastblock makes InPartition() reject every access,
+	 * instead of wrapping to limits that cover other partitions.
 	 */
-	if (g->geom->dg_CylSectors &&
-		(g->dosenvec->de_HighCyl + 1) > 0xFFFFFFFFUL / g->geom->dg_CylSectors)
-		g->lastblocknative = 0xFFFFFFFFUL;
-	else
-		g->lastblocknative = (g->dosenvec->de_HighCyl + 1) * g->geom->dg_CylSectors;
-	// Align to block size if partition was not already block size aligned.
-	// Pre OS3.2 HDToolbox versions only guarantee up to 2 block alignment.
-	g->firstblocknative += (1 << g->blocklogshift) - 1;
-	g->firstblocknative &= ~((1 << g->blocklogshift) - 1);
-	g->lastblocknative -= 1 << g->blocklogshift;
-	g->lastblocknative &= ~((1 << g->blocklogshift) - 1);
-	g->firstblock = g->firstblocknative >> g->blocklogshift;
-	g->lastblock = g->lastblocknative >> g->blocklogshift;
-	g->lastblocknative += (1 << g->blocklogshift) - 1;
+	g->firstblocknative = g->firstblock = 1;
+	g->lastblocknative = g->lastblock = 0;
+	maxcyl = cs ? 0xFFFFFFFFUL / cs : 0;
+	if (cs && lo <= maxcyl && lo <= hi && hi != 0xFFFFFFFFUL)
+	{
+		first = lo * cs;
+		/* saturate instead of wrapping at 2^32 sectors (2TB with
+		 * 512-byte sectors): a wrapped end made lastblock ~0xFFFFFFFF,
+		 * which disabled the partition bounds checks entirely (losing
+		 * the last partial block by saturating is the safe direction)
+		 */
+		end = (hi >= maxcyl) ? 0xFFFFFFFFUL : (hi + 1) * cs;
+		if (end - first >= one)
+		{
+			// Align to block size if partition was not already block size aligned.
+			// Pre OS3.2 HDToolbox versions only guarantee up to 2 block alignment.
+			first = (first + mask) & ~mask;
+			end = (end - one) & ~mask;
+			if (first <= end)
+			{
+				g->firstblocknative = first;
+				g->lastblocknative = end + mask;
+				g->firstblock = first >> g->blocklogshift;
+				g->lastblock = end >> g->blocklogshift;
+			}
+		}
+	}
 
 	g->maxtransfermax = 0x7ffffffe;
 #if LIMIT_MAXTRANSFER
@@ -1368,6 +1389,11 @@ void CalculateBlockSize(globaldata *g, ULONG spb, ULONG blocksize)
 		}
 	}
 	bs = g->dosenvec->de_SizeBlock << 2;
+	/* a zero (or overflowed) sector size from a bad mountlist would
+	 * make the shift loop below run forever
+	 */
+	if (!bs)
+		bs = 512;
 	if (!blocksize)
 	{
 		blocksize = bs * spb;
@@ -1460,7 +1486,11 @@ void GetDriveGeometry(globaldata *g)
 	geom->dg_SectorSize     = env[DE_SIZEBLOCK] << 2;
 	geom->dg_Cylinders      = env[DE_UPPERCYL] - env[DE_LOWCYL] + 1;
 	geom->dg_CylSectors     = env[DE_NUMHEADS] * env[DE_BLKSPERTRACK];
-	geom->dg_TotalSectors   = g->geom->dg_Cylinders * g->geom->dg_CylSectors;
+	/* saturate: a wrapped size would defeat the MAXDISKSIZE check of FDSFormat */
+	geom->dg_TotalSectors   = 0xFFFFFFFFUL;
+	if (!geom->dg_CylSectors ||
+		env[DE_UPPERCYL] - env[DE_LOWCYL] < 0xFFFFFFFFUL / geom->dg_CylSectors)
+		geom->dg_TotalSectors = geom->dg_Cylinders * geom->dg_CylSectors;
 	geom->dg_Heads          = env[DE_NUMHEADS];
 	geom->dg_TrackSectors   = env[DE_BLKSPERTRACK];
 	geom->dg_BufMemType     = env[DE_MEMBUFTYPE];
