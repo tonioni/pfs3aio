@@ -4086,9 +4086,26 @@ struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata * g)
 
 				while (entry->next)
 				{
+					ULONG commentoffset;
+
 					if ((entry->next & 1) != 0 ||
 						entry->next < sizeof(struct direntry) ||
+						entry->next > MAX_ENTRYSIZE ||
 						offset + entry->next + 1 > DB_ENTRYSPACE)
+					{
+						FreeLRU((struct cachedblock *)dirblk);
+						return NULL;
+					}
+					/* Every consumer copies or rebuilds entries in a
+					 * MAX_ENTRYSIZE buffer. Bound both variable strings
+					 * before caching the block, including the comment
+					 * length byte itself. Do not use the configured name
+					 * limit: existing names may predate a limit change.
+					 */
+					commentoffset = offsetof(struct direntry, startofname) + entry->nlength;
+					if (entry->nlength >= FNSIZE || commentoffset >= entry->next ||
+						*COMMENT(entry) >= CMSIZE ||
+						commentoffset + 1 + *COMMENT(entry) > entry->next)
 					{
 						FreeLRU((struct cachedblock *)dirblk);
 						return NULL;

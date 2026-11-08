@@ -28,6 +28,7 @@ apply the fixes and they pass. Covered:
 | `freeanode_live.c`      | FreeAnode marks the correct anodeblock in non-split mode |
 | `update_cleanup_live.c` | Deferred reserved frees are persisted by a root-only write after the primary commit |
 | `writeback_live.c` | Relative writeback deadline survives one-second reads and continuous packet traffic; idle flushing, retries and inhibit remain safe |
+| `directory_bounds_live.c` | Reject oversized directory entries and out-of-entry names/comments before caching; safely rewrite valid entries with maximum-length strings |
 
 Not covered by a live test: fixes that are one-liners inside large functions
 (e.g. the `numblocks` formula in `NewVolume`) or that are inseparable from the
