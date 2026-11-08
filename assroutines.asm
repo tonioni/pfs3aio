@@ -163,7 +163,7 @@ _myStackSwap:
 		jmp	_LVOEnable(a6)
 
 ;-----------------------------------------------------------------------------
-;	ULONG divide (UWORD d0, UWORD d1)
+;	ULONG divide (ULONG d0, UWORD d1)
 ;-----------------------------------------------------------------------------
 _divide:
 @divide:	divu	d1,d0
