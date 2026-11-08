@@ -45,6 +45,10 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `partlimit_failclosed_live.c` | `SetPartitionLimits` fails closed (firstblock > lastblock) for invalid geometry; valid partitions keep their limits |
 | `dosenvec_short_live.c` | `PadDosEnvec`: a DosEnvec shorter than de_DosType (but with the cylinder range) is copied and padded with defaults, never read or written past its end, and holds no DosType (so it is neither registered under, nor tested for, a garbage DosType); tables too short to locate the partition are refused |
 | `bitmapindex_live.c` | `CheckBitmapIndex` rejects a supermode rootblock whose bitmap index points outside the reserved area at mount; formatter-written layouts are accepted |
+| `dd_notify_live.c` | `RemoveNotify` (ACTION_REMOVE_NOTIFY and `Quit`) takes a pending notify request off whichever volume it is queued on (also an older, non-current one, with no current volume, or in `Quit`'s own list) and frees it; our messages still queued at the client's port are taken back and the counters follow, so nothing is left for the caller to free under it |
+| `dd_relabel_live.c` | `dd_Relabel` refuses empty names, `:` and `/` and names over 30 characters before touching the volume; the new name is an `AllocVec` block that `FreeDosEntry` can free, and a failed write frees it again |
+| `newfile_live.c` | `NewFile` on an overwrite whose `AddToDeldir` fails puts the old chain's head back in the original anode and frees the replacement, instead of leaving the old data blocks orphaned |
+| `format_reject_live.c` | `FDSFormat` writes nothing to the disk on any failure (bad DosEnvec, tiny partition, reserved area larger than the partition, a failing bitmap, root directory or deldir) and a rejected DosEnvec leaves the geometry in use alone; the boot block is written last |
 
 Not covered by a live test: fixes that are one-liners inside large functions
 (e.g. the `numblocks` formula in `NewVolume`) or that are inseparable from the
@@ -60,7 +64,7 @@ checks that the driver mounts, reads, writes, formats, round-trips data
 byte-exactly, and leaves a consistent volume after injected I/O errors, power
 cuts and a killed emulator, on a small image and on a supermode image (>4 GB,
 which takes the TD64/NSD path). It is a *no-regression* check, not a proof of
-any individual fix (the `live/` tests are).
+any individual fix (the `live/` tests are), with the one exception noted at T6.
 
 ```sh
 cp /path/to/pfs.hdf tests/fixtures/small.hdf   # a 512-byte-block PFS3 image with a few MB free
@@ -101,6 +105,20 @@ cannot be satisfied by leftovers of another one.
   The final commit is a burst of about ten writes that takes under a millisecond,
   so an external kill cannot land inside it: the 25-75% kills roll back and the
   100% kill finds it committed. Cuts inside the commit burst are T4's job.
+- **T6** directories, hard links, rename/move and relabel. The `amifuse` command
+  line can only read and write whole files, so `dirops.py` builds the same bridge
+  `amifuse write` does and sends the AmigaDOS packets itself (create dir, delete,
+  rename, `ACTION_MAKE_LINK`, `ACTION_RENAME_DISK`): nested directories, a move
+  of a directory with its contents, refusals (existing name, non-empty
+  directory, moving a directory into itself), a hard link to a file and to a
+  directory that outlives its target, 150 entries in one directory with half of
+  them deleted and 20 added, an emptied directory, and a relabel including
+  invalid names. It then closes the volume, mounts it again and compares every path,
+  every file's bytes and the volume name with its own model; `run.sh` also
+  requires `verify` to count the same files, directories and bytes. Refusals
+  must come with an error and leave the tree as it was. Unlike T1-T5 this is
+  also a proof for one fix: a driver that accepts `a:b` as a volume label ends
+  up with that name on disk after the remount.
 
 `fi.py` is the fault-injection / crash harness the suite drives; see its docstring
 for the `FI_*` knobs (`FI_SKIP` and `FI_PROGRESS` are what let faults and kills

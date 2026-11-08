@@ -279,6 +279,25 @@ for IMG in $IMAGES; do
     [ $t5 = 1 ] && ok "T5 volume consistent after external kill -9 during a large write" \
                 || no "T5 external-kill power loss"
   fi
+
+  # T6  directories, hard links, rename/move and relabel: dirops.py sends the
+  #     AmigaDOS packets itself (the amifuse command line cannot), then closes
+  #     the volume, mounts it again and compares the whole tree, every file's
+  #     bytes and the volume name with its model. A second, independent count
+  #     comes from `verify`: files/dirs/bytes must match the model's.
+  cpy $IMG $WD/t6.hdf
+  FI_CMD=none python3 $SCRIPT_DIR/dirops.py $WD/t6.hdf --driver $DRV >$WD/t6.out 2>$WD/t6.err
+  t6rc=$?
+  t6=($(sed -n 's/^DIROPS-TREE files=\([0-9]*\) dirs=\([0-9]*\) bytes=\([0-9]*\)$/\1 \2 \3/p' $WD/t6.out))
+  t6v=($(vol $WD/t6.hdf))
+  if [ $t6rc = 0 ] && [ ${#t6} -eq 3 ] && [ "${t6v[*]}" = "${t6[*]}" ]; then
+    ok "T6 directory, link and label operations survive a remount (${t6[1]} files, ${t6[2]} dirs, ${t6[3]} bytes, as verify counts them)"
+  else
+    grep -E "FAIL|DIROPS-" $WD/t6.out | sed 's/^/      /'
+    [ $t6rc = 0 ] || grep -E "DIROPS-EXCEPTION|Error" $WD/t6.err | head -5 | sed 's/^/      /'
+    [ $t6rc != 0 ] || print "      verify counts '${t6v[*]}' but the model expects '${t6[*]}'"
+    no "T6 directory, link and label operations (dirops.py rc=$t6rc)"
+  fi
   rm -rf $WD
 done
 
