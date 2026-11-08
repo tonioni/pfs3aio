@@ -27,6 +27,10 @@ void AddToFSResource(ULONG dostype, BPTR seglist, struct ExecBase *SysBase)
 {
   struct FileSysResource *FileSysResBase;
 
+	/* nothing useful to register without a DosType or a SegList */
+	if (!dostype || !seglist)
+		return;
+
 	Forbid();
 	FileSysResBase = (struct FileSysResource *)OpenResource(FSRNAME);
 	if (!FileSysResBase) {

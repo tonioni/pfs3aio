@@ -101,6 +101,9 @@
 #ifndef DOS_DOSEXTENS_H
 #include <dos/dosextens.h>
 #endif
+#ifndef DOS_FILEHANDLER_H
+#include <dos/filehandler.h>
+#endif
 #ifndef DEVICES_TRACKDISK_H
 #include <devices/trackdisk.h>
 #endif
@@ -652,6 +655,7 @@ struct globaldata
 	BOOL v37EXEC;
 	BOOL v39EXEC;
 #endif
+	struct DosEnvec envcopy;            /* padded copy of a short DosEnvec table */
 };
 
 typedef struct globaldata globaldata;
