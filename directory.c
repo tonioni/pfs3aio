@@ -1115,7 +1115,7 @@ static BOOL FillFib(struct direntry *direntry, struct cdirblock *dirblock, struc
 	fib->fib_EntryType = direntry->type;
 	fib->fib_Protection = (ULONG)direntry->protection;
 	fib->fib_Size = GetDEFileSize32(direntry, g);
-	fib->fib_NumBlocks = (size / BLOCKSIZE) + (size % BLOCKSIZE > 0);
+	fib->fib_NumBlocks = (size >> BLOCKSHIFT) + ((size & BLOCKSIZEMASK) != 0);
 	fib->fib_Date.ds_Days = direntry->creationday;
 	fib->fib_Date.ds_Minute = direntry->creationminute;
 	fib->fib_Date.ds_Tick = direntry->creationtick;
@@ -4928,7 +4928,7 @@ static BOOL FillDelfileFib(struct deldirentry *dde, ULONG slotnr, struct FileInf
 		fib->fib_EntryType = ST_FILE;
 	fib->fib_Protection = rext->blk.dd_protection;
 	fib->fib_Size = GetDDFileSize32(dde, g);
-	fib->fib_NumBlocks = (size / BLOCKSIZE) + (size % BLOCKSIZE > 0);
+	fib->fib_NumBlocks = (size >> BLOCKSHIFT) + ((size & BLOCKSIZEMASK) != 0);
 	fib->fib_Date.ds_Days = dde->creationday;
 	fib->fib_Date.ds_Minute = dde->creationminute;
 	fib->fib_Date.ds_Tick = dde->creationtick;

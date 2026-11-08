@@ -279,7 +279,7 @@ BOOL AllocateBlocks (ULONG anodenr, ULONG size, globaldata *g)
  */
 BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *ref, globaldata *g)
 {
-  ULONG nr, field, i, j, blocknr, blocksdone = 0;
+  ULONG nr, field, i, j, blocknr, base, blocksdone = 0;
   ULONG extra;
   ULONG scanned = 0;
   FSIZE oldfilesize = 0;
@@ -397,13 +397,13 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *r
 			if (field)
 			{
 				/* take all empty bits */
+				base = (bmseqnr*alloc_data.longsperbmb + bmoffset)*32 + alloc_data.bitmapstart;
 				for ( ; i<32; j>>=1, i++)
 				{
 					if (field & j)
 					{
 						/* block is available, calc blocknr */
-						blocknr = (bmseqnr*alloc_data.longsperbmb + bmoffset)*32 + i + 
-								alloc_data.bitmapstart;
+						blocknr = base + i;
 
 						/* check in range */
 						if (blocknr >= vol->numblocks)
@@ -488,7 +488,9 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *r
 
 							bitmap->blk.bitmap[bmoffset] &= ~j;   /* remove block from freelist */
 							chnode->an.clustersize++;  	   /* to file  	  	  */
-							MakeBlockDirty ((struct cachedblock *)bitmap, g);
+							/* skip the call when already dirty (the common case) */
+							if (!bitmap->changeflag || bitmap->changeflag == CBLK_DIRTY_PENDING)
+								MakeBlockDirty ((struct cachedblock *)bitmap, g);
 
 							/* update counters */
 							alloc_data.clean_blocksfree--;

@@ -319,7 +319,7 @@ BOOL GetAnode (struct canode *anode, ULONG anodenr, globaldata *g)
   struct canodeblock *ablock;
 
 	if (!andata.anodesperblock ||
-		(!g->anodesplitmode && anodenr / andata.anodesperblock > 0xffffUL))
+		(!g->anodesplitmode && (UWORD)(anodenr >> 16) >= andata.anodesperblock))
 		goto failed;
 	if(g->anodesplitmode)
 	{
@@ -366,7 +366,7 @@ static BOOL SaveAnodeInternal (struct canode *anode, ULONG anodenr, globaldata *
   struct canodeblock *ablock;
 
 	if (!andata.anodesperblock ||
-		(!g->anodesplitmode && anodenr / andata.anodesperblock > 0xffffUL))
+		(!g->anodesplitmode && (UWORD)(anodenr >> 16) >= andata.anodesperblock))
 		goto failed;
 	if (g->anodesplitmode)
 	{
