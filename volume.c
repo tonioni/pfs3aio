@@ -166,7 +166,7 @@
 #include "kswrapper.h"
 
 static VOID CreateInputEvent(BOOL inserted, globaldata *g);
-static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g);
+static BOOL GetCurrentRoot(struct rootblock **rootblock, ULONG *newbs, globaldata *g);
 void FreeNotifyObject(struct notifyobject *no, globaldata *g);
 
 /**********************************************************************/
@@ -250,10 +250,25 @@ static void TakeOverLocks(struct FileLock *, globaldata *);
 static BOOL DiskInsertSequence(struct rootblock *rootblock, globaldata *g);
 static void DiskRemoveSequence(globaldata *g);
 
+/* switch to logical block size bs and resize the data cache; falls back
+ * to oldbs if the new data cache cannot be allocated
+ */
+BOOL SwitchBlockSize(ULONG bs, ULONG oldbs, globaldata *g)
+{
+	CalculateBlockSize (g, 0, bs);
+	if (InitDataCache (g))
+		return TRUE;
+	CalculateBlockSize (g, 0, oldbs);
+	InitDataCache (g);
+	return FALSE;
+}
+
 void NewVolume (BOOL FORCE, globaldata *g)
 {
   BOOL oldstate, newstate, changed;
   struct rootblock *rootblock;
+  ULONG newbs;
+  UWORD i;
 
 	/* check if something changed */
 	changed = UpdateChangeCount (g);
@@ -264,11 +279,18 @@ void NewVolume (BOOL FORCE, globaldata *g)
 		return;
 
 	ENTER("NewVolume");
-	FlushDataCache (g);
+	/* The data cache can hold dirty user data of the old volume that
+	 * UpdateDisk of DiskRemoveSequence still has to write: only drop the
+	 * clean (possibly stale) slots here.
+	 */
+	if (g->dc.ref)
+		for (i = 0; i < g->dc.size; i++)
+			if (!g->dc.ref[i].dirty)
+				g->dc.ref[i].blocknr = 0;
 
 	/* newstate <=> there is a PFS disk present */
 	oldstate = g->currentvolume ? TRUE : FALSE;
-	newstate = GetCurrentRoot (&rootblock, g);
+	newstate = GetCurrentRoot (&rootblock, &newbs, g);
 
 	/* undo error enforced softprotect */
 	if ((g->softprotect == 1) && g->protectkey == ~0)
@@ -295,9 +317,11 @@ void NewVolume (BOOL FORCE, globaldata *g)
 			/* Only now, with the old volume updated and removed, is it
 			 * safe to (re)initialize the LRU cache for the new volume's
 			 * reserved block size (InitLRU frees all cached blocks when
-			 * the size differs).
+			 * the size differs) and to switch to its logical block size
+			 * (GetCurrentRoot restored the old one).
 			 */
-			if (!InitLRU (g, rootblock->reserved_blksize) ||
+			if ((newbs != g->blocksize && !SwitchBlockSize (newbs, g->blocksize, g)) ||
+				!InitLRU (g, rootblock->reserved_blksize) ||
 				!DiskInsertSequence (rootblock, g))
 			{
 				/* A failed insertion may already own the root block
@@ -1074,7 +1098,27 @@ static WORD IsRBBlock(UBYTE *rbpt)
 	return 1; // root block
 }
 
-static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
+/* Bitmap index blocks live in the reserved area; the allocator reads and
+ * writes whatever block number the rootblock names. (The reserved area
+ * geometry itself is validated by InitAllocation.)
+ */
+static BOOL CheckBitmapIndex(struct rootblock *rbp)
+{
+	ULONG n;
+	UWORD i;
+
+	if (rbp->options & MODE_SPLITTED_ANODES)
+		for (i = 0; i <= MAXBITMAPINDEX; i++)
+		{
+			n = rbp->idx.large.bitmapindex[i];
+			if (n && (n < rbp->firstreserved || n > rbp->lastreserved))
+				return FALSE;
+		}
+
+	return TRUE;
+}
+
+static BOOL ProbeRootBlock(struct rootblock **rootblock, globaldata *g)
 {
   BOOL changestate;
   ULONG error;
@@ -1138,7 +1182,11 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 		DB(Trace(1, "GetCurrentRoot", "TD_PROTSTATUS failed\n"));
 	}
 
-	/* check if disk is PFS disk */
+	/* check if disk is PFS disk.
+	 * A previous probe may have left a smaller block size: start with
+	 * the configured one, before BLOCKSIZE sized buffers are allocated.
+	 */
+	CalculateBlockSize (g, 0, 0);
 	*rootblock = AllocBufmemR (BLOCKSIZE * 2, g);
 	rbp = *rootblock;
 	rbpt = (UBYTE*)rbp;
@@ -1151,14 +1199,10 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 #endif
 
 	// check if pre-v20 partition has >512 block size,
-	// if detected, set block size to 512.
-	WORD bsfix = 0;
+	// if detected, set block size to 512. (NewVolume resizes the data
+	// cache for it once the previous volume is gone)
 	for (UWORD rbcnt = 0; rbcnt < 2; rbcnt++)
 	{
-		if (rbcnt == 1)
-		{
-			bsfix = -1;
-		}
 		// Read boot block
 		error = RawRead(rbpt + BLOCKSIZE, 1, BOOTBLOCK1, g);
 		if (error)
@@ -1173,27 +1217,14 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 		}
 		if (IsRBBlock(rbpt) > 0 && IsRBBlock(rbpt + BLOCKSIZE))
 		{
-			if (rbcnt == 1)
-			{
-				bsfix = 1;
-			}
 			break;
 		}
 		// Recheck with 512 byte block size if blocksize >512
-		if (g->dosenvec->de_SectorPerBlock <= 1)
+		if (rbcnt || g->dosenvec->de_SectorPerBlock <= 1)
 		{
 			goto nrd_error;
 		}
-		CalculateBlockSize(g, 1, 0);			
-	}
-	if (bsfix < 0) {
 		CalculateBlockSize(g, 1, 0);
-		goto nrd_error;
-	} else if (bsfix > 0) {
-		if (!InitDataCache(g))
-		{
-			goto nrd_error;
-		}
 	}
 
 	g->ErrorMsg = _NormalErrorMsg;
@@ -1202,7 +1233,8 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 	/* check size and read all rootblock blocks */
 	// 17.10: with 1024 byte blocks rblsize can be 1!
 	rblsize = rbp->rblkcluster;
-	if (rblsize < 1 || rblsize > 521)
+	// only harddisk mode (big anodes, bitmap index) is supported
+	if (rblsize < 1 || rblsize > 521 || !(rbp->options & MODE_HARDDISK))
 	{
 		goto nrd_error;
 	}
@@ -1273,6 +1305,11 @@ static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g)
 		goto nrd_error;
 	}
 
+	if (!CheckBitmapIndex(rbp))
+	{
+		goto nrd_error;
+	}
+
 	return DOSTRUE;
 
 nrd_error:
@@ -1304,6 +1341,31 @@ end_error:
 		*rootblock = NULL;
 		return DOSFALSE;
 	}
+}
+
+/* Probe the disk that is in the drive without side effects on the
+ * current volume: the probes run with error requesters disabled, and
+ * the resulting error-enforced softprotect, the error handler and the
+ * block size (which the probe may have lowered to 512) are restored
+ * afterwards. A previous volume may still be dirty and must be flushed
+ * with its own geometry. If newbs is given, it receives the block size
+ * of the disk that was found (valid if TRUE is returned).
+ */
+static BOOL GetCurrentRoot(struct rootblock **rootblock, ULONG *newbs, globaldata *g)
+{
+  BOOL ok;
+  ULONG bs = g->blocksize;
+  ULONG protectkey = g->protectkey;
+  BYTE softprotect = g->softprotect;
+
+	ok = ProbeRootBlock(rootblock, g);
+	if (newbs)
+		*newbs = g->blocksize;
+	CalculateBlockSize(g, 0, bs);
+	g->softprotect = softprotect;
+	g->protectkey = protectkey;
+	g->ErrorMsg = _NormalErrorMsg;
+	return ok;
 }
 
 static void SetPartitionLimits(globaldata *g)
@@ -1551,31 +1613,24 @@ static void UpdateDosEnvec(globaldata *g)
 void RequestCurrentVolumeBack(globaldata *g)
 {
   UBYTE volumename[DNSIZE];
-  BOOL ready = FALSE;
-  struct rootblock *rootblock;
   struct volumedata *volume = g->currentvolume;
 
 	ENTER("GetCurrentVolumeBack");
 
 	BCPLtoCString(volumename, sizeof(volumename), volume->rootblk->diskname);
 
-	while(!ready)
-	{
-		ready = GetCurrentRoot(&rootblock, g) && SameDisk(volume->rootblk, rootblock);
-		if (rootblock)
-			FreeBufmem (rootblock, g);
-		if(!ready)
-			ErrorReport(ABORT_BUSY, REPORT_VOLUME, (IPTR)MKBADDR(volume->devlist), NULL);
-	}
+	while(!CheckCurrentVolumeBack(g))
+		ErrorReport(ABORT_BUSY, REPORT_VOLUME, (IPTR)MKBADDR(volume->devlist), NULL);
 }   
 
 BOOL CheckCurrentVolumeBack (globaldata *g)
 {
-  BOOL ready = FALSE;
+  BOOL ready;
   struct rootblock *rootblock;
   struct volumedata *volume = g->currentvolume;
 
-	ready = GetCurrentRoot(&rootblock, g) && SameDisk(volume->rootblk, rootblock);
+	/* without a current volume (first mount) any readable disk will do */
+	ready = GetCurrentRoot(&rootblock, NULL, g) && (!volume || SameDisk(volume->rootblk, rootblock));
 	if (rootblock)
 		FreeBufmem (rootblock, g);
 	return ready;
