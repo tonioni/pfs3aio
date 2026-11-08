@@ -27,10 +27,13 @@ mkdir -p $OUT/gen
 pass=0; fail=0
 
 # extract a C function definition by name from a file (signature .. matching })
-extract() {  # $1=file $2=func; definitions start at column zero in this tree
+# definitions start at column zero in this tree. If a name is defined more than
+# once (init.c has a DEBUGMODE stub of Initialize), the last definition wins.
+extract() {  # $1=file $2=func
   awk -v fn="$2" '
-    !ins && $0 ~ /^[A-Za-z_]/ && $0 ~ (fn "[[:space:]]*[(]") && $0 !~ /;/ { ins=1 }
-    ins { print; o=gsub(/{/,"{"); c=gsub(/}/,"}"); n+=o-c; if(n>0) seen=1; if(seen && n==0) exit }
+    !ins && $0 ~ /^[A-Za-z_]/ && $0 ~ ("(^|[^A-Za-z0-9_])" fn "[[:space:]]*[(]") && $0 !~ /;/ { ins=1; buf=""; n=0; seen=0 }
+    ins { buf = buf $0 "\n"; o=gsub(/{/,"{"); c=gsub(/}/,"}"); n+=o-c; if(n>0) seen=1; if(seen && n==0) { last=buf; ins=0 } }
+    END { printf "%s", last }
   ' "$1"
 }
 

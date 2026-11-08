@@ -22,7 +22,7 @@ typedef int BOOL; typedef uint32_t FSIZE;
 #define DELDIR 1
 #define ETF_VOLUME 1
 #define ERROR_DEVICE_NOT_MOUNTED 218
-#define PFS_ERROR_INCONSISTENT 0x7001
+#define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 
 struct DosPacket { SIPTR dp_Arg1; SIPTR dp_Res2; };
 struct volumedata { BOOL metadata_error; };

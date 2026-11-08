@@ -43,7 +43,7 @@ typedef char *STRPTR;
 #define ERROR_OBJECT_IN_USE 202
 #define ERROR_OBJECT_NOT_FOUND 205
 #define ERROR_NO_FREE_STORE 103
-#define PFS_ERROR_INCONSISTENT 0x7001
+#define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 
 struct direntry {
 	UBYTE next; BYTE type; ULONG anode; ULONG fsize;
