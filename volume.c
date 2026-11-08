@@ -167,6 +167,7 @@
 
 static VOID CreateInputEvent(BOOL inserted, globaldata *g);
 static BOOL GetCurrentRoot(struct rootblock **rootblock, globaldata *g);
+void FreeNotifyObject(struct notifyobject *no, globaldata *g);
 
 /**********************************************************************/
 /*                               DEBUG                                */
@@ -747,12 +748,7 @@ void FreeVolumeResources(struct volumedata *volume, globaldata *g)
 	{
 		FreeUnusedResources (volume, g);
 		for (no = HeadOf(&volume->notifylist); no && (next = no->next); no = next)
-		{
-			MinRemove (no);
-			FreeMemP (no->namemem, g);
-			FreeMemP (no->objectname, g);
-			FreeMemP (no, g);
-		}
+			FreeNotifyObject (no, g);
 #if VERSION23
 		if (volume->rblkextension)
 			FreeBufmem (volume->rblkextension, g);

@@ -525,6 +525,7 @@ struct globaldata
 	struct timerequest *trequest;
 	struct timerequest *flushrequest;    /* independent writeback deadline        */
 	struct MsgPort  *notifyport;        /* the replies to notification msgs come here */
+	ULONG   notifymsgs;                 /* notification msgs not yet replied    */
 	struct MsgPort  *sleepport;         /* for update anode and unsleep packets */
 	struct DosPacket *action;           /* the current handled dospacket        */
 

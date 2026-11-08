@@ -2079,10 +2079,7 @@ static SIPTR dd_RemoveNotify (struct DosPacket *pkt, globaldata * g)
 	{
 		if (no->req == nr)
 		{
-			MinRemove (no);
-			FreeMemP (no->namemem, g);
-			FreeMemP (no->objectname, g);
-			FreeMemP (no, g);
+			FreeNotifyObject (no, g);
 			break;
 		}
 	}
