@@ -3,7 +3,8 @@
 #   make -f makefile.gcc [OUTDIR=dir] [TIERS="000 060"] [AMIGA_PREFIX=/path]
 #
 # Driven by GNUmakefile, which runs it once per toolchain. ./makefile is
-# upstream's and builds a single -m68000 binary; this one is ours.
+# upstream's and builds the normal and large file handlers plus the LHA
+# package; this one is ours.
 
 .DEFAULT_GOAL := all
 
@@ -19,6 +20,8 @@ CC := $(AMIGA_PREFIX)/bin/m68k-amigaos-gcc
 endif
 
 CPPFLAGS = -I.
+LDFLAGS = -Wl,-T,pfs3aio.ld
+PYTHON ?= python3
 LIBS = -nostdlib -lamiga -lgcc -lnix13 -lnix -s
 
 # -fno-optimize-sibling-calls: amiga-gcc 13.x with -mregparm=3 miscompiles
@@ -67,8 +70,9 @@ TARGET_$(1) = $$(OUTDIR_$(1))/pfs3aio
 OBJS_$(1) = $$(addprefix $$(OBJDIR_$(1))/,$$(addsuffix .o,$$(OBJ_NAMES)))
 ASMS_$(1) = $$(addprefix $$(ASMDIR_$(1))/,$$(addsuffix .s,$$(CSRC_NAMES)))
 
-$$(TARGET_$(1)): $$(OBJS_$(1)) | $$(OUTDIR_$(1))
-	$$(CC) -o $$@ $$^ $$(CFLAGS_$(1)) $$(LIBS)
+$$(TARGET_$(1)): $$(OBJS_$(1)) pfs3aio.ld tools/hunk.py | $$(OUTDIR_$(1))
+	$$(CC) -o $$@ $$(OBJS_$(1)) $$(CFLAGS_$(1)) $$(LDFLAGS) $$(LIBS)
+	$$(PYTHON) tools/hunk.py normal $$@
 
 $$(OBJDIR_$(1))/%.o: %.c | $$(OBJDIR_$(1))
 	$$(CC) $$(CFLAGS_$(1)) $$(CPPFLAGS) -c -o $$@ $$<
