@@ -133,9 +133,15 @@
 
 /* external globals
  */
+#if defined(__GNUC__) && !defined(__MORPHOS__) && !defined(__AROS__)
+extern ULONG DiskChangeHandler(register struct globaldata *g asm("a1"));
+#else
 extern void DiskChangeHandler(void);
+#endif
 #if defined(__SASC)
 extern void __asm ResetHandler(void);
+#elif defined(__GNUC__) && !defined(__MORPHOS__) && !defined(__AROS__)
+extern ULONG ResetHandler(register struct globaldata *g asm("a1"));
 #else
 extern void ResetHandler(void);
 #endif
@@ -146,7 +152,7 @@ static BOOL OpenDiskDevice(struct FileSysStartupMsg * , struct MsgPort ** , stru
 static BOOL init_device_unit_sema(struct FileSysStartupMsg *, globaldata *);
 static BOOL OpenTimerDevice(struct MsgPort ** , struct timerequest ** , ULONG, globaldata * );
 static BOOL TestRemovability(globaldata *);
-static void InstallDiskChangeHandler(globaldata *);
+static BOOL InstallDiskChangeHandler(globaldata *);
 static void InstallResetHandler(struct globaldata *);
 #if VERSION23
 static void DoPostponed (struct volumedata *volume, globaldata *g);
@@ -164,19 +170,20 @@ void AddToFSResource(ULONG, BPTR, struct ExecBase*);
 /**********************************************************************/
 
 #ifdef DEBUGMODE
-BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm,
-	struct DeviceNode *devnode, globaldata *g)
+BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm, struct DeviceNode *devnode, globaldata *g)
 {
 	return(TRUE);
 }
 #else
-BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm,
-	struct DeviceNode *devnode, globaldata *g)
+BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm, struct DeviceNode *devnode, globaldata *g)
 {
 	LONG i;
 
 	ENTER("Initialize");
 	g->ErrorMsg = _NormalErrorMsg;
+
+	if (!mountname || !*mountname || !fssm || !fssm->fssm_Device || !fssm->fssm_Environ || !devnode)
+		return FALSE;
 
 	/* mountname can be something like "pfs:hello". I only need 
 	** the "pfs" part. <i> will be the mountnamelen.
@@ -207,6 +214,9 @@ BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm,
 	g->freememp = FreePooledVec;
 	g->allocbufmem = AllocPooledBuf;
 	g->freebufmem = FreePooledBuf;
+
+	if (!g->notifyport)
+		return FALSE;
 
 	if (!(g->mainPool = LibCreatePool (MEMF_CLEAR, 2*1024, 1*1024)))
 	{
@@ -295,18 +305,20 @@ Removed because of problems with Phase 5 boards
 		return FALSE;
 	}
 
+#if EXTRAPACKETS
+	g->sleepport = CreateMsgPort();
+	if (!g->sleepport)
+		return FALSE;
+#endif
+
 	g->removable = TestRemovability(g);
-	if(g->removable)
-		InstallDiskChangeHandler(g);
+	if (g->removable && !InstallDiskChangeHandler(g))
+		return FALSE;
 
 	InstallResetHandler(g);
 
 #if !defined(__MORPHOS__) || defined(DISK_BASED_FILESYSTEM)
 	AddToFSResource (g->dosenvec->de_DosType, ((struct DosList *)devnode)->dol_misc.dol_handler.dol_SegList, SysBase);
-#endif
-
-#if EXTRAPACKETS
-	g->sleepport = CreateMsgPort();
 #endif
 
 	DB(Trace(1,"Initialize","Removable = %ld", (ULONG)g->removable));
@@ -353,12 +365,17 @@ static BOOL TestRemovability(globaldata *g)
 }
 
 /* added from HDVersion7.0B 11-4-94 */
-static void InstallDiskChangeHandler(struct globaldata *g)
+static BOOL InstallDiskChangeHandler(struct globaldata *g)
 {
   struct IOExtTD *request;
   struct Interrupt *di;
   UBYTE *intname;
   static const UBYTE *const intext = "_interrupt";
+
+	g->diskchangesigbit = AllocSignal(-1);
+	if (g->diskchangesigbit == -1)
+		return FALSE;
+	g->diskchangesignal = 1UL << g->diskchangesigbit;
 
 	intname = AllocMemR (g->mountname[0]+strlen(intext)+1, MEMF_PUBLIC, g);
 	CopyMem(g->mountname+1,intname,g->mountname[0]);
@@ -369,10 +386,7 @@ static void InstallDiskChangeHandler(struct globaldata *g)
 	di->is_Node.ln_Type = NT_INTERRUPT;
 	di->is_Node.ln_Name = intname;
 	di->is_Data = (APTR)g;
-	di->is_Code = DiskChangeHandler;
-
-	g->diskchangesigbit = AllocSignal(-1);
-	g->diskchangesignal = 1 << g->diskchangesigbit;
+	di->is_Code = (void (*)(void))DiskChangeHandler;
 
 	/* make special request structure for inthandler */
 	request = g->handlrequest = (struct IOExtTD *)
@@ -383,6 +397,7 @@ static void InstallDiskChangeHandler(struct globaldata *g)
 	request->iotd_Req.io_Data    = (APTR)di;
 	request->iotd_Req.io_Command = TD_ADDCHANGEINT;
 	SendIO((struct IORequest *)request);
+	return TRUE;
 }
 
 void UninstallDiskChangeHandler(struct globaldata *g)
@@ -456,12 +471,16 @@ static void InstallResetHandler(struct globaldata *g)
 						ri = 0;
 						sigbit = -1;
 					}
+					else
+						CloseDevice((APTR) ioreq);
 				}
-				DeleteIORequest(ioreq);
+				if (ioreq)
+					DeleteIORequest(ioreq);
 			}
 			}
 #endif
-			FreeSignal(sigbit);
+			if (sigbit != -1)
+				FreeSignal(sigbit);
 		}
 		FreeVec(ri);
 	}
@@ -542,7 +561,7 @@ void UninstallResetHandler(struct globaldata *g)
 static BOOL OpenDiskDevice(struct FileSysStartupMsg *startup, struct MsgPort **port,
 		struct IOExtTD **request, BOOL *trackdisk, BOOL *scsidevice, globaldata *g)
 {
-  UBYTE name[FNSIZE];
+  UBYTE name[256];
 
 	*port = CreateMsgPort();
 	if(*port)
@@ -550,7 +569,7 @@ static BOOL OpenDiskDevice(struct FileSysStartupMsg *startup, struct MsgPort **p
 		*request = (struct IOExtTD *)CreateIORequest(*port, sizeof(struct IOExtTD));
 		if(*request)
 		{
-			BCPLtoCString(name, (UBYTE *)BADDR(startup->fssm_Device));
+			BCPLtoCString(name, sizeof(name), (UBYTE *)BADDR(startup->fssm_Device));
 			*trackdisk = (strcmp(name, "trackdisk.device") == 0) || (strcmp(name, "diskspare.device") == 0);
 			*scsidevice = strcmp(name, "scsi.device") == 0;
 			if(OpenDevice(name, startup->fssm_Unit, (struct IORequest *)*request, startup->fssm_Flags) == 0)
@@ -574,7 +593,8 @@ static BOOL init_device_unit_sema(struct FileSysStartupMsg *startup, globaldata 
 	if (sema)
 	{
 		strcpy(sema->name, "PFS_");
-		BCPLtoCString(&sema->name[4], (UBYTE *)BADDR(startup->fssm_Device));
+		BCPLtoCString(&sema->name[4], ((UBYTE *)BADDR(startup->fssm_Device))[0] + 1,
+			(UBYTE *)BADDR(startup->fssm_Device));
 		strcat(sema->name, "/");
 		stcu_d(&sema->name[strlen(sema->name)], startup->fssm_Unit);
 
@@ -634,7 +654,11 @@ static BOOL OpenTimerDevice(struct MsgPort **port, struct timerequest **request,
 		{
 			if(!OpenDevice(TIMERNAME, unit, (struct IORequest *)*request, 0))
 				return(TRUE);
+			DeleteIORequest((struct IORequest *)*request);
+			*request = NULL;
 		}
+		DeleteMsgPort(*port);
+		*port = NULL;
 	}
 	return(FALSE);
 }
@@ -655,15 +679,22 @@ void InitModules (struct volumedata *volume, BOOL formatting, globaldata *g)
 	g->dirextension = (rootblock->options & MODE_DIR_EXTENSION) != 0;
 #if DELDIR
 	g->deldirenabled = (rootblock->options & MODE_DELDIR) && 
-	g->dirextension && (volume->rblkextension->blk.deldirsize > 0);
+	g->dirextension && volume->rblkextension && (volume->rblkextension->blk.deldirsize > 0);
 #endif
 	g->supermode = (rootblock->options & MODE_SUPERINDEX) != 0;
 	g->fnsize = (volume->rblkextension) ? (volume->rblkextension->blk.fnsize) : 32;
-	if (!g->fnsize) g->fnsize = 32;
+	if (g->fnsize < 30) g->fnsize = 32;
+	else if (g->fnsize >= FNSIZE) g->fnsize = FNSIZE - 1;
 	g->largefile = (rootblock->options & MODE_LARGEFILE) && g->dirextension && LARGE_FILE_SIZE;
 
 	InitAnodes (volume, formatting, g);
+	if (g->harddiskmode && !andata.anblkbitmap)
+		volume->metadata_error = TRUE;
+	if (volume->metadata_error)
+		return;
 	InitAllocation (volume, g);
+	if (volume->metadata_error)
+		return;
 
 #if VERSION23
 	if (!formatting)
@@ -688,23 +719,36 @@ static void DoPostponed (struct volumedata *volume, globaldata *g)
 		{
 			case PP_FREEBLOCKS_FREE:
 
-				/* we assume we have enough memory at startup.. */
 				achain = GetAnodeChain (postponed->argument1, g);
-				FreeBlocksAC (achain, postponed->argument2, freeanodes, g);
+				if (!achain)
+					goto failed;
+				if (!FreeBlocksAC (achain, postponed->argument2, freeanodes, g))
+				{
+					DetachAnodeChain(achain, g);
+					goto failed;
+				}
+				DetachAnodeChain(achain, g);
 				break;
 
 			case PP_FREEBLOCKS_KEEP:
 
-				/* we assume we have enough memory at startup.. */
 				achain = GetAnodeChain (postponed->argument1, g);
+				if (!achain)
+					goto failed;
 				alloc_data.clean_blocksfree -= postponed->argument3;
 				alloc_data.alloc_available -= postponed->argument3;
-				FreeBlocksAC (achain, postponed->argument2, keepanodes, g);
+				if (!FreeBlocksAC (achain, postponed->argument2, keepanodes, g))
+				{
+					DetachAnodeChain(achain, g);
+					goto failed;
+				}
+				DetachAnodeChain(achain, g);
 				break;
 
 			case PP_FREEANODECHAIN:
 
-				FreeAnodesInChain (postponed->argument1, g);
+				if (!FreeAnodesInChain (postponed->argument1, g))
+					goto failed;
 				break;
 		}
 
@@ -713,6 +757,10 @@ static void DoPostponed (struct volumedata *volume, globaldata *g)
 		postponed->argument2 = 0;
 		postponed->argument3 = 0;
 	}
+	return;
+
+failed:
+	volume->metadata_error = TRUE;
+	g->dirty = TRUE;
 }
 #endif
-

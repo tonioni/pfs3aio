@@ -12,12 +12,15 @@
 #include <stdio.h>
 #include <stdint.h>
 typedef uint32_t ULONG; typedef uint8_t UBYTE;
+typedef int BOOL;
+#define TRUE 1
+#define FALSE 0
 
 #define ANODE_USERFIRST 6
 struct canode { ULONG clustersize, blocknr, next, nr; };
 typedef struct globaldata { UBYTE anodesplitmode; } globaldata;
 struct { ULONG *anblkbitmap; ULONG anodesperblock; ULONG anblkbitmapsize; } andata;
-static void SaveAnode(struct canode *a, ULONG nr, globaldata *g) { (void)a;(void)nr;(void)g; }
+static BOOL SaveAnode(struct canode *a, ULONG nr, globaldata *g) { (void)a;(void)nr;(void)g; return TRUE; }
 
 #include "gen/FreeAnode.c"                   /* the REAL function from ../../anodes.c */
 

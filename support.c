@@ -139,13 +139,22 @@ static void OutOfMemory (globaldata *g)
 */
 BOOL dstricmp (DSTR dstring, STRPTR cstring)
 {
-  BOOL result;
-  UBYTE temp[PATHSIZE];
+  UBYTE temp[256];
+  UWORD len = 0;
+  UWORD i;
 
-	ctodstr (cstring, temp);
+	if (!dstring || !cstring)
+		return FALSE;
+
+	while (len < 255 && cstring[len])
+		len++;
+	if (cstring[len])
+		return FALSE;
+	temp[0] = len;
+	for (i = 0; i < len; i++)
+		temp[i + 1] = cstring[i];
 	intltoupper (temp);
-	result = intlcmp (temp, dstring);  
-	return result;
+	return intlcmp (temp, dstring);
 }
 
 /* ddstricmp
@@ -156,25 +165,38 @@ BOOL ddstricmp (DSTR dstr1, DSTR dstr2)
   BOOL result;
   UBYTE temp[PATHSIZE];
 
-	strncpy (temp,dstr1,*dstr1+1);
+	if (!dstr1 || !dstr2)
+		return FALSE;
+
+	strncpy (temp, dstr1, *dstr1 + 1);
 	intltoupper (temp);
 	result = intlcmp (temp,dstr2);
 	return result;
 } 
 
 
-// BCPLtoCString converts BCPL string to a CString. 
-UBYTE *BCPLtoCString(STRPTR dest, DSTR src)
+/* Returns NULL and an empty destination if the string does not fit.
+ * The caller must ensure src contains its length byte and all its data. */
+UBYTE *BCPLtoCString(STRPTR dest, ULONG capacity, DSTR src)
 {
-  UBYTE len, *to;
+  UWORD len;
+  UWORD i;
 
-	len  = *(src++);
-	len	 = min (len, PATHSIZE);
-	to	 = dest;
-
-	while (len--)
-		*(dest++) = *(src++);
-	*dest = 0x0;
-
-	return to;
+	if (!dest || capacity == 0)
+		return NULL;
+	if (!src)
+	{
+		*dest = 0;
+		return NULL;
+	}
+	len = *src;
+	if (len >= capacity)
+	{
+		*dest = 0;
+		return NULL;
+	}
+	for (i = 0; i < len; i++)
+		dest[i] = src[i + 1];
+	dest[len] = 0;
+	return dest;
 }

@@ -100,9 +100,7 @@
 */
 BOOL InitLRU (globaldata *g, UWORD reserved_blksize)
 {
-  int i, j;
-  BOOL warned = FALSE;
-  UBYTE *array;
+  int i;
 
 	ENTER("InitLRU");
 
@@ -113,43 +111,153 @@ BOOL InitLRU (globaldata *g, UWORD reserved_blksize)
 
 	g->glob_lrudata.reserved_blksize = reserved_blksize;
 
-	NewList((struct List *)&g->glob_lrudata.LRUqueue);
-	NewList((struct List *)&g->glob_lrudata.LRUpool);
-
 	i = g->dosenvec->de_NumBuffers;
 
-	/* sanity checks. If HDToolbox default of 30, then 150,
-	 * otherwise round in range 70 -- 600
+	/* If HDToolbox default of 30, use 150 when Fast RAM is available and
+	 * 70 on Chip-RAM-only machines. At least MIN_BUFFERS are used
+	 * (enforced by ResizeLRU), at most MAX_BUFFERS.
 	 */
-	if (i==30) i=150;
-	if (i<MIN_BUFFERS) i = MIN_BUFFERS;
-	if (i>MAX_BUFFERS) i = MAX_BUFFERS;
-	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize = i;
+	if (i == 30)
+		i = AvailMem(MEMF_FAST) ? 150 : 70;
+	if (i > MAX_BUFFERS)
+		i = MAX_BUFFERS;
 	g->uip = FALSE;
 	g->locknr = 1;
 
-	g->glob_lrudata.LRUarray = AllocVec(sizeof(struct lru_cachedblock*) * g->glob_lrudata.poolsize, 0);
-	if (!g->glob_lrudata.LRUarray)
-		return FALSE;
-	for(j = 0; j < g->glob_lrudata.poolsize; j++) {
-		g->glob_lrudata.LRUarray[j] = AllocVec((sizeof(struct lru_cachedblock) + reserved_blksize), g->dosenvec->de_BufMemType | MEMF_CLEAR);
-		if (!g->glob_lrudata.LRUarray[j]) {
-			DeallocLRU(g);
+	/* If memory is short, mount with a smaller cache instead of failing.
+	 * ResizeLRU clamps to MIN_BUFFERS.
+	 */
+	while (!ResizeLRU(g, i))
+	{
+		if (i <= MIN_BUFFERS)
 			return FALSE;
-		}
-		/* check memory against mask */
-		if (!warned && (((ULONG)g->glob_lrudata.LRUarray[j]) & ~g->dosenvec->de_Mask)) {
-			ErrorMsg (AFS_WARNING_MEMORY_MASK, NULL, g);
-			warned = TRUE;
-		}
+		i /= 2;
 	}
-
-	array = (UBYTE *)g->glob_lrudata.LRUarray;
-	for(i=0;i<g->glob_lrudata.poolsize;i++) {
-		MinAddHead(&g->glob_lrudata.LRUpool, g->glob_lrudata.LRUarray[i]);
-	}
-
 	return TRUE;
+}
+
+/* Pick a cache block that can be released: the least recently used one that
+ * is not locked, written out first if dirty. The returned block is flushed
+ * and still linked in LRUqueue. Returns NULL if there is none.
+ */
+static struct lru_cachedblock *EvictLRU(globaldata *g)
+{
+  struct lru_cachedblock *lrunode;
+  ULONG error;
+
+	for (lrunode = (struct lru_cachedblock *)g->glob_lrudata.LRUqueue.mlh_TailPred; lrunode->prev; lrunode = lrunode->prev)
+	{
+		/* skip locked blocks */
+		if (ISLOCKED(&lrunode->cblk))
+			continue;
+
+		/* Its blocknr is still the committed location. */
+		if (lrunode->cblk.changeflag == CBLK_DIRTY_PENDING)
+			continue;
+
+		if (lrunode->cblk.changeflag)
+		{
+			DB(Trace(1,"AllocLRU","ResToBeFreed %lx\n",&lrunode->cblk));
+			UpdateDatestamp(&lrunode->cblk, g);
+			error = RawWrite ((UBYTE *)&lrunode->cblk.data, RESCLUSTER, lrunode->cblk.blocknr, g);
+			if (error) {
+				ULONG args[2];
+				args[0] = lrunode->cblk.blocknr;
+				args[1] = error;
+				ErrorMsg (AFS_ERROR_LRU_UPDATE_FAIL, args, g);
+				/* The eviction write failed and this dirty block is
+				 * the only copy of its contents (the parents already
+				 * reference its new location). Do not discard it -
+				 * keep it cached and try to evict another block.
+				 */
+				continue;
+			}
+			/* Queue the old (committed) location for freeing only
+			 * after the new location has actually been written.
+			 */
+			ResToBeFreed(lrunode->cblk.oldblocknr, g);
+			lrunode->cblk.oldblocknr = 0;
+		}
+
+		FlushBlock(&lrunode->cblk, g);
+		return lrunode;
+	}
+	return NULL;
+}
+
+/* Change the number of cache buffers in place. Growing adds buffers and
+ * shrinking releases unused ones, so cached blocks are kept and the old and
+ * a new cache never have to exist at the same time. Growing is all or
+ * nothing and returns 0 if it fails. Shrinking stops early if the remaining
+ * buffers are locked; the resulting number of buffers is returned.
+ */
+LONG ResizeLRU(globaldata *g, LONG requested)
+{
+	struct lru_cachedblock **array, *node;
+	LONG count = g->glob_lrudata.poolsize, i;
+	BOOL warned = FALSE;
+
+	if (!g->glob_lrudata.reserved_blksize)
+		return 0;
+
+	if (requested < MIN_BUFFERS)
+		requested = MIN_BUFFERS;
+
+	if (requested > count)
+	{
+		array = AllocVec(sizeof(*array) * requested, MEMF_CLEAR);
+		if (!array)
+			return 0;
+		if (count)
+			CopyMem(g->glob_lrudata.LRUarray, array, sizeof(*array) * count);
+		for (i = count; i < requested; i++)
+		{
+			array[i] = AllocVec(sizeof(struct lru_cachedblock) +
+				g->glob_lrudata.reserved_blksize,
+				g->dosenvec->de_BufMemType | MEMF_CLEAR);
+			if (!array[i])
+			{
+				while (i > count)
+					FreeVec(array[--i]);
+				FreeVec(array);
+				return 0;
+			}
+		}
+		FreeVec(g->glob_lrudata.LRUarray);
+		g->glob_lrudata.LRUarray = array;
+		for (i = count; i < requested; i++)
+		{
+			if (!warned && (((ULONG)array[i]) & ~g->dosenvec->de_Mask))
+			{
+				ErrorMsg(AFS_WARNING_MEMORY_MASK, NULL, g);
+				warned = TRUE;
+			}
+			MinAddHead(&g->glob_lrudata.LRUpool, array[i]);
+		}
+		count = requested;
+	}
+	else
+	{
+		array = g->glob_lrudata.LRUarray;
+		while (count > requested)
+		{
+			if (IsMinListEmpty(&g->glob_lrudata.LRUpool))
+			{
+				node = EvictLRU(g);
+				if (!node)
+					break;
+			}
+			else
+				node = HeadOf(&g->glob_lrudata.LRUpool);
+			MinRemove(node);
+			for (i = 0; array[i] != node; i++);
+			array[i] = array[--count];
+			array[count] = NULL;
+			FreeVec(node);
+		}
+	}
+	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize = count;
+	return count;
 }
 
 void DeallocLRU(globaldata *g)
@@ -157,10 +265,14 @@ void DeallocLRU(globaldata *g)
 	int j;
 	if (g->glob_lrudata.LRUarray) {
 		for(j = 0; j < g->glob_lrudata.poolsize; j++)
-			FreeVec(g->glob_lrudata.LRUarray[j]);
+			if (g->glob_lrudata.LRUarray[j])
+				FreeVec(g->glob_lrudata.LRUarray[j]);
+		FreeVec(g->glob_lrudata.LRUarray);
 	}
-	FreeVec (g->glob_lrudata.LRUarray);
 	g->glob_lrudata.LRUarray = NULL;
+	g->glob_lrudata.poolsize = 0;
+	NewList((struct List *)&g->glob_lrudata.LRUqueue);
+	NewList((struct List *)&g->glob_lrudata.LRUpool);
 }
 
 
@@ -171,10 +283,7 @@ void DeallocLRU(globaldata *g)
 struct cachedblock *AllocLRU (globaldata *g)
 {
   struct lru_cachedblock *lrunode;
-  struct lru_cachedblock **nlru;
-  ULONG error;
   int retries = 0;
-  int j;
 
 	ENTER("AllocLRU");
 
@@ -187,39 +296,9 @@ struct cachedblock *AllocLRU (globaldata *g)
 retry:
 	if (IsMinListEmpty(&g->glob_lrudata.LRUpool))
 	{
-		for (lrunode = (struct lru_cachedblock *)g->glob_lrudata.LRUqueue.mlh_TailPred; lrunode->prev; lrunode = lrunode->prev)
-		{
-			/* skip locked blocks */
-			if (ISLOCKED(&lrunode->cblk))
-				continue;
-
-			if (lrunode->cblk.changeflag)
-			{
-				DB(Trace(1,"AllocLRU","ResToBeFreed %lx\n",&lrunode->cblk));
-				UpdateDatestamp(&lrunode->cblk, g);
-				error = RawWrite ((UBYTE *)&lrunode->cblk.data, RESCLUSTER, lrunode->cblk.blocknr, g);
-				if (error) {
-					ULONG args[2];
-					args[0] = lrunode->cblk.blocknr;
-					args[1] = error;
-					ErrorMsg (AFS_ERROR_LRU_UPDATE_FAIL, args, g);
-					/* The eviction write failed and this dirty block is
-					 * the only copy of its contents (the parents already
-					 * reference its new location). Do not discard it -
-					 * keep it cached and try to evict another block.
-					 */
-					continue;
-				}
-				/* Queue the old (committed) location for freeing only
-				 * after the new location has actually been written.
-				 */
-				ResToBeFreed(lrunode->cblk.oldblocknr, g);
-				lrunode->cblk.oldblocknr = 0;
-			}
-
-			FlushBlock(&lrunode->cblk, g);
+		lrunode = EvictLRU(g);
+		if (lrunode)
 			goto ready;
-		}
 	}
 	else
 	{
@@ -228,35 +307,13 @@ retry:
 	}
 
 	/* Attempt to allocate new entries */
-	nlru = AllocVec(sizeof(struct lru_cachedblock*) * (g->glob_lrudata.poolsize + NEW_LRU_ENTRIES), MEMF_CLEAR);
-	for (j = 0; j < NEW_LRU_ENTRIES; j++) {
-		if (!nlru)
-			break;
-		nlru[j + g->glob_lrudata.poolsize] = AllocVec((sizeof(struct lru_cachedblock) + SIZEOF_RESBLOCK), g->dosenvec->de_BufMemType | MEMF_CLEAR);
-		if (!nlru[j + g->glob_lrudata.poolsize]) {
-			while (j >= 0) {
-				FreeVec(nlru[j + g->glob_lrudata.poolsize]);
-				j--;
-			}
-			FreeVec(nlru);
-			nlru = NULL;
-		}
-	}
-	if (!nlru) {
+	if (!ResizeLRU(g, g->glob_lrudata.poolsize + NEW_LRU_ENTRIES)) {
 		/* No suitable block found -> we are in trouble */
 		NormalErrorMsg (AFS_ERROR_OUT_OF_BUFFERS, NULL, 1);
 		retries++;
 		if (retries > 3)
 			return NULL;
-		goto retry;
 	}
-	CopyMem(g->glob_lrudata.LRUarray, nlru, sizeof(struct lru_cachedblock*) * g->glob_lrudata.poolsize);
-	FreeVec(g->glob_lrudata.LRUarray);
-	g->glob_lrudata.LRUarray = nlru;
-	for (j = 0; j < NEW_LRU_ENTRIES; j++, g->glob_lrudata.poolsize++) {
-		MinAddHead(&g->glob_lrudata.LRUpool, g->glob_lrudata.LRUarray[g->glob_lrudata.poolsize]);
-	}
-	g->dosenvec->de_NumBuffers = g->glob_lrudata.poolsize;
 	goto retry;
 
 ready:
@@ -370,7 +427,7 @@ void FlushBlock (struct cachedblock *block, globaldata *g)
 	}
 
 	/* wipe memory */
-	memset(block, 0, SIZEOF_CACHEDBLOCK);
+	memset(block, 0, sizeof(struct cachedblock) + g->glob_lrudata.reserved_blksize);
 }
 
 /* updates references of listentries to dirblock
@@ -414,16 +471,21 @@ void UpdateLE (listentry_t *le, globaldata *g)
 {
 	//DB(Trace(1,"UpdateLE","Listentry %lx\n", le));
 
+	if (!le || le->volume != g->currentvolume)
+		return;
+
 	/* don't update volumeentries or deldirs!! */
 #if DELDIR
-	if (!le || le->info.deldir.special <= SPECIAL_DELFILE)
+	if (le->info.deldir.special <= SPECIAL_DELFILE)
 #else
-	if (!le || IsVolumeEntry(le))
+	if (IsVolumeEntry(le))
 #endif
 		return;
 
-	if (le->dirblocknr)
-		LoadDirBlock (le->dirblocknr, g);
+	if (le->dirblocknr && !LoadDirBlock(le->dirblocknr, g))
+		return;
+	if (!le->info.file.dirblock)
+		return;
 
 	MakeLRU (le->info.file.dirblock);
 	LOCK(le->info.file.dirblock);
@@ -433,7 +495,8 @@ void UpdateLE_exa (lockentry_t *le, globaldata *g)
 {
 	//DB(Trace(1,"UpdateLE_exa","LE %lx\n", le));
 
-	if (!le) return;
+	if (!le || le->le.volume != g->currentvolume)
+		return;
 
 	if (le->le.type.flags.dir)
 	{
@@ -473,4 +536,3 @@ struct cachedblock *CheckCache (struct MinList *list, UWORD mask, ULONG blocknr,
 
 	return NULL;
 }
-

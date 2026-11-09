@@ -20,9 +20,9 @@ mkdir -p gen
 pass=0; fail=0
 
 # extract a C function definition by name from a file (signature .. matching })
-extract() {  # $1=file $2=func  (a definition's signature line has no ';'; calls do)
+extract() {  # $1=file $2=func; definitions start at column zero in this tree
   awk -v fn="$2" '
-    !ins && $0 ~ (fn "[[:space:]]*[(]") && $0 !~ /;/ && $0 !~ /^[[:space:]]*[*\/]/ { ins=1 }
+    !ins && $0 ~ /^[A-Za-z_]/ && $0 ~ (fn "[[:space:]]*[(]") && $0 !~ /;/ { ins=1 }
     ins { print; o=gsub(/{/,"{"); c=gsub(/}/,"}"); n+=o-c; if(n>0) seen=1; if(seen && n==0) exit }
   ' "$1"
 }

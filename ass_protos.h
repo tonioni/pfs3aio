@@ -4,11 +4,11 @@ AssRoutines.asm
 void InitStack(void);
 void AfsDie(void);
 void myStackSwap (struct StackSwapStruct *);
-ULONG divide(UWORD, UWORD);
+ULONG divide(ULONG, UWORD);
 void ctodstr(void *, void *);
 void intltoupper(void *);
-BOOL intlcmp(void*, void *);
-BOOL intlcdcmp(void*, void *);
+int intlcmp(const unsigned char *, const unsigned char *);
+int intlcdcmp(const unsigned char *, const unsigned char *);
 #ifndef __SASC
 int stcd_i(const char *in, int *ivalue);
 int stcu_d(char *out, unsigned int val);

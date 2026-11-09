@@ -20,6 +20,7 @@ apply the fixes and they pass. Covered:
 
 | test | fix it proves |
 |------|---------------|
+| `reserved_bitmap_live.c` | Reject inconsistent reserved ranges and undersized root bitmaps before allocation; preserve exact-capacity and partial-word bitmaps |
 | `blocksize_live.c`      | logical block size normalized to a power of two (blockshift/blocklogshift agree) |
 | `partlimit_live.c`      | partition end saturates instead of wrapping past 2^32 sectors (no inverted partition) |
 | `ds_retry_live.c`       | DirectSCSI retry restarts in range instead of re-applying blocklogshift and writing outside the partition |
@@ -27,6 +28,7 @@ apply the fixes and they pass. Covered:
 | `freeanode_live.c`      | FreeAnode marks the correct anodeblock in non-split mode |
 | `update_cleanup_live.c` | Deferred reserved frees are persisted by a root-only write after the primary commit |
 | `writeback_live.c` | Relative writeback deadline survives one-second reads and continuous packet traffic; idle flushing, retries and inhibit remain safe |
+| `directory_bounds_live.c` | Reject oversized directory entries and out-of-entry names/comments before caching; safely rewrite valid entries with maximum-length strings |
 
 Not covered by a live test: fixes that are one-liners inside large functions
 (e.g. the `numblocks` formula in `NewVolume`) or that are inseparable from the

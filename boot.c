@@ -311,7 +311,7 @@ void SAVEDS EntryPoint (void)
 	IntuitionBase = (APTR)OpenLibrary ("intuition.library", MIN_LIB_VERSION);
 	DOSBase = (struct DosLibrary *)OpenLibrary ("dos.library", MIN_LIB_VERSION);
 #ifdef KSWRAPPER
-	g->v37DOS = DOSBase->dl_lib.lib_Version >= 37;
+	g->v37DOS = DOSBase && DOSBase->dl_lib.lib_Version >= 37;
 	g->v37EXEC = SysBase->LibNode.lib_Version >= 37;
 	g->v39EXEC = SysBase->LibNode.lib_Version >= 39;
 	/* This must not cause indirect DOS call! */
@@ -355,7 +355,8 @@ void SAVEDS EntryPoint (void)
 	/* Enter Process ID, so that following references
 	 * to our handler do not generate new processes
 	 */
-	devnode->dn_Task = msgport;
+	if (devnode)
+		devnode->dn_Task = msgport;
 
 	DB(Trace(1,"boot","g=%lx\n",g));
 	if (!Initialize ((DSTR)mountname, fssm, devnode, g))
@@ -363,7 +364,7 @@ void SAVEDS EntryPoint (void)
 		NormalErrorMsg (AFS_ERROR_INIT_FAILED, NULL, 1);
 		RES1(pkt) = DOSFALSE;
 		RES2(pkt) = 0;
-		ReturnPacket (pkt, msgport, g);
+		diepkt = pkt;
 		goto terminate;
 	}
 
@@ -530,7 +531,8 @@ terminate:
 
 	Quit (g);
 
-	g->devnode->dn_Task = NULL;
+	if (devnode)
+		devnode->dn_Task = NULL;
 	
 	if (diepkt)
 		ReturnPacket (diepkt, msgport, g);
@@ -693,45 +695,44 @@ static void Quit (globaldata *g)
 	// DebugMsg("ACTION_DIE");
 	ENTER("dd_Quit");
 
-	UpdateDisk (g);
-
-#if MULTIUSER
-	if (g->user->uid != muROOT_UID)
-		return;
-#endif
+	if (g->dieing)
+		UpdateDisk (g);
 
 	UninstallResetHandler(g);
 
 	/* remove diskchangehandler */
 	UninstallDiskChangeHandler(g);
 
-	for (;;) {
-		struct volumedata *v = g->currentvolume;
-		if (v) {
-			/* 'remove' disk */
-			if (SafeDiskRemoveSequence(g)) {
-				volume = v;
-			} else {
-				Delay(5);
+	if (g->dieing)
+	{
+		for (;;) {
+			struct volumedata *v = g->currentvolume;
+			if (v) {
+				/* 'remove' disk */
+				if (SafeDiskRemoveSequence(g)) {
+					volume = v;
+				} else {
+					Delay(5);
+				}
 			}
-		}
 #if UNSAFEQUIT
-		/* wait for wb to return locks */
-		if (!waited) {
-			Delay(50);
-			waited = TRUE;
-		}
+			/* wait for wb to return locks */
+			if (!waited) {
+				Delay(50);
+				waited = TRUE;
+			}
 #endif
-		/* check if packets queued */
-		while (g->msgport && (msg = GetMsg(g->msgport)))
-		{
-			g->action = (struct DosPacket *)msg->mn_Node.ln_Name;
-			g->action->dp_Res1 = DOSFALSE;
-			g->action->dp_Res2 = ERROR_DEVICE_NOT_MOUNTED;
-			ReturnPacket (g->action, g->msgport, g);
+			/* check if packets queued */
+			while (g->msgport && (msg = GetMsg(g->msgport)))
+			{
+				g->action = (struct DosPacket *)msg->mn_Node.ln_Name;
+				g->action->dp_Res1 = DOSFALSE;
+				g->action->dp_Res2 = ERROR_DEVICE_NOT_MOUNTED;
+				ReturnPacket (g->action, g->msgport, g);
+			}
+			if (!g->currentvolume)
+				break;
 		}
-		if (!g->currentvolume)
-			break;
 	}
 
 	/* check if notifypackets queued */
@@ -753,28 +754,31 @@ static void Quit (globaldata *g)
 	Forbid ();
 
 	/* remove devicenode */
-	if (g->devnode)
+	if (g->dieing && g->devnode)
 		RemDosEntry ((struct DosList *)g->devnode);
 
 	/* cleanup timer device (OK) */
 	/* FreeSignal wil even niet..(signalnr!) */
 	CloseTimer(g->flushrequest, g->flushtimeron, g);
 	CloseTimer(g->trequest, g->timeron, g);
-	DeleteMsgPort(g->timeport);
+	if (g->timeport)
+		DeleteMsgPort(g->timeport);
 
 	/* clean up device */
 	if (g->request) {
-		if(!(CheckIO((struct IORequest *)g->request)))
-			AbortIO((struct IORequest *)g->request);
-		WaitIO((struct IORequest *)g->request);
+		/* Normal disk requests are synchronous; this request may never
+		 * have been submitted if initialization failed. */
 		CloseDevice((struct IORequest *)g->request);
+		DeleteIORequest((struct IORequest *)g->request);
 	}
-	DeleteIORequest((struct IORequest *)g->request);
-	DeleteMsgPort(g->port);
+	if (g->port)
+		DeleteMsgPort(g->port);
 
-	DeleteMsgPort(g->notifyport);
+	if (g->notifyport)
+		DeleteMsgPort(g->notifyport);
 #if EXTRAPACKETS
-	DeleteMsgPort(g->sleepport);
+	if (g->sleepport)
+		DeleteMsgPort(g->sleepport);
 #endif
 
 	FreeVec (g->mountname);
@@ -821,6 +825,8 @@ static void Quit (globaldata *g)
 	}
 #endif
 
-	LibDeletePool (g->bufferPool);
-	LibDeletePool (g->mainPool);
+	if (g->bufferPool)
+		LibDeletePool (g->bufferPool);
+	if (g->mainPool)
+		LibDeletePool (g->mainPool);
 }

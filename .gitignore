@@ -1,12 +1,13 @@
 *.o
+*.d
 *.map
 *.out
 *.info
+*.vs
+pfs3aio*
+!/pfs3aio.ld
+boot
 build/
 compare/
 /dist/
 /release/
-*.vs
-boot
-# upstream's makefile builds this into the tree root
-/pfs3aio

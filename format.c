@@ -146,8 +146,8 @@
 static void ShowVersion (globaldata *g);
 static ULONG MakeBootBlock(globaldata *g);
 static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, globaldata *g);
-static void MakeBitmap (globaldata *g);
-static void MakeRootDir (globaldata *g);
+static BOOL MakeBitmap (globaldata *g);
+static BOOL MakeRootDir (SIPTR *error, globaldata *g);
 static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize);
 static void MakeReservedBitmap (struct rootblock **rbl, ULONG numreserved, globaldata *g);
 static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, globaldata *g);
@@ -164,7 +164,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
   struct volumedata *volume;
   struct crootblockextension *rext;
   ULONG err;
-  ULONG i;
+  UWORD i;
 
 	ENTER("FDSFormat");
 
@@ -178,7 +178,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 		return DOSFALSE;
 	}
 
-	if (diskname[0] >= DNSIZE - 1) {
+	if (!diskname || diskname[0] == 0 || diskname[0] >= DNSIZE - 1) {
 		*error = ERROR_INVALID_COMPONENT_NAME;
 		return DOSFALSE;
 	}
@@ -238,33 +238,65 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 	/* add extension */
 	if (!(rext = MakeFormatRBlkExtension (rootblock, g))) {
 		*error = ERROR_NO_FREE_STORE;
-		return DOSFALSE;			// rootblock extension could not be created
+		goto failure;
 	}
 
 	volume->rblkextension = rext;
 	rootblock->options |= MODE_EXTENSION;
 	InitModules (volume, TRUE, g);
+	if (volume->metadata_error) {
+		*error = PFS_ERROR_INCONSISTENT;
+		goto failure;
+	}
 
-	MakeBitmap (g);
+	if (!MakeBitmap (g)) {
+		*error = ERROR_DISK_FULL;
+		goto failure;
+	}
 	
-	do {
+	/* Anode zero is valid during initial reservation, but is also the
+	 * allocation failure sentinel. Verify every expected number in sequence.
+	 */
+	for (UWORD expected = 0; expected < ANODE_ROOTDIR; expected++) {
 		i = AllocAnode (0, g);
-	} while (i<ANODE_ROOTDIR-1);
+		if (i != expected) {
+			*error = ERROR_DISK_FULL;
+			goto failure;
+		}
+	}
 
-	MakeRootDir (g);
+	if (!MakeRootDir (error, g))
+		goto failure;
 
 #if DELDIR
 	/* add deldir */
-	SetDeldir(2, g);
+	if ((err = SetDeldir(2, g)) != 0) {
+		*error = err;
+		goto failure;
+	}
 	rootblock->options |= MODE_DELDIR | MODE_SUPERDELDIR;
 	g->dirty = TRUE;
 #endif
 
-	UpdateDisk (g);
+	if (!UpdateDisk (g)) {
+		*error = PFS_ERROR_INCONSISTENT;
+		goto failure;
+	}
 	FreeVolumeResources (volume, g);
 	g->currentvolume = NULL;
+	g->rootblock = NULL;
 
 	return DOSTRUE;
+
+failure:
+	FreeVolumeResources (volume, g);
+	g->currentvolume = NULL;
+	g->rootblock = NULL;
+	g->dirty = FALSE;
+#if DELDIR
+	g->deldirenabled = FALSE;
+#endif
+	return DOSFALSE;
 }
 
 
@@ -332,8 +364,10 @@ static ULONG MakeBootBlock (globaldata *g)
 		return ERROR_NO_FREE_STORE;
 
 #if ACCESS_DETECT
-	if (!detectaccessmode((UBYTE*)bbl, g))
+	if (!detectaccessmode((UBYTE*)bbl, g)) {
+		FreeBufmem (bbl, g);
 		return ERROR_OBJECT_TOO_LARGE;
+	}
 #endif
 
 	memset (bbl, 0, 2*BLOCKSIZE);
@@ -516,6 +550,10 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 	rext->blk.root_date[0]      = rbl->creationday;
 	rext->blk.root_date[1]      = rbl->creationminute;
 	rext->blk.root_date[2]      = rbl->creationtick;
+	rext->blk.dd_protection     = DELENTRY_PROT;
+	rext->blk.dd_creationday    = rbl->creationday;
+	rext->blk.dd_creationminute = rbl->creationminute;
+	rext->blk.dd_creationtick   = rbl->creationtick;
 	// rext->blk.volume_date[0] = 0;	/* volume date, initially 0: see gurubook */
 	// rext->blk.volume_date[1] = 0;
 	// rext->blk.volume_date[2] = 0;
@@ -533,23 +571,38 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 	return rext;
 }
 
-static void MakeBitmap (globaldata *g)
+static BOOL MakeBitmap (globaldata *g)
 {
   ULONG i;
 
 	/* use no_bmb as calculated by InitAllocation */
 	for (i=0;i<alloc_data.no_bmb;i++)
-		NewBitmapBlock (i,g);
+		if (!NewBitmapBlock (i,g))
+			return FALSE;
+	return TRUE;
 }
 
-static void MakeRootDir (globaldata *g)
+static BOOL MakeRootDir (SIPTR *error, globaldata *g)
 {
-  struct cdirblock *blk;
   ULONG blocknr, anodenr;
 
-	blocknr = AllocReservedBlock (g);
+	if (!(blocknr = AllocReservedBlock (g))) {
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
 	anodenr = AllocAnode (0, g);
-	blk = MakeDirBlock (blocknr, anodenr, anodenr, 0, g);
+	if (anodenr != ANODE_ROOTDIR) {
+		FreeReservedBlock (blocknr, g);
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+	if (!MakeDirBlock (blocknr, anodenr, anodenr, 0, g)) {
+		FreeAnode (anodenr, g);
+		FreeReservedBlock (blocknr, g);
+		*error = ERROR_NO_FREE_STORE;
+		return FALSE;
+	}
+	return TRUE;
 }
 
 // returns number of reserved blocks needed
