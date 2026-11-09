@@ -2062,28 +2062,10 @@ static SIPTR dd_RemoveNotify (struct DosPacket *pkt, globaldata * g)
 	// RES1 = BOOL Success/failure (DOSTRUE/DOSFALSE)
 	// RES2 = failurecode (if res1 = DOSFALSE)
 
-	struct NotifyRequest *nr = (struct NotifyRequest *)pkt->dp_Arg1;
-	struct notifyobject *no;
-
-	if (!CheckVolume(g->currentvolume, 0, &pkt->dp_Res2, g)) {
-		return DOSFALSE;
-	}
-
-	/* 
-	 * BTW: pending messages that return after RemoveNotify
-	 * may cause trouble
+	/* Like ACTION_FREE_LOCK this must succeed even if the volume is not
+	 * inserted: the request is ended on whichever volume holds it.
 	 */
-
-	/* remove from queue */
-	for (no = HeadOf(&g->currentvolume->notifylist); no->next; no = no->next)
-	{
-		if (no->req == nr)
-		{
-			FreeNotifyObject (no, g);
-			break;
-		}
-	}
-
+	RemoveNotify ((struct NotifyRequest *)pkt->dp_Arg1, NULL, g);
 	return DOSTRUE;
 }
 
