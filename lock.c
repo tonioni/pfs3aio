@@ -361,6 +361,8 @@ void RemoveListEntry (listentry_t *entry, globaldata *g)
 			Forbid ();
 			RemDosEntry ((struct DosList *)volume->devlist);
 			FreeDosEntry ((struct DosList *)volume->devlist);
+			/* unlink from g->volumes before freeing, like DiskRemoveSequence */
+			MinRemove (volume);
 			FreeVolumeResources (volume, g);
 //			UnLockDosList (LDF_VOLUMES|LDF_READ);
 			Permit ();
