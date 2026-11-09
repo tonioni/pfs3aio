@@ -166,7 +166,7 @@ void SAVEDS EntryPoint(void);
 void NormalCommands(struct DosPacket *, globaldata *);
 void HandleSleepMsg (globaldata *g);
 void HandleNotifyReplies(globaldata *g);
-void FreeNotifyObject(struct notifyobject *no, globaldata *g);
+void RemoveNotify(struct NotifyRequest *nr, struct MinList *extra, globaldata *g);
 void ReturnPacket(struct DosPacket *, struct MsgPort *, globaldata *);
 static void Quit(globaldata *);
 
@@ -616,7 +616,6 @@ static BOOL FindInLibraryList (CONST_STRPTR name, globaldata *g)
 static void QuitPacket (struct Message *msg, struct MinList *notifies, globaldata *g)
 {
   listentry_t *listentry;
-  struct notifyobject *no;
 
 	g->action = (struct DosPacket *)msg->mn_Node.ln_Name;
 	g->action->dp_Res1 = DOSTRUE;
@@ -637,14 +636,7 @@ static void QuitPacket (struct Message *msg, struct MinList *notifies, globaldat
 			break;
 
 		case ACTION_REMOVE_NOTIFY:
-			for (no = HeadOf(notifies); no->next; no = no->next)
-			{
-				if (no->req == (struct NotifyRequest *)g->action->dp_Arg1)
-				{
-					FreeNotifyObject (no, g);
-					break;
-				}
-			}
+			RemoveNotify ((struct NotifyRequest *)g->action->dp_Arg1, notifies, g);
 			break;
 
 		default:
