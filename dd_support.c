@@ -30,6 +30,8 @@ static struct notifyobject *CheckNotify(ULONG parentanodenr, DSTR objectname,
 	struct notifyobject *no, BOOL checkparent, globaldata *);
 void PFSDoNotify(struct fileinfo *object, BOOL checkparent, globaldata *g);
 void PFSUpdateNotify(ULONG dirnode, DSTR filename, ULONG anodenr, globaldata *g);
+void HandleNotifyReplies(globaldata *g);
+void FreeNotifyObject(struct notifyobject *no, globaldata *g);
 
 /* AFS extensions */
 #if EXTRAPACKETS
@@ -197,11 +199,47 @@ static void NotifyUser (struct NotifyRequest *nr, globaldata *g)
 		msg->nm_NReq = nr;
 		PutMsg (nr->nr_stuff.nr_Msg.nr_Port, &msg->nm_ExecMessage);
 		nr->nr_MsgCount++;
+		g->notifymsgs++;
 	}
 	else if (nr->nr_Flags & NRF_SEND_SIGNAL)
 	{
 		Signal (nr->nr_stuff.nr_Signal.nr_Task, 1<<nr->nr_stuff.nr_Signal.nr_SignalNum);
 	}
+}
+
+/*
+ * Handle notification messages replied to g->notifyport. A reply to a
+ * request with a deferred notification (NRF_WAIT_REPLY) is resent at
+ * once; any other reply is freed.
+ */
+void HandleNotifyReplies (globaldata *g)
+{
+  struct NotifyMessage *nmsg;
+  struct NotifyRequest *nr;
+
+	while (g->notifyport && (nmsg = (struct NotifyMessage *)GetMsg (g->notifyport)))
+	{
+		nr = nmsg->nm_NReq;
+		if (nr->nr_Flags & NRF_MAGIC)
+		{
+			nr->nr_Flags ^= NRF_MAGIC;
+			PutMsg (nr->nr_stuff.nr_Msg.nr_Port, &nmsg->nm_ExecMessage);
+		}
+		else
+		{
+			nr->nr_MsgCount--;
+			FreeMemP (nmsg, g);
+			g->notifymsgs--;
+		}
+	}
+}
+
+void FreeNotifyObject (struct notifyobject *no, globaldata *g)
+{
+	MinRemove (no);
+	FreeMemP (no->namemem, g);
+	FreeMemP (no->objectname, g);
+	FreeMemP (no, g);
 }
 
 /*
