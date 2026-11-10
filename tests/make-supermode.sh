@@ -11,7 +11,8 @@
 set -u
 SCRIPT_DIR=${0:A:h}
 REPO=${SCRIPT_DIR:h}
-DRV=$REPO/pfs3aio
+. $SCRIPT_DIR/builddir.zsh
+DRV=$DEFAULT_DRIVER
 SIZE=8Gi
 OUT=$SCRIPT_DIR/fixtures/super.hdf
 while [ $# -gt 0 ]; do
@@ -25,21 +26,30 @@ done
 command -v rdbtool >/dev/null || { echo "rdbtool (amitools) not on PATH"; exit 2; }
 command -v amifuse >/dev/null || { echo "amifuse not on PATH"; exit 2; }
 [ -x $DRV ] || { echo "driver not found: $DRV"; exit 2; }
+ensure_builddir
 mkdir -p ${OUT:h}
 
 echo "creating sparse image $OUT ($SIZE) ..."
 rm -f $OUT
-# sparse allocation via truncate-to-size
-python3 -c "
-size='$SIZE'.lower().replace('gi',str(1024**3)).replace('mi',str(1024**2))
-open('$OUT','wb').truncate(int(size))
-"
+# never leave a half-built image behind: run-all.sh reuses an existing fixture as-is
+built=0
+trap '[ $built = 1 ] || rm -f $OUT' EXIT
+# sparse allocation via truncate-to-size; same size syntax as rdbtool (8Gi, 512Mi, ...)
+python3 - "$SIZE" "$OUT" <<'PY' || { echo "cannot allocate an image of size '$SIZE'"; exit 2; }
+import sys
+from amitools.util.ByteSize import parse_byte_size_str
+size = parse_byte_size_str(sys.argv[1])
+if not size:
+    sys.exit(1)
+with open(sys.argv[2], "wb") as f:
+    f.truncate(size)
+PY
 rdbtool -f $OUT create size=$SIZE + init + add name=DH0 size=95% dostype=0x50465303 >/dev/null || {
   echo "rdbtool failed"; exit 1; }
 
 echo "formatting DH0 with $DRV ..."
 FI=$SCRIPT_DIR/fi.py
-FI_CMD=none python3 $FI format $OUT DH0 SUPER --driver $DRV 2>&1 | /usr/bin/grep -qi "Format complete" || {
+FI_CMD=none python3 $FI format $OUT DH0 SUPER --driver $DRV 2>&1 | grep -qi "Format complete" || {
   echo "format failed"; exit 1; }
 
 # verify supermode bit (MODE_SUPERINDEX=128) in the rootblock
@@ -54,4 +64,5 @@ print("rootblock disktype=0x%08x options=0x%x  MODE_SUPERINDEX=%s" % (disktype, 
 sys.exit(0 if sup else 1)
 PY
 [ $? -eq 0 ] && echo "OK: $OUT is a supermode fixture" || { echo "ERROR: not supermode"; exit 1; }
+built=1
 du -k $OUT | awk '{print "  actual disk usage:", $1, "KB"}'

@@ -31,10 +31,10 @@ int main(void)
 		{1,1000,0x00010000},
 		{1,6000,0x00010000},
 		{10000,666,0x000a000f},
-		{80000,666,0x01de0015},
-		{80000,1,0x00003880},
+		{80000,666,0x00500078},
+		{80000,1,0x00013880},
 	};
-	const div_numof = sizeof(div) / sizeof(div[0]);
+	const int div_numof = sizeof(div) / sizeof(div[0]);
 	int i;
 	UBYTE tmp[256], *p;
 	UBYTE t2[64];

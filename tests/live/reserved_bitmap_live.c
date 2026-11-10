@@ -18,6 +18,8 @@ typedef int BOOL;
 #define MODE_EXTROVING 1
 #define LONGS_PER_BMB 253
 #define TBF_CACHE_SIZE 8
+#define MAXBITMAPINDEX 103
+#define MAXSMALLBITMAPINDEX 4
 #define AFS_ERROR_ANODE_INIT 1
 #define AFS_ERROR_DNV_ALLOC_INFO 2
 #define ErrorMsg(...) (++errors)
@@ -46,8 +48,9 @@ struct volumedata {
 typedef struct {
     rootblock_t *rootblock;
     struct volumedata *currentvolume;
-    BOOL harddiskmode, dirty;
+    BOOL harddiskmode, supermode, dirty;
 } globaldata;
+static struct { UWORD indexperblock; } andata = { 250 };
 static struct {
     ULONG clean_blocksfree, alloc_available, longsperbmb, no_bmb;
     ULONG bitmapstart, tobefreed[TBF_CACHE_SIZE * 2];

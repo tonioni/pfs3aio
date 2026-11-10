@@ -8,40 +8,51 @@
 #   zsh run.sh                       # test the source in this checkout (../..)
 #   SRCROOT=/path/to/tree zsh run.sh # test some other checkout's source
 #
+# The test binaries and the extracted functions go to $TEST_BUILD_DIR/live (default
+# <repo>/build/tests/live), never into tests/.
+#
 # Each *_live.c declares which function(s) to lift, e.g.:
 #   /* LIVE @src volume.c @func CalculateBlockSize */
 # and #includes the generated gen/<func>.c.
 set -u
 DIR=${0:A:h}
-SRCROOT=${SRCROOT:-${DIR:h:h}}     # default: repo root (two levels up from tests/live)
+REPO=${DIR:h:h}
+. $DIR/../builddir.zsh
+SRCROOT=${SRCROOT:-$REPO}          # default: repo root (two levels up from tests/live)
 CC=${CC:-cc}
+ensure_builddir
+OUT=$TEST_BUILD_DIR/live
 cd $DIR
-mkdir -p gen
+mkdir -p $OUT/gen
 pass=0; fail=0
 
 # extract a C function definition by name from a file (signature .. matching })
-extract() {  # $1=file $2=func; definitions start at column zero in this tree
+# definitions start at column zero in this tree. If a name is defined more than
+# once (init.c has a DEBUGMODE stub of Initialize), the last definition wins.
+extract() {  # $1=file $2=func
   awk -v fn="$2" '
-    !ins && $0 ~ /^[A-Za-z_]/ && $0 ~ (fn "[[:space:]]*[(]") && $0 !~ /;/ { ins=1 }
-    ins { print; o=gsub(/{/,"{"); c=gsub(/}/,"}"); n+=o-c; if(n>0) seen=1; if(seen && n==0) exit }
+    !ins && $0 ~ /^[A-Za-z_]/ && $0 ~ ("(^|[^A-Za-z0-9_])" fn "[[:space:]]*[(]") && $0 !~ /;/ { ins=1; buf=""; n=0; seen=0 }
+    ins { buf = buf $0 "\n"; o=gsub(/{/,"{"); c=gsub(/}/,"}"); n+=o-c; if(n>0) seen=1; if(seen && n==0) { last=buf; ins=0 } }
+    END { printf "%s", last }
   ' "$1"
 }
 
 for t in *_live.c; do
   [ -e $t ] || continue
   # gather @src/@func directives (a test may lift several funcs)
-  src=$(/usr/bin/grep -oE '@src [^ ]+' $t | awk '{print $2}' | head -1)
+  src=$(grep -oE '@src [^ ]+' $t | awk '{print $2}' | head -1)
   ok=1
-  for fn in $(/usr/bin/grep -oE '@func [A-Za-z_][A-Za-z0-9_]*' $t | awk '{print $2}'); do
+  for fn in $(grep -oE '@func [A-Za-z_][A-Za-z0-9_]*' $t | awk '{print $2}'); do
     if [ ! -f $SRCROOT/$src ]; then echo "  MISS  $t: no $SRCROOT/$src"; ok=0; break; fi
-    extract $SRCROOT/$src $fn > gen/$fn.c
-    [ -s gen/$fn.c ] || { echo "  MISS  $t: could not extract $fn from $src"; ok=0; break; }
+    extract $SRCROOT/$src $fn > $OUT/gen/$fn.c
+    [ -s $OUT/gen/$fn.c ] || { echo "  MISS  $t: could not extract $fn from $src"; ok=0; break; }
   done
   [ $ok = 1 ] || { fail=$((fail+1)); continue; }
-  if ! $CC -w -I. -o ${t%.c} $t 2>gen/${t%.c}.build.log; then
-    echo "  BUILD $t (see gen/${t%.c}.build.log)"; fail=$((fail+1)); continue
+  # -I$OUT: the tests #include "gen/<func>.c" from the build directory
+  if ! $CC -w -I. -I$OUT -o $OUT/${t%.c} $t 2>$OUT/gen/${t%.c}.build.log; then
+    echo "  BUILD $t (see $OUT/gen/${t%.c}.build.log)"; fail=$((fail+1)); continue
   fi
-  if ./${t%.c}; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  if $OUT/${t%.c}; then pass=$((pass+1)); else fail=$((fail+1)); fi
 done
 echo "== live: $pass passed, $fail failed  (source: $SRCROOT) =="
 exit $([ $fail -eq 0 ] && echo 0 || echo 1)

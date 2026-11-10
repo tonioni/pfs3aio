@@ -1348,6 +1348,7 @@ void FreeDataCache(globaldata *g)
 	FreeVec(g->dc.data);
 	g->dc.ref = NULL;
 	g->dc.data = NULL;
+	g->dc.size = 0;
 }
 
 BOOL InitDataCache(globaldata *g)
@@ -1359,8 +1360,10 @@ BOOL InitDataCache(globaldata *g)
 	g->dc.roving = 0;
 	g->dc.ref = AllocMemR(DATACACHELEN * sizeof(struct reftable), MEMF_CLEAR, g);
 	g->dc.data = AllocMemR(DATACACHELEN * BLOCKSIZE, g->dosenvec->de_BufMemType, g);
-	if (!g->dc.ref || !g->dc.data)
+	if (!g->dc.ref || !g->dc.data) {
+		FreeDataCache(g);
 		return FALSE;
+	}
 
 	/* check memory against mask */
 	if (((IPTR)g->dc.data) & ~g->dosenvec->de_Mask)

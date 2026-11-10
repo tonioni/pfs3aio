@@ -147,8 +147,11 @@ static struct lru_cachedblock *EvictLRU(globaldata *g)
 
 	for (lrunode = (struct lru_cachedblock *)g->glob_lrudata.LRUqueue.mlh_TailPred; lrunode->prev; lrunode = lrunode->prev)
 	{
-		/* skip locked blocks */
-		if (ISLOCKED(&lrunode->cblk))
+		/* skip locked blocks, and blocks AllocLRU handed out that are
+		 * not linked into a volume list yet (FlushBlock would MinRemove
+		 * them through NULL links)
+		 */
+		if (ISLOCKED(&lrunode->cblk) || !lrunode->cblk.next)
 			continue;
 
 		/* Its blocknr is still the committed location. */
@@ -202,6 +205,8 @@ LONG ResizeLRU(globaldata *g, LONG requested)
 
 	if (requested < MIN_BUFFERS)
 		requested = MIN_BUFFERS;
+	else if (requested > MAX_BUFFERS)
+		requested = MAX_BUFFERS;
 
 	if (requested > count)
 	{
@@ -284,6 +289,7 @@ struct cachedblock *AllocLRU (globaldata *g)
 {
   struct lru_cachedblock *lrunode;
   int retries = 0;
+  LONG poolsize;
 
 	ENTER("AllocLRU");
 
@@ -306,8 +312,9 @@ retry:
 		goto ready;
 	}
 
-	/* Attempt to allocate new entries */
-	if (!ResizeLRU(g, g->glob_lrudata.poolsize + NEW_LRU_ENTRIES)) {
+	/* Attempt to allocate new entries (ResizeLRU stops at MAX_BUFFERS) */
+	poolsize = g->glob_lrudata.poolsize;
+	if (ResizeLRU(g, poolsize + NEW_LRU_ENTRIES) <= poolsize) {
 		/* No suitable block found -> we are in trouble */
 		NormalErrorMsg (AFS_ERROR_OUT_OF_BUFFERS, NULL, 1);
 		retries++;

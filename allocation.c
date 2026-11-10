@@ -149,7 +149,7 @@ static struct cindexblock *NewBitmapIndexBlock(UWORD , globaldata * );
  */
 VOID InitAllocation (struct volumedata *volume, globaldata *g)
 {
-  ULONG t, reserved, rootbytes, bitmaplongs;
+  ULONG t, n, reserved, rootbytes, bitmaplongs;
   rootblock_t *rootblock = volume->rootblk;
 
 	/* Do not leave another volume's bitmap usable after a failed init. */
@@ -184,12 +184,27 @@ VOID InitAllocation (struct volumedata *volume, globaldata *g)
 			goto invalid;
 		alloc_data.numreserved = reserved;
 
-		alloc_data.clean_blocksfree = rootblock->blocksfree;
-		alloc_data.alloc_available = rootblock->blocksfree - rootblock->alwaysfree;
+		/* corrupt counters must not wrap: more free blocks than the
+		 * volume has is clamped, and the alwaysfree reserve may not
+		 * make alloc_available wrap
+		 */
+		t = rootblock->blocksfree;
+		if (t > volume->numblocks)
+			t = volume->numblocks;
+		alloc_data.clean_blocksfree = t;
+		alloc_data.alloc_available = (t > rootblock->alwaysfree) ? t - rootblock->alwaysfree : 0;
 		alloc_data.longsperbmb = LONGS_PER_BMB;
 
 		t = (volume->numblocks - (rootblock->lastreserved + 1) + 31)/32;
 		t = (t+LONGS_PER_BMB-1)/LONGS_PER_BMB;
+
+		/* GetBitmapBlock cannot address more bitmap blocks than this;
+		 * a larger count would make a failed sweep run (almost) forever
+		 */
+		n = (UWORD)(g->supermode ? MAXBITMAPINDEX + 1 : MAXSMALLBITMAPINDEX + 1);
+		n *= andata.indexperblock;	/* 16x16 bit multiply */
+		if (t > n)
+			t = n;
 		alloc_data.no_bmb = t;
 		alloc_data.bitmapstart = rootblock->lastreserved + 1;
 		memset (alloc_data.tobefreed, 0, TBF_CACHE_SIZE*2*sizeof(ULONG));
@@ -264,7 +279,7 @@ BOOL AllocateBlocks (ULONG anodenr, ULONG size, globaldata *g)
  */
 BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *ref, globaldata *g)
 {
-  ULONG nr, field, i, j, blocknr, blocksdone = 0;
+  ULONG nr, field, i, j, blocknr, base, blocksdone = 0;
   ULONG extra;
   ULONG scanned = 0;
   FSIZE oldfilesize = 0;
@@ -382,13 +397,13 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *r
 			if (field)
 			{
 				/* take all empty bits */
+				base = (bmseqnr*alloc_data.longsperbmb + bmoffset)*32 + alloc_data.bitmapstart;
 				for ( ; i<32; j>>=1, i++)
 				{
 					if (field & j)
 					{
 						/* block is available, calc blocknr */
-						blocknr = (bmseqnr*alloc_data.longsperbmb + bmoffset)*32 + i + 
-								alloc_data.bitmapstart;
+						blocknr = base + i;
 
 						/* check in range */
 						if (blocknr >= vol->numblocks)
@@ -473,7 +488,9 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *r
 
 							bitmap->blk.bitmap[bmoffset] &= ~j;   /* remove block from freelist */
 							chnode->an.clustersize++;  	   /* to file  	  	  */
-							MakeBlockDirty ((struct cachedblock *)bitmap, g);
+							/* skip the call when already dirty (the common case) */
+							if (!bitmap->changeflag || bitmap->changeflag == CBLK_DIRTY_PENDING)
+								MakeBlockDirty ((struct cachedblock *)bitmap, g);
 
 							/* update counters */
 							alloc_data.clean_blocksfree--;

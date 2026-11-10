@@ -175,15 +175,76 @@ BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm, struct DeviceNod
 	return(TRUE);
 }
 #else
+/* Fields read or written beyond de_TableSize are not part of the table.
+ * A table holding at least the cylinder range but not every field up to
+ * de_DosType is copied to *copy and padded with defaults, so neither
+ * garbage is read nor memory past the DOS-owned table written. The copy
+ * never holds a DosType. Returns the table to use, or NULL if the
+ * partition cannot be located.
+ */
+static struct DosEnvec *PadDosEnvec(struct DosEnvec *env, struct DosEnvec *copy)
+{
+	ULONG n = env->de_TableSize;
+	ULONG *src = (ULONG *)env, *dst = (ULONG *)copy;
+	UWORD i;
+
+	if (n >= DE_DOSTYPE)
+		return env;
+	if (n < DE_UPPERCYL)
+		return NULL;
+	for (i = 0; i <= n; i++)
+		dst[i] = src[i];
+	if (n < DE_NUMBUFFERS)
+		copy->de_NumBuffers = 30;
+	if (n < DE_MEMBUFTYPE)
+		copy->de_BufMemType = MEMF_PUBLIC;
+	if (n < DE_MAXTRANSFER)
+		copy->de_MaxTransfer = 0x20000;
+	if (n < DE_MASK)
+	{
+		copy->de_Mask = 0xFFFFFFFE;
+		copy->de_TableSize = DE_MASK;
+	}
+	copy->de_DosType = 0;
+	return copy;
+}
+
 BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm, struct DeviceNode *devnode, globaldata *g)
 {
 	LONG i;
+	struct DosEnvec *env;
 
 	ENTER("Initialize");
 	g->ErrorMsg = _NormalErrorMsg;
 
+	/*
+	 * Assign memory functions; pooled or not depending
+	 * on exec version (V16: always used LibPool functions
+	 * Quit() uses them even if the initialization fails.
+	 */
+	g->allocmemp = AllocPooledVec;
+	g->freememp = FreePooledVec;
+	g->allocbufmem = AllocPooledBuf;
+	g->freebufmem = FreePooledBuf;
+
 	if (!mountname || !*mountname || !fssm || !fssm->fssm_Device || !fssm->fssm_Environ || !devnode)
 		return FALSE;
+
+	g->dosenvec = (struct DosEnvec *)BADDR(fssm->fssm_Environ);
+
+	/* A short table is padded with defaults (see PadDosEnvec); the sector
+	 * size must be 1..1024 longwords, i.e. 4..4096 bytes (further checked
+	 * below). An unset
+	 * MaxTransfer would fail every disk request.
+	 */
+	env = PadDosEnvec(g->dosenvec, &g->envcopy);
+	if (!env)
+		return FALSE;
+	g->dosenvec = env;
+	if (g->dosenvec->de_SizeBlock - 1 >= 4096 / 4)
+		return FALSE;
+	if (!g->dosenvec->de_MaxTransfer)
+		g->dosenvec->de_MaxTransfer = 0x20000;
 
 	/* mountname can be something like "pfs:hello". I only need 
 	** the "pfs" part. <i> will be the mountnamelen.
@@ -203,17 +264,7 @@ BOOL Initialize(DSTR mountname, struct FileSysStartupMsg *fssm, struct DeviceNod
 	g->msgport  = devnode->dn_Task;
 	g->devnode  = devnode;
 	g->startup  = fssm;
-	g->dosenvec = (struct DosEnvec *)BADDR(fssm->fssm_Environ);
 	g->currentvolume = NULL;
-
-	/*
-	 * Assign memory functions; pooled or not depending
-	 * on exec version (V16: always used LibPool functions
-	 */
-	g->allocmemp = AllocPooledVec;
-	g->freememp = FreePooledVec;
-	g->allocbufmem = AllocPooledBuf;
-	g->freebufmem = FreePooledBuf;
 
 	if (!g->notifyport)
 		return FALSE;
@@ -318,7 +369,9 @@ Removed because of problems with Phase 5 boards
 	InstallResetHandler(g);
 
 #if !defined(__MORPHOS__) || defined(DISK_BASED_FILESYSTEM)
-	AddToFSResource (g->dosenvec->de_DosType, ((struct DosList *)devnode)->dol_misc.dol_handler.dol_SegList, SysBase);
+	/* de_DosType is only valid if the table is long enough to hold it */
+	if (g->dosenvec->de_TableSize >= DE_DOSTYPE)
+		AddToFSResource (g->dosenvec->de_DosType, ((struct DosList *)devnode)->dol_misc.dol_handler.dol_SegList, SysBase);
 #endif
 
 	DB(Trace(1,"Initialize","Removable = %ld", (ULONG)g->removable));
@@ -732,11 +785,15 @@ static void DoPostponed (struct volumedata *volume, globaldata *g)
 
 			case PP_FREEBLOCKS_KEEP:
 
+				/* corrupt "blocks done" must not wrap the counters */
+				if (postponed->argument3 > alloc_data.clean_blocksfree)
+					goto failed;
 				achain = GetAnodeChain (postponed->argument1, g);
 				if (!achain)
 					goto failed;
 				alloc_data.clean_blocksfree -= postponed->argument3;
-				alloc_data.alloc_available -= postponed->argument3;
+				alloc_data.alloc_available = (alloc_data.alloc_available > postponed->argument3) ?
+					alloc_data.alloc_available - postponed->argument3 : 0;
 				if (!FreeBlocksAC (achain, postponed->argument2, keepanodes, g))
 				{
 					DetachAnodeChain(achain, g);

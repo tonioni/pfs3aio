@@ -2,6 +2,4 @@
 fixtures/
 .tmp/
 *.hdf
-# compiled live-test binaries and extracted source
-live/gen/
-live/*_live
+__pycache__/

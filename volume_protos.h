@@ -28,3 +28,4 @@ void RequestCurrentVolumeBack(globaldata *g);
 BOOL CheckCurrentVolumeBack(globaldata *g);
 
 void CalculateBlockSize(globaldata *g, ULONG, ULONG);
+BOOL SwitchBlockSize(ULONG bs, ULONG oldbs, globaldata *g);

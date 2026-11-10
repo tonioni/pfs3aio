@@ -136,7 +136,7 @@ static void RemoveEmptyABlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptyIBlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptySBlocks(struct volumedata *volume, globaldata *g);
-static ULONG GetAnodeOfDBlk(struct cdirblock *blk, struct canode *anode, globaldata *g);
+static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, ULONG *prev, globaldata *g);
 static BOOL IsFirstDBlk(struct cdirblock *blk, globaldata *g);
 static BOOL IsEmptyABlk(struct canodeblock *ablk, globaldata *g);
 static BOOL IsEmptyIBlk(struct cindexblock *blk, globaldata *g);
@@ -415,8 +415,8 @@ static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g)
 			LOCK(blk);
 			if (IsEmptyDBlk(blk) && !IsFirstDBlk(blk, g) && !waslocked )
 			{
-				previous = GetAnodeOfDBlk(blk, &anode, g);
-				if (anode.blocknr == blk->blocknr &&
+				if (GetAnodeOfDBlk(blk->blk.anodenr, blk->blocknr, &anode, &previous, g) &&
+					anode.blocknr == blk->blocknr &&
 					RemoveFromAnodeChain(&anode, previous, blk->blk.anodenr, g))
 				{
 					MinRemove(blk);
@@ -445,20 +445,29 @@ static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g)
 	}
 }
 
-static ULONG GetAnodeOfDBlk(struct cdirblock *blk, struct canode *anode, globaldata *g)
+/*
+ * Walks the anode chain starting at anodenr until the anode of block blocknr.
+ * *prev is the anode in front of it (0 for the first one). Returns FALSE if an
+ * anode can't be read or the chain loops; otherwise the walk ended at the
+ * anode of blocknr or, if the chain doesn't contain it, at the chain tail.
+ */
+static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, ULONG *prev, globaldata *g)
 {
-  ULONG prev = 0;
+  struct anodewalk walk;
 
-	if (!GetAnode(anode, blk->blk.anodenr, g))
-		return 0;
-	while (anode->blocknr != blk->blocknr && anode->next)   //anode.next purely safety
+	*prev = 0;
+	if (!GetAnode(anode, anodenr, g))
+		return FALSE;
+	walk.mark = anodenr;
+	walk.steps = 0;
+	while (anode->blocknr != blocknr && anode->next)
 	{
-		prev = anode->nr;
-		if (!GetAnode(anode, anode->next, g))
-			return 0;
+		*prev = anode->nr;
+		if (!GetNextAnode(anode, anode->next, &walk, g))
+			return FALSE;
 	}
 
-	return prev;
+	return TRUE;
 }
 
 static BOOL IsFirstDBlk(struct cdirblock *blk, globaldata *g)
@@ -952,15 +961,13 @@ static BOOL UpdateDBLK (struct cachedblock *blk, ULONG newblocknr, globaldata *g
   struct cdirblock *dblk = (struct cdirblock *)blk;
   struct canode anode;
   ULONG oldblocknr = dblk->oldblocknr;
+  ULONG prev;
 
 	LOCK(blk);
 
 	/* get old anode (all 1-block anodes) */
-	if (!GetAnode (&anode, dblk->blk.anodenr, g))
+	if (!GetAnodeOfDBlk(dblk->blk.anodenr, oldblocknr, &anode, &prev, g))
 		return FALSE;
-	while ((anode.blocknr != oldblocknr) && anode.next) //anode.next purely safety
-		if (!GetAnode (&anode, anode.next, g))
-			return FALSE;
 
 	/* change it.. */
 	if (anode.blocknr != oldblocknr)

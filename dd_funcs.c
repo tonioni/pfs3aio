@@ -789,6 +789,8 @@ static SIPTR dd_OpenFromLock(struct DosPacket *pkt, globaldata * g)
 	struct FileHandle *filehandle;
 	listentry_t *lockentry, *fileentry;
 	listtype type;
+	ULONG anodenr;
+	BOOL added;
 
 	filehandle = (struct FileHandle *)BADDR(pkt->dp_Arg1);
 	if (!(lockentry = ListEntryFromLock(pkt->dp_Arg2)) ||
@@ -812,16 +814,21 @@ static SIPTR dd_OpenFromLock(struct DosPacket *pkt, globaldata * g)
 	if (!(fileentry = MakeListEntry(&lockentry->info, type, &pkt->dp_Res2, g)))
 		return DOSFALSE;
 
-	/* oude lock verwijderen; nieuwe fileentry toevoegen
-	 * addlistentry zou eigenlijk niet fout moeten kunnen gaan
+	/* Add the new fileentry before removing the lock: dos.library keeps the
+	 * lock if this fails. The lock refers to the same object, so hide it from
+	 * the conflict check while adding.
 	 */
-	RemoveListEntry(lockentry, g);
-	if (!AddListEntry(fileentry))   /* should not go wrong */
+	anodenr = lockentry->anodenr;
+	lockentry->anodenr = 0;
+	added = AddListEntry(fileentry);
+	lockentry->anodenr = anodenr;
+	if (!added)
 	{
 		FreeListEntry(fileentry, g);
 		pkt->dp_Res2 = ERROR_OBJECT_IN_USE;
 		return DOSFALSE;
 	}
+	RemoveListEntry(lockentry, g);
 
 	filehandle->fh_Arg1 = (SIPTR)fileentry;
 	return DOSTRUE;
@@ -842,6 +849,9 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 #endif
 	{
 		FSIZE size;
+		/* Failures only skip the metadata update: dos.library frees the
+		 * filehandle regardless, so the entry must always be removed.
+		 */
 		if (fe->le.volume && fe->le.volume->metadata_error)
 		{
 			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
@@ -849,12 +859,16 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 			goto close_entry;
 		}
 		if (!CheckVolume(fe->le.volume, 1, &pkt->dp_Res2, g))
-			return DOSFALSE;
+		{
+			ok = FALSE;
+			goto close_entry;
+		}
 		UpdateLE((listentry_t *) fe, g);
 		if (fe->le.dirblocknr)
 		{
 			pkt->dp_Res2 = PFS_ERROR_INCONSISTENT;
-			return DOSFALSE;
+			ok = FALSE;
+			goto close_entry;
 		}
 		Touch(&fe->le.info.file, g);
 		size = GetDEFileSize(fe->le.info.file.direntry, g);
@@ -875,9 +889,7 @@ static SIPTR dd_Close(struct DosPacket *pkt, globaldata * g)
 		}
 	}
 	else if (!CheckVolume(fe->le.volume, 0, &pkt->dp_Res2, g))
-	{
-		return DOSFALSE;
-	}
+		ok = FALSE;
 
 close_entry:
 	RemoveListEntry((listentry_t *) fe, g);
@@ -1016,7 +1028,7 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	// RES1 = BOOL Success/failure (DOSTRUE/DOSFALSE)
 
 	UBYTE newlabel[DNSIZE], *newname;
-	UBYTE newnamelen;
+	UBYTE newnamelen, i;
 
 #if MULTIUSER
 	if (g->user->uid != muROOT_UID)
@@ -1029,18 +1041,27 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	DSTR newnamept = (DSTR)BARG1(pkt);
 	newnamelen = newnamept[0];
 
- 	if (newnamelen >= DNSIZE - 1) {
+ 	if (newnamelen == 0 || newnamelen >= DNSIZE - 1) {
 		pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
 		return DOSFALSE;
  	}
 
 	BCPLtoCString(newlabel, sizeof(newlabel), newnamept);
+	for (i = 0; i < newnamelen; i++)
+	{
+		if (!newlabel[i] || newlabel[i] == ':' || newlabel[i] == '/')
+		{
+			pkt->dp_Res2 = ERROR_INVALID_COMPONENT_NAME;
+			return DOSFALSE;
+		}
+	}
 
 	if (!CheckVolume(g->currentvolume, 1, &pkt->dp_Res2, g)) {
 		return DOSFALSE;
 	}
 
-	newname = AllocMem(newnamelen + 2, MEMF_CLEAR | MEMF_PUBLIC);
+	/* dos.library's FreeDosEntry() frees dl_Name with FreeVec() */
+	newname = AllocVec(newnamelen + 2, MEMF_CLEAR | MEMF_PUBLIC);
 	if (!newname) {
 		pkt->dp_Res2 = ERROR_NO_FREE_STORE;
 		return DOSFALSE;
@@ -1049,7 +1070,7 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	/* change rootblock */
 	ULONG err = RenameDisk(newlabel, g);
 	if (err) {
-		FreeMem(newname, newnamelen + 2);
+		FreeVec(newname);
 		pkt->dp_Res2 = err;
 		return DOSFALSE;
 	}
@@ -1057,10 +1078,10 @@ static SIPTR dd_Relabel(struct DosPacket *pkt, globaldata * g)
 	// change volume name
 	struct DeviceList *devlist = g->currentvolume->devlist;
 	UBYTE *oldlabel = BADDR(devlist->dl_Name);
-	strcpy(newname + 1, newlabel);
+	CopyMem(newlabel, newname + 1, newnamelen);
 	newname[0] = newnamelen;
 	devlist->dl_Name = MKBADDR(newname);
-	FreeMem(oldlabel, oldlabel[0] + 2);
+	FreeVec(oldlabel);
 
 	return DOSTRUE;
 }
@@ -1678,6 +1699,13 @@ static SIPTR dd_MakeLink(struct DosPacket *pkt, globaldata * g)
 		return DOSFALSE;
 	}
 
+	/* a volume lock has no direntry; only files and real dirs can be linked */
+	if (!IsFile(targetle->le.info) && !IsRealDir(targetle->le.info))
+	{
+		pkt->dp_Res2 = ERROR_OBJECT_WRONG_TYPE;
+		return DOSFALSE;
+	}
+
 	result = CreateLink(&path, zonderpad, &targetle->le.info, &linkinfo, &pkt->dp_Res2, g);
 	if (result)
 	{
@@ -2232,7 +2260,10 @@ static SIPTR dd_SignalIdle(struct DosPacket *pkt, globaldata * g)
 	{
 		handle = (struct idlehandle *)AllocMemP (sizeof(struct idlehandle), g);
 		if (!handle)
+		{
+			pkt->dp_Res2 = ERROR_NO_FREE_STORE;
 			return DOSFALSE;
+		}
 
 		handle->task = (struct Task *)pkt->dp_Arg4;
 		handle->cleansignal = pkt->dp_Arg3 >> 16;
