@@ -1,10 +1,10 @@
-/* LIVE @src lru.c @func EvictLRU @func ResizeLRU
+/* LIVE @src lru.c @func EvictLRU @func SetLRUSize @func ResizeLRU
  *
  * ResizeLRU changes the number of cache buffers in place. The request is
  * clamped to MIN_BUFFERS..MAX_BUFFERS (the upper clamp is new), the
  * resulting pool size is returned, and AllocLRU relies on that:
- * `ResizeLRU(g, poolsize + NEW_LRU_ENTRIES) <= poolsize` means "the cache can
- * not grow any more". The REAL ResizeLRU and EvictLRU (used when shrinking)
+ * `SetLRUSize(g, poolsize + NEW_LRU_ENTRIES, LONG_MAX) <= poolsize` means "the
+ * cache can not grow any more" (ResizeLRU is SetLRUSize limited to MAX_BUFFERS). The REAL ResizeLRU and EvictLRU (used when shrinking)
  * are lifted from lru.c; the allocator (AllocVec/FreeVec with a registry that
  * detects leaks and double frees and can fail on demand or when memory is
  * "exhausted"), the list primitives, FlushBlock and ISLOCKED are mocks.
@@ -145,6 +145,7 @@ static long ErrorMsg(const char *m, void *a, globaldata *g)
 }
 
 #include "gen/EvictLRU.c"                  /* the REAL functions from ../../lru.c */
+#include "gen/SetLRUSize.c"
 #include "gen/ResizeLRU.c"
 
 static int fails;
