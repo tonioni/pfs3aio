@@ -75,9 +75,10 @@ has the bug it covers and to PASS once it is fixed. Covered:
 Not covered by a live test: code that cannot run without AmigaOS or the m68k
 assembler: the startup path (`startup.s`, `FailStartup`), `Quit`, the stack
 release in `assroutines.asm`, and the large-file
-(`EXTENDED_PACKETS_OS4`) packet paths. The black-box layer below only exercises
-them indirectly (every run mounts the handler and shuts it down again); the
-failure branches there rest on code review in the fix PR.
+(`EXTENDED_PACKETS_OS4`) packet paths. `largefile64.py` below covers the large-file
+packets; the rest the black-box layer only exercises indirectly (every run mounts
+the handler and shuts it down again); the failure branches there rest on code
+review in the fix PR.
 
 ## black-box AmiFUSE suite — functional / regression / atomicity
 
@@ -172,6 +173,15 @@ read/write traffic, failed commits, soft protection, inhibit and simultaneous
 replies. Pass `--continuous-writes` to keep a larger file open and write chunks
 across deadline expirations, or `--real-time` to use elapsed host time instead of
 the virtual clock. `run-all.sh` does not run this test.
+
+## large file packets
+
+```sh
+make largefile
+python3 tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
+```
+
+Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool`. It takes a few minutes with 4096 byte blocks.
 
 ## everything
 
