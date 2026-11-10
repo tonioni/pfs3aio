@@ -181,7 +181,7 @@ make largefile
 python3 tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
 ```
 
-Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool`. It takes a few minutes with 4096 byte blocks.
+Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`pip install --no-deps -r tests/requirements.txt` in a venv, and libfuse 2). It takes a few minutes with 4096 byte blocks. `.github/workflows/largefile-test.yml` runs it by hand and for changes to the handler sources, the makefile and the test.
 
 ## everything
 
