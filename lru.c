@@ -188,13 +188,13 @@ static struct lru_cachedblock *EvictLRU(globaldata *g)
 	return NULL;
 }
 
-/* Change the number of cache buffers in place. Growing adds buffers and
- * shrinking releases unused ones, so cached blocks are kept and the old and
- * a new cache never have to exist at the same time. Growing is all or
- * nothing and returns 0 if it fails. Shrinking stops early if the remaining
- * buffers are locked; the resulting number of buffers is returned.
+/* Change the number of cache buffers in place, to MIN_BUFFERS..limit. Growing
+ * adds buffers and shrinking releases unused ones, so cached blocks are kept
+ * and the old and a new cache never have to exist at the same time. Growing
+ * is all or nothing and returns 0 if it fails. Shrinking stops early if the
+ * remaining buffers are locked; the resulting number of buffers is returned.
  */
-LONG ResizeLRU(globaldata *g, LONG requested)
+static LONG SetLRUSize(globaldata *g, LONG requested, LONG limit)
 {
 	struct lru_cachedblock **array, *node;
 	LONG count = g->glob_lrudata.poolsize, i;
@@ -205,8 +205,8 @@ LONG ResizeLRU(globaldata *g, LONG requested)
 
 	if (requested < MIN_BUFFERS)
 		requested = MIN_BUFFERS;
-	else if (requested > MAX_BUFFERS)
-		requested = MAX_BUFFERS;
+	else if (requested > limit)
+		requested = limit;
 
 	if (requested > count)
 	{
@@ -265,6 +265,12 @@ LONG ResizeLRU(globaldata *g, LONG requested)
 	return count;
 }
 
+/* The configured number of buffers, never above MAX_BUFFERS. */
+LONG ResizeLRU(globaldata *g, LONG requested)
+{
+	return SetLRUSize(g, requested, MAX_BUFFERS);
+}
+
 void DeallocLRU(globaldata *g)
 {
 	int j;
@@ -312,9 +318,13 @@ retry:
 		goto ready;
 	}
 
-	/* Attempt to allocate new entries (ResizeLRU stops at MAX_BUFFERS) */
+	/* Attempt to allocate new entries. MAX_BUFFERS limits the configured
+	 * size only. A packet keeps every block it touches locked until it is
+	 * done, and deleting a file above 4 GiB on a volume with 512 byte blocks
+	 * needs more buffers than that. Only memory limits the growth.
+	 */
 	poolsize = g->glob_lrudata.poolsize;
-	if (ResizeLRU(g, poolsize + NEW_LRU_ENTRIES) <= poolsize) {
+	if (SetLRUSize(g, poolsize + NEW_LRU_ENTRIES, 0x7fffffff) <= poolsize) {
 		/* No suitable block found -> we are in trouble */
 		NormalErrorMsg (AFS_ERROR_OUT_OF_BUFFERS, NULL, 1);
 		retries++;

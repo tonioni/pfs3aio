@@ -9,9 +9,12 @@
  *     must not evict it: FlushBlock would MinRemove it through NULL links, and
  *     it would be handed out twice. It must grow the cache instead.
  *  2. Normal eviction of an unlocked, linked block still works.
- *  3. When the cache cannot grow any more (ResizeLRU clamps at MAX_BUFFERS and
- *     returns the unchanged, non-zero buffer count) AllocLRU must give up and
- *     return NULL instead of looping forever.
+ *  3. With the cache at MAX_BUFFERS and every block locked (a packet that
+ *     touches more blocks than that, such as freeing a large file) AllocLRU
+ *     must still grow the cache: MAX_BUFFERS limits the configured size, not
+ *     what a packet needs.
+ *  4. When the cache cannot grow any more (memory is exhausted) AllocLRU must
+ *     give up and return NULL instead of looping forever.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +63,7 @@ typedef struct globaldata {
 #define NormalErrorMsg(a, b, c) (noutofbuffers++)
 
 static int noutofbuffers, nflushnull, nresize;
+static ULONG memmax;                                     /* buffers memory allows, 0 = no limit */
 
 static void ml_init(struct ML *l) { l->mlh_Head = (struct N *)&l->mlh_Tail; l->mlh_Tail = NULL; l->mlh_TailPred = (struct N *)l; }
 static void mock_addhead(struct ML *l, struct N *n)
@@ -79,13 +83,15 @@ static ULONG RawWrite(UBYTE *d, ULONG n, ULONG blk, globaldata *g) { return 0; }
 static void ResToBeFreed(ULONG blk, globaldata *g) {}
 static long ErrorMsg(const char *m, void *a, globaldata *g) { return 0; }
 
-/* ResizeLRU contract: grows by the requested amount (clamped to MAXB) and
+/* SetLRUSize contract: grows by the requested amount (clamped to limit) and
  * returns the resulting buffer count, so an unchanged count means "no growth".
+ * Growing is all or nothing and returns 0 when memory runs out.
  */
-static LONG ResizeLRU(globaldata *g, LONG requested)
+static LONG SetLRUSize(globaldata *g, LONG requested, LONG limit)
 {
     nresize++;
-    if (requested > MAXB) requested = MAXB;
+    if (requested > limit) requested = limit;
+    if (memmax && (ULONG)requested > memmax) return 0;
     while ((LONG)g->glob_lrudata.poolsize < requested) {
         struct lru_cachedblock *n = calloc(1, sizeof(*n));
         mock_addhead(&g->glob_lrudata.LRUpool, (struct N *)n);
@@ -93,6 +99,11 @@ static LONG ResizeLRU(globaldata *g, LONG requested)
     }
     return g->glob_lrudata.poolsize;
 }
+
+/* A tree that still has the cap calls ResizeLRU from AllocLRU; it is the same
+ * request limited to MAXB, so the test fails there instead of not building.
+ */
+#define ResizeLRU(g, r) SetLRUSize((g), (r), MAXB)
 
 #include "gen/EvictLRU.c"                    /* the REAL functions from lru.c */
 #include "gen/AllocLRU.c"
@@ -116,6 +127,7 @@ static void setup(globaldata *g, int poolsize)
     g->glob_lrudata.poolsize = poolsize;
     g->locknr = 1;
     noutofbuffers = nflushnull = nresize = 0;
+    memmax = 0;
 }
 static void onalarm(int s)
 {
@@ -150,11 +162,20 @@ int main(void)
     printf("  normal eviction: ret=%s resizes=%d\n", r == &d->cblk ? "victim" : r ? "other block" : "NULL", nresize);
     if (r != &d->cblk || nflushnull || nresize || noutofbuffers) bad = 1;
 
-    /* 3: cache at its maximum, everything locked: must fail, not loop */
+    /* 3: cache at MAX_BUFFERS, everything locked: it must grow past it */
     setup(&g, MAXB);
     mk(&g, 1, 1); mk(&g, 1, 1);
     r = AllocLRU(&g);
-    printf("  cache full: ret=%s resizes=%d error messages=%d\n", r ? "block" : "NULL", nresize, noutofbuffers);
+    printf("  cache at MAX_BUFFERS, all locked: ret=%s poolsize=%u error messages=%d\n",
+        r ? "block" : "NULL", g.glob_lrudata.poolsize, noutofbuffers);
+    if (!r || g.glob_lrudata.poolsize != MAXB + NEW_LRU_ENTRIES || noutofbuffers) bad = 1;
+
+    /* 4: memory exhausted, everything locked: must fail, not loop */
+    setup(&g, MAXB);
+    memmax = MAXB;
+    mk(&g, 1, 1); mk(&g, 1, 1);
+    r = AllocLRU(&g);
+    printf("  cache cannot grow: ret=%s resizes=%d error messages=%d\n", r ? "block" : "NULL", nresize, noutofbuffers);
     if (r || noutofbuffers < 1 || nresize > 8) bad = 1;
 
     if (bad) { printf("  FAIL\n"); return 1; }
