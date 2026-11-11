@@ -2,7 +2,8 @@
 # amifuse would otherwise pull the upstream amitools, which replaces
 # amitools-amifuse, and newer amitools-amifuse releases lack what fi.py needs.
 #
-#   python3 -m venv venv && venv/bin/pip install --no-deps -r tests/requirements.txt
+#   uv venv && uv pip install --no-deps -r tests/requirements.txt
+#   uv run tests/hardlink.py
 #
 # rdbtool comes with amitools-amifuse. The tests do not mount, so fusepy and
 # libfuse are not needed.

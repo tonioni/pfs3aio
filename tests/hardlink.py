@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deleting the original of a hard link keeps the data under the link.
 
-    python3 tests/hardlink.py [--driver pfs3aio]
+    uv run tests/hardlink.py [--driver pfs3aio]
 
 Makes two hard links to a file and deletes the file. The first link has to
 become the file, with its size and content, and the second link has to follow

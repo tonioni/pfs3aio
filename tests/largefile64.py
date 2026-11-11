@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A file above 4G through the 64 bit packets of AmigaOS 4, under AmiFUSE.
 
-    python3 tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--keep]
+    uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--keep]
 
 Formats a sparse image, switches the large file flag on with ACTION_SET_LARGEFILE
 (unless the driver formatted it that way already) and grows a file past 4G with

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A file with more than 4096 hard links, under AmiFUSE.
 
-    python3 tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512] [--keep]
+    uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512] [--keep]
 
 Links one file 4100 times. Every link has to be made, and the functions that follow
 the link list have to work on the result: rewriting the file with a new size (the new

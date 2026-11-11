@@ -92,13 +92,13 @@ any individual fix (the `live/` tests are), with the one exception noted at T6.
 
 ```sh
 cp /path/to/pfs.hdf tests/fixtures/small.hdf   # a 512-byte-block PFS3 image with a few MB free
-zsh tests/make-supermode.sh [--driver /path/to/pfs3aio]   # sparse supermode fixture
-zsh tests/run.sh [--driver /path/to/pfs3aio] [--quick] [--stock /path/to/other/driver]
+uv run zsh tests/make-supermode.sh [--driver /path/to/pfs3aio]   # sparse supermode fixture
+uv run zsh tests/run.sh [--driver /path/to/pfs3aio] [--quick] [--stock /path/to/other/driver]
 ```
 
 Without `--driver` the scripts use `pfs3aio` in the repository root, the output of `make`.
 
-Needs zsh, python3 with `amifuse` importable (activate its venv), `cmp` and `awk`
+Needs zsh, python3 with `amifuse` importable (`uv run`, see `tests/requirements.txt`), `cmp` and `awk`
 (`rdbtool` and `amifuse` on PATH for `make-supermode.sh`). Images are copied
 sparse-preserving (`cp -c` on macOS, `cp --reflink=auto --sparse=always`
 elsewhere: GNU `cp -c` is not clonefile). `--quick` uses fewer fault/crash points
@@ -154,7 +154,7 @@ AmiFUSE releases that do not ship their own `amifuse.timer_device`.
 ## timer writeback regression
 
 ```sh
-python3 tests/writeback.py --image /path/to/pfs.hdf --driver pfs3aio
+uv run tests/writeback.py --image /path/to/pfs.hdf --driver pfs3aio
 ```
 
 This uses the real compiled m68k handler with a deferred timer.device: AmiFUSE's
@@ -178,16 +178,16 @@ the virtual clock. `run-all.sh` does not run this test.
 
 ```sh
 make largefile
-python3 tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
+uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
 ```
 
-Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`pip install --no-deps -r tests/requirements.txt` in a venv). It takes a few minutes with 4096 byte blocks. `.github/workflows/blackbox-test.yml` runs it as a job of its own, by hand and for changes to the handler sources, the makefile and the test.
+Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`uv venv && uv pip install --no-deps -r tests/requirements.txt`). It takes a few minutes with 4096 byte blocks. `.github/workflows/blackbox-test.yml` runs it as a job of its own, by hand and for changes to the handler sources, the makefile and the test.
 
 ## hard links
 
 ```sh
 make
-python3 tests/hardlink.py [--driver pfs3aio]
+uv run tests/hardlink.py [--driver pfs3aio]
 ```
 
 Makes two hard links to a file and deletes the file. The first link has to become the file, with its size and content, and the second link has to follow it. A compiler that lets `CreateLink` skip the link field of the file fails this by leaving the link dangling. Needs `amifuse` and `rdbtool` like the test above and takes seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
@@ -196,7 +196,7 @@ Makes two hard links to a file and deletes the file. The first link has to becom
 
 ```sh
 make
-python3 tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512]
+uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512]
 ```
 
 Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. The link list is walked from its start for every new link, so it takes about 15 minutes. `.github/workflows/blackbox-test.yml` runs it as a job of its own.

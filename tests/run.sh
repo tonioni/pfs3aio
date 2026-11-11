@@ -6,7 +6,7 @@
 # Defaults: driver = <repo>/pfs3aio (the output of "make"), images = every *.hdf
 # in tests/fixtures/. Run tests/make-supermode.sh first to create the
 # supermode fixture. Each test runs on a throwaway (sparse-preserving) copy.
-# Needs zsh, python3 with amifuse importable (activate its venv), cmp and awk.
+# Needs zsh, python3 with amifuse importable (uv run), cmp and awk.
 #
 # Every verdict is based on what the volume really contains, not on it mounting:
 # after a fault or crash it must remount with the same directories and EITHER
@@ -41,7 +41,7 @@ done
 [ ${#IMAGES} -eq 0 ] && IMAGES=($FIXDIR/*.hdf(N))
 [ ${#IMAGES} -eq 0 ] && { echo "no images (pass --image, or run make-supermode.sh)"; exit 2; }
 command -v amifuse >/dev/null || { echo "amifuse not on PATH"; exit 2; }
-python3 -c 'import amifuse' 2>/dev/null || { echo "python3 cannot import amifuse (activate its venv)"; exit 2; }
+python3 -c 'import amifuse' 2>/dev/null || { echo "python3 cannot import amifuse (run it with uv run)"; exit 2; }
 [ -x $DRV ] || { echo "driver not found/executable: $DRV"; exit 2; }
 [ -z "$STOCK" ] || [ -x $STOCK ] || { echo "stock driver not found/executable: $STOCK"; exit 2; }
 

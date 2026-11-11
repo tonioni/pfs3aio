@@ -56,13 +56,13 @@ jobs:
         include:
           - name: Large file packets under AmiFUSE
             timeout: 30
-            test: python tests/largefile64.py --driver pfs3aio-largefile
+            test: tests/largefile64.py --driver pfs3aio-largefile
           - name: Hard link promotion under AmiFUSE
             timeout: 15
-            test: python tests/hardlink.py --driver pfs3aio
+            test: tests/hardlink.py --driver pfs3aio
           - name: A file with more than 4096 hard links under AmiFUSE
             timeout: 60
-            test: python tests/manylinks.py --driver pfs3aio
+            test: tests/manylinks.py --driver pfs3aio
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,8 +77,8 @@ jobs:
 
       - name: Install AmiFUSE
         run: |
-          uv venv /opt/amifuse
-          uv pip install --python /opt/amifuse --no-deps -r tests/requirements.txt
+          uv venv
+          uv pip install --no-deps -r tests/requirements.txt
 
       - name: Run the test
-        run: PATH=/opt/amifuse/bin:$PATH ${{ matrix.test }}
+        run: uv run ${{ matrix.test }}
