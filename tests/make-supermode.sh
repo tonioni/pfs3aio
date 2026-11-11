@@ -11,7 +11,7 @@
 set -u
 SCRIPT_DIR=${0:A:h}
 REPO=${SCRIPT_DIR:h}
-. $SCRIPT_DIR/builddir.zsh
+. $SCRIPT_DIR/builddir.sh
 DRV=$DEFAULT_DRIVER
 SIZE=8Gi
 OUT=$SCRIPT_DIR/fixtures/super.hdf

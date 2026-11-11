@@ -11,8 +11,8 @@ corresponding fix is applied it PASSES. That is what makes it a proof the fix di
 something, rather than a demonstration that always passes.
 
 ```sh
-zsh tests/live/run.sh                        # test this checkout's source (../..)
-SRCROOT=/path/to/other/tree zsh tests/live/run.sh
+bash tests/live/run.sh                       # test this checkout's source (../..)
+SRCROOT=/path/to/other/tree bash tests/live/run.sh
 ```
 
 The test binaries and extracted functions are written to `build/tests/live` (see
@@ -21,7 +21,7 @@ The test binaries and extracted functions are written to `build/tests/live` (see
 It needs only a host C compiler. It prints one line per assertion plus a
 `live: N passed, M failed` summary and exits non-zero if anything failed. `run.sh`
 finds the tests with `live/*_live.c`, so a new test needs no registration; the
-`@src`/`@func` tags in its header name the functions it lifts (matched at column 0
+`@src`/`@func` tags in its header name the functions it lifts (a later `@src` switches the file; matched at column 0
 of the source, as a definition of exactly that name; if a name is defined more than
 once, such as a `DEBUGMODE` stub, the last definition is used). Each test is written to FAIL on a tree that still
 has the bug it covers and to PASS once it is fixed. Covered:
@@ -41,7 +41,7 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `allocation_live.c` | `InitAllocation`: corrupt free-space counters cannot make the allocator wrap, and the bitmap block count stays within what `GetBitmapBlock` can address |
 | `anodechain_live.c` | `MakeAnodeChain` fails on an anode chain whose `next` links loop instead of allocating until memory runs out; long valid chains still build |
 | `blocksize_zero_live.c` | `CalculateBlockSize` with a zero (or wrapping) `de_SizeBlock` falls back to 512 bytes instead of spinning forever |
-| `dir_integrity_live.c` | `IsChildOf` treats a `GetParent` failure or a cyclic parent chain as an error |
+| `dir_integrity_live.c` | `IsChildOf` treats a `GetParent` failure or a cyclic parent chain as an error, and walks a valid chain of any depth |
 | `lru_alloc_live.c` | `AllocLRU` never evicts the block it just handed out (no double hand-out) and gives up instead of looping when the cache cannot grow |
 | `partlimit_failclosed_live.c` | `SetPartitionLimits` fails closed (firstblock > lastblock) for invalid geometry; valid partitions keep their limits |
 | `dosenvec_short_live.c` | `PadDosEnvec`: a DosEnvec shorter than de_DosType (but with the cylinder range) is copied and padded with defaults, never read or written past its end, and holds no DosType (so it is neither registered under, nor tested for, a garbage DosType); tables too short to locate the partition are refused |
@@ -54,8 +54,8 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `anode_walk_live.c` | `CorrectAnode` stops on a looping or self-linked anode chain instead of walking forever; long valid chains still resolve and reduce the offset correctly |
 | `dblk_walk_live.c` | `GetAnodeOfDBlk` fails on a broken or looping chain and reports the previous anode; `UpdateDBLK` and `RemoveEmptyDBlocks` honour the failure |
 | `resizelru_live.c` | The real `ResizeLRU` clamps to `MIN_BUFFERS`/`MAX_BUFFERS`, never grows past the maximum, keeps its counts consistent through growth, shrinking and a failed allocation, and leaves locked, unlinked and pending blocks alone |
-| `dir_links_live.c` | The link-list walks (`UpdateLinks`, `UpdateLinkDir`, `MoveLink`, `CreateLink`) stop at `MAXWALK` on a cyclic list; `CreateLink` refuses a volume, soft-link or dir-link target with `ERROR_OBJECT_WRONG_TYPE` and reports `ERROR_DISK_FULL` (freeing the anode); `CreateRollover` reports `ERROR_DISK_FULL` on each failure path |
-| `dir_deletelink_live.c` | `DeleteLink` fetches the master before changing anything (an unreadable master fails with nothing modified, a missing one is a dangling link and fine) and refetches it afterwards; `RemapLinks` sets the new parent of a promoted directory, not of a file |
+| `dir_links_live.c` | The link-list walks (`UpdateLinks`, `UpdateLinkDir`, `MoveLink`, `CreateLink`) follow a valid list of any length and stop on a cyclic one; `CreateLink` refuses a volume, soft-link or dir-link target with `ERROR_OBJECT_WRONG_TYPE` and reports `ERROR_DISK_FULL` (freeing the anode); `CreateRollover` reports `ERROR_DISK_FULL` on each failure path |
+| `dir_deletelink_live.c` | `DeleteLink` follows a list of any length, fetches the master before changing anything (an unreadable master fails with nothing modified, a missing one is a dangling link and fine) and refetches it afterwards; `RemapLinks` sets the new parent of a promoted directory, not of a file |
 | `dir_setparent_live.c` | `SetDirParent` updates every dirblock of a multi-block, multi-anode directory and fails on an unreadable anode or block; `RenameAndMove` refuses a move into the directory's own subtree or a broken parent chain, and fails with `metadata_error` if the new parent cannot be written |
 | `dir_misc_live.c` | `KillEmpty` deletes real directories only (not a link to one); `DeleteDir` ends on a looping chain; `NewDir` reports `ERROR_OBJECT_IN_USE` and releases the anode and entry when it cannot be listed |
 | `dir_entries_live.c` | `ExamineAll`/`FillInData` return `PFS_ERROR_INCONSISTENT` for an entry whose name and comment do not fit it instead of retrying it forever (a plain "does not fit the buffer" stays 0); `SearchInDir` and `SearchInDeldir` handle maximum-length names without overflowing their buffer |
@@ -92,13 +92,13 @@ any individual fix (the `live/` tests are), with the one exception noted at T6.
 
 ```sh
 cp /path/to/pfs.hdf tests/fixtures/small.hdf   # a 512-byte-block PFS3 image with a few MB free
-zsh tests/make-supermode.sh [--driver /path/to/pfs3aio]   # sparse supermode fixture
-zsh tests/run.sh [--driver /path/to/pfs3aio] [--quick] [--stock /path/to/other/driver]
+uv run zsh tests/make-supermode.sh [--driver /path/to/pfs3aio]   # sparse supermode fixture
+uv run zsh tests/run.sh [--driver /path/to/pfs3aio] [--quick] [--stock /path/to/other/driver]
 ```
 
 Without `--driver` the scripts use `pfs3aio` in the repository root, the output of `make`.
 
-Needs zsh, python3 with `amifuse` importable (activate its venv), `cmp` and `awk`
+Needs zsh, python3 with `amifuse` importable (`uv run`, see `tests/requirements.txt`), `cmp` and `awk`
 (`rdbtool` and `amifuse` on PATH for `make-supermode.sh`). Images are copied
 sparse-preserving (`cp -c` on macOS, `cp --reflink=auto --sparse=always`
 elsewhere: GNU `cp -c` is not clonefile). `--quick` uses fewer fault/crash points
@@ -154,7 +154,7 @@ AmiFUSE releases that do not ship their own `amifuse.timer_device`.
 ## timer writeback regression
 
 ```sh
-python3 tests/writeback.py --image /path/to/pfs.hdf --driver pfs3aio
+uv run tests/writeback.py --image /path/to/pfs.hdf --driver pfs3aio
 ```
 
 This uses the real compiled m68k handler with a deferred timer.device: AmiFUSE's
@@ -178,10 +178,28 @@ the virtual clock. `run-all.sh` does not run this test.
 
 ```sh
 make largefile
-python3 tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
+uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
 ```
 
-Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`pip install --no-deps -r tests/requirements.txt` in a venv, and libfuse 2). It takes a few minutes with 4096 byte blocks. `.github/workflows/largefile-test.yml` runs it by hand and for changes to the handler sources, the makefile and the test.
+Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`uv venv && uv pip install --no-deps -r tests/requirements.txt`). It takes a few minutes with 4096 byte blocks. `.github/workflows/blackbox-test.yml` runs it as a job of its own, by hand and for changes to the handler sources, the makefile and the test.
+
+## hard links
+
+```sh
+make
+uv run tests/hardlink.py [--driver pfs3aio]
+```
+
+Makes two hard links to a file and deletes the file. The first link has to become the file, with its size and content, and the second link has to follow it. A compiler that lets `CreateLink` skip the link field of the file fails this by leaving the link dangling. Needs `amifuse` and `rdbtool` like the test above and takes seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+
+## many hard links
+
+```sh
+make
+uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512]
+```
+
+Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
 ## everything
 

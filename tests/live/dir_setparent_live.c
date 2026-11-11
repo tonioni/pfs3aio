@@ -36,7 +36,7 @@ typedef int BOOL; typedef char *STRPTR;
 #define DOSTRUE (-1)
 #define DOSFALSE 0
 #define DELDIR 1
-#define MAXWALK 4096			/* as in directory.c */
+#define CALLCAP 100	/* a cycle must be found in far fewer GetParent calls than this */
 #define ANODE_ROOTDIR 5			/* as in blocks.h */
 #define FNSIZE 108
 #define CMSIZE 80
@@ -431,7 +431,7 @@ static void test_rename(void)
 	/* a cyclic parent chain ends with the same error instead of looping */
 	reset();
 	r = rename_to(N_ROOT, N_C1, ST_USERDIR, 30, &e);
-	CHECK(!runaway && parent_calls <= MAXWALK + 2, "cyclic chain must stop (GetParent calls %d)", parent_calls);
+	CHECK(!runaway && parent_calls <= CALLCAP, "cyclic chain must stop (GetParent calls %d)", parent_calls);
 	CHECK(r == DOSFALSE && e == PFS_ERROR_INCONSISTENT, "cyclic parent chain: DOSFALSE, INCONSISTENT (r=%d e=%ld)", r, (long)e);
 	CHECK(chg_calls == 0 && move_calls == 0 && notify_calls == 0 && only_changed(none, 0, 0), "cyclic parent chain: nothing may have been changed");
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify timer writeback with the real m68k handler and repeated file reads.
 
-    python3 tests/writeback.py --image pfs.hdf --driver pfs3aio
+    uv run tests/writeback.py --image pfs.hdf --driver pfs3aio
 
 Uses disposable images. A snapshot is taken while the writer is still mounted,
 without ACTION_FLUSH or unmount, then reopened to verify the committed data.

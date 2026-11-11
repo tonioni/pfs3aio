@@ -284,7 +284,6 @@ static UBYTE debugbuf[120];
 /*
  * Contents
  */
-#define MAXWALK 4096	/* bound for chains that could be cyclic on a corrupt disk */
 static BOOL GetParentOf(union objectinfo *path, SIPTR *error, globaldata *);
 static BOOL GetDir(STRPTR dirname, union objectinfo *path, SIPTR *error, globaldata *);
 static BOOL GetObject(STRPTR objectname, union objectinfo *path, SIPTR *error, globaldata *);
@@ -3004,10 +3003,9 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	struct direntry *objectentry, *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct extrafields extrafields;
-	struct canode linknode;
+	struct canode linknode, head;
 	size_t l;
 	LONG lookup;
-	UWORD n = 0;
 
 	ENTER("CreateLink");
 #if DELDIR
@@ -3120,10 +3118,18 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 		return DOSFALSE;
 	}
 
-	/* make linknode */
+	/* make linknode; a later link goes right after the first one */
+	GetExtraFields(objectentry, &extrafields);
+	linklist = extrafields.link;
 	linknode.clustersize = object->file.dirblock->blk.anodenr;
 	linknode.blocknr = newlink->file.dirblock->blk.anodenr;
 	linknode.next = 0;
+	if (linklist)
+	{
+		if (!GetAnode(&head, linklist, g))
+			goto link_read_error;
+		linknode.next = head.next;
+	}
 	if (!SaveAnode(&linknode, newlink->file.direntry->anode, g))
 	{
 		ULONG linkanode = newlink->file.direntry->anode;
@@ -3134,8 +3140,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	}
 
 	/* change objectentry */
-	GetExtraFields(objectentry, &extrafields);
-	if (!(linklist = extrafields.link))
+	if (!linklist)
 	{
 		/* there were no links yet ->
 		 * add link field. Use entrybuffer and destentry pointer
@@ -3163,14 +3168,9 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	}
 	else
 	{
-		/* add new link to chain */
-		if (!GetAnode(&linknode, extrafields.link, g))
-			goto link_read_error;
-		while (linknode.next)
-			if (++n > MAXWALK || !GetAnode(&linknode, linknode.next, g))
-				goto link_read_error;
-		linknode.next = newlink->file.direntry->anode;
-		if (!SaveAnode(&linknode, linknode.nr, g))
+		/* add new link after the first one */
+		head.next = newlink->file.direntry->anode;
+		if (!SaveAnode(&head, head.nr, g))
 		{
 			ULONG linkanode = newlink->file.direntry->anode;
 			RemoveDirEntry(newlink->file, g);
@@ -4156,16 +4156,25 @@ struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata * g)
 static BOOL IsChildOf(union objectinfo child, union objectinfo parent, SIPTR *error, globaldata * g)
 {
 	union objectinfo up;
-	UWORD depth = 0;
+	ULONG mark = 0, steps = 0;
 
 	while (!IsSameOI(child, parent))
 	{
 		if (!GetParent(&child, &up, error, g))
 			return *error != 0;		/* 0: reached the root */
-		if (++depth > MAXWALK)
+		if ((IPTR)up.file.direntry > SPECIAL_FLUSHED)
 		{
-			*error = PFS_ERROR_INCONSISTENT;
-			return TRUE;
+			/* Brent's cycle detection on the anode of each directory,
+			 * like GetNextAnode: a valid chain never revisits one */
+			ULONG nr = up.file.direntry->anode;
+
+			if (nr == mark)
+			{
+				*error = PFS_ERROR_INCONSISTENT;
+				return TRUE;
+			}
+			if (!(++steps & (steps - 1)))
+				mark = nr;
 		}
 		child = up;
 	}
@@ -4442,14 +4451,16 @@ BOOL UpdateLinks(struct direntry *object, globaldata * g)
 	struct extrafields extrafields;
 	ULONG linknr;
 	SIPTR error;
-	UWORD n = 0;
+	struct anodewalk walk;
 
 	ENTER("UpdateLinks");
 	GetExtraFields(object, &extrafields);
 	linknr = extrafields.link;
+	walk.mark = 0;
+	walk.steps = 0;
 	while (linknr)
 	{
-		if (++n > MAXWALK || !GetAnode(&linklist, linknr, g))
+		if (!GetNextAnode(&linklist, linknr, &walk, g))
 			return FALSE;
 		if (!FetchObject(linklist.blocknr, linklist.nr, &loi, &error, g))
 			return FALSE;
@@ -4470,7 +4481,7 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 	union objectinfo object, directory;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	BOOL found;
-	UWORD n = 0;
+	struct anodewalk walk;
 
 	/* get node to remove */
 	if (!GetAnode(&linknode, link->direntry->anode, g))
@@ -4526,8 +4537,10 @@ static BOOL DeleteLink(struct fileinfo *link, SIPTR *error, globaldata * g)
 	{
 		if (!GetAnode(&linklist, extrafields.link, g))
 			goto link_failure;
+		walk.mark = extrafields.link;
+		walk.steps = 0;
 		while (linklist.next != linknode.nr && linklist.next)
-			if (++n > MAXWALK || !GetAnode(&linklist, linklist.next, g))
+			if (!GetNextAnode(&linklist, linklist.next, &walk, g))
 				goto link_failure;
 
 		if (linklist.next == linknode.nr)
@@ -4641,15 +4654,17 @@ static BOOL UpdateLinkDir(struct direntry *object, ULONG newdiran, globaldata * 
 	struct canode linklist;
 	struct extrafields extrafields;
 	ULONG linknr;
-	UWORD n = 0;
+	struct anodewalk walk;
 
 	ENTER("UpdateLinkDir");
 	GetExtraFields(object, &extrafields);
 	linknr = extrafields.link;
+	walk.mark = 0;
+	walk.steps = 0;
 	while (linknr)
 	{
 		/* update linklist: change clustersize (== object dir) */
-		if (++n > MAXWALK || !GetAnode(&linklist, linknr, g))
+		if (!GetNextAnode(&linklist, linknr, &walk, g))
 			return FALSE;
 		linklist.clustersize = newdiran;
 		if (!SaveAnode(&linklist, linklist.nr, g))
@@ -4668,7 +4683,7 @@ static BOOL MoveLink(struct direntry *object, ULONG newdiran, globaldata *g)
 	struct canode linklist;
 	struct extrafields extrafields;
 	ULONG linknr;
-	UWORD n = 0;
+	struct anodewalk walk;
 
 	ENTER("MoveLink");
 	GetExtraFields(object, &extrafields);
@@ -4692,10 +4707,12 @@ static BOOL MoveLink(struct direntry *object, ULONG newdiran, globaldata *g)
 	else
 	{
 		/* it is the head (linked to) */
+		walk.mark = 0;
+		walk.steps = 0;
 		while (linknr)
 		{
 			/* update linklist: change clustersize (== object dir) */
-			if (++n > MAXWALK || !GetAnode(&linklist, linknr, g))
+			if (!GetNextAnode(&linklist, linknr, &walk, g))
 				return FALSE;
 			linklist.clustersize = newdiran;	/* the object's directory */
 			if (!SaveAnode(&linklist, linklist.nr, g))

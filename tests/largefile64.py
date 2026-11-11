@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A file above 4G through the 64 bit packets of AmigaOS 4, under AmiFUSE.
 
-    python3 tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--keep]
+    uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--keep]
 
 Formats a sparse image, switches the large file flag on with ACTION_SET_LARGEFILE
 (unless the driver formatted it that way already) and grows a file past 4G with
@@ -62,6 +62,7 @@ G = 1 << 30
 FOUR_G = 4 * G
 PKT = 96
 
+SUMMARY = {"largefile64": "Large file packets", "hardlink": "Hard link", "manylinks": "Many hard links"}
 failed = 0
 passed = 0
 failures = []        # (check, got, want) of every failed check
@@ -80,21 +81,21 @@ def check(what, got, want):
     return ok
 
 
-def report(title):
+def report(title, name="largefile64"):
     """The last line, and in GitHub Actions the failed checks as annotations
     and as a table in the job summary."""
-    print("== largefile64: %d passed, %d failed ==" % (passed, failed))
+    print("== %s: %d passed, %d failed ==" % (name, passed, failed))
     if not os.environ.get("GITHUB_ACTIONS"):
         return
     for what, g, w in failures:
         msg = "%s: got %s, want %s" % (what, g, w)
         msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-        print("::error title=largefile64::" + msg)
+        print("::error title=%s::%s" % (name, msg))
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
         cell = lambda t: t.replace("|", "\\|").replace("`", "'")
         with open(path, "a") as f:
-            f.write("### Large file packets: %s\n\n%d passed, %d failed\n" % (title, passed, failed))
+            f.write("### %s: %s\n\n%d passed, %d failed\n" % (SUMMARY.get(name, name), title, passed, failed))
             if failures:
                 f.write("\n| check | got | want |\n|---|---|---|\n")
                 for what, g, w in failures:
@@ -254,7 +255,7 @@ def put(bridge, name, data):
 
 
 def scratch_dir():
-    """The test scratch space of tests/builddir.zsh: <repo>/build/tests or TEST_BUILD_DIR."""
+    """The test scratch space of tests/builddir.sh: <repo>/build/tests or TEST_BUILD_DIR."""
     d = os.path.abspath(os.environ.get("TEST_BUILD_DIR") or os.path.join(ROOT, "build", "tests"))
     marker = os.path.join(d, ".build-dir")
     if not os.path.exists(marker):
