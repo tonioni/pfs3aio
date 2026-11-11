@@ -1,15 +1,16 @@
-/* LIVE @src directory.c @func UpdateLinks @func UpdateLinkDir @func MoveLink @func CreateLink @func CreateRollover
+/* LIVE @src directory.c @func UpdateLinks @func UpdateLinkDir @func MoveLink @func CreateLink @func CreateRollover @src anodes.c @func GetNextAnode
  *
  * Lifts the checkout's real link-list code of directory.c and asserts the
  * guards added to it. (DeleteLink and RemapLinks are in dir_deletelink_live.c.)
  *
- * MAXWALK bound on the link-list walks. The link list of a hard-linked object
- * is a chain of anodes; on a corrupt disk it can point back at an earlier one.
+ * Link-list walks. The link list of a hard-linked object is a chain of
+ * anodes; on a corrupt disk it can point back at an earlier one.
  * UpdateLinks, UpdateLinkDir, MoveLink and the tail walk of CreateLink must
- * stop after MAXWALK steps and fail instead of looping. GetAnode is a mock on
- * a synthetic anode table that counts its calls: an unbounded walk is caught
- * by a call cap (the test then FAILS). A valid chain below the bound, one at
- * the bound and a short chain must still work.
+ * follow a valid chain of any length (4096, 4097, 4098 and 8000 links are
+ * tried: a fixed length cap rejected a valid disk) and fail instead of looping
+ * on a cycle (GetNextAnode, Brent). GetAnode is a mock on a synthetic anode
+ * table that counts its calls: an unbounded walk is caught by a call cap
+ * (the test then FAILS).
  *
  * CreateLink:
  *  - only files and real directories can be linked to: the volume, a soft link
@@ -44,7 +45,6 @@ typedef char *STRPTR;
 #define DOSFALSE 0
 #define DELDIR 1
 #define MULTIUSER 1
-#define MAXWALK 4096			/* as in directory.c */
 #define ST_USERDIR 2
 #define ST_SOFTLINK 3
 #define ST_LINKDIR 4
@@ -179,6 +179,9 @@ static void DetachAnodeChain(struct anodechain *c, globaldata *g) { (void)c; (vo
 static BOOL AllocateBlocksAC(struct anodechain *c, ULONG size, struct fileinfo *f, globaldata *g)
 { (void)c; (void)size; (void)f; (void)g; allocs++; return alloc_ok; }
 
+/* state of a walk along an anode chain, as in anodes_protos.h */
+struct anodewalk { ULONG mark; ULONG steps; };
+#include "gen/GetNextAnode.c"			/* the REAL function from ../../anodes.c */
 #include "gen/UpdateLinks.c"			/* the REAL functions from ../../directory.c */
 #include "gen/UpdateLinkDir.c"
 #include "gen/MoveLink.c"
@@ -223,14 +226,18 @@ static void build_chain(ULONG first, int len)
 /* the same, but the last one points back at the anode 'back' places before it */
 static void build_cycle(ULONG first, int len, int back) { build_chain(first, len); tab[first + len - 1].next = first + len - 1 - back; }
 
-/* a walk is "bounded" if it neither hit the call cap nor read more anodes than the bound allows */
-static int bounded(void) { return !runaway && get_calls <= MAXWALK + 2; }
+/* a walk is "bounded" if it did not hit the call cap */
+static int bounded(void) { return !runaway; }
+/* the chain lengths tried: around the old fixed cap of 4096, and far above it */
+static const int LENS[] = { 4096, 4097, 4098, 8000 };
+#define NLENS 4
 
 static void test_walks(void)
 {
 	struct direntry m;
 	ULONG first = 10;
-	int ok;
+	int ok, k;
+	char msg[80];
 
 	/* UpdateLinks: every linked entry gets the master's size */
 	reset(); build_chain(first, 3); master.xlink = first;
@@ -239,13 +246,12 @@ static void test_walks(void)
 	check(linkent[10].fsize == 123456 && linkent[12].fsize == 123456, "UpdateLinks: the size reaches every link");
 	reset(); master.xlink = 0;
 	check(UpdateLinks(&master, &gd) == TRUE && get_calls == 0, "UpdateLinks: no links, nothing to do");
-	reset(); build_chain(first, MAXWALK); master.xlink = first;
-	ok = UpdateLinks(&master, &gd);
-	check(ok == TRUE && fetches == MAXWALK && linkent[first + MAXWALK - 1].fsize == 123456,
-		"UpdateLinks: a chain of MAXWALK links is valid");
-	reset(); build_chain(first, MAXWALK + 1); master.xlink = first;
-	ok = UpdateLinks(&master, &gd);
-	check(ok == FALSE && bounded() && fetches <= MAXWALK, "UpdateLinks: a chain longer than MAXWALK is refused");
+	for (k = 0; k < NLENS; k++) {
+		reset(); build_chain(first, LENS[k]); master.xlink = first;
+		ok = UpdateLinks(&master, &gd);
+		sprintf(msg, "UpdateLinks: a chain of %d links is walked completely", LENS[k]);
+		check(ok == TRUE && fetches == LENS[k] && linkent[first + LENS[k] - 1].fsize == 123456, msg);
+	}
 	reset(); build_cycle(first, 5, 3); master.xlink = first;
 	ok = UpdateLinks(&master, &gd);
 	check(ok == FALSE && bounded(), "UpdateLinks: a cyclic chain terminates with FALSE");
@@ -256,13 +262,12 @@ static void test_walks(void)
 	check(ok == TRUE && saves == 3, "UpdateLinkDir: a short chain is walked completely");
 	check(tab[10].clustersize == 555 && tab[11].clustersize == 555 && tab[12].clustersize == 555,
 		"UpdateLinkDir: the new directory is stored in every link");
-	reset(); build_chain(first, MAXWALK); master.xlink = first;
-	ok = UpdateLinkDir(&master, 555, &gd);
-	check(ok == TRUE && saves == MAXWALK && tab[first + MAXWALK - 1].clustersize == 555,
-		"UpdateLinkDir: a chain of MAXWALK links is valid");
-	reset(); build_chain(first, MAXWALK + 1); master.xlink = first;
-	ok = UpdateLinkDir(&master, 555, &gd);
-	check(ok == FALSE && bounded() && saves <= MAXWALK, "UpdateLinkDir: a chain longer than MAXWALK is refused");
+	for (k = 0; k < NLENS; k++) {
+		reset(); build_chain(first, LENS[k]); master.xlink = first;
+		ok = UpdateLinkDir(&master, 555, &gd);
+		sprintf(msg, "UpdateLinkDir: a chain of %d links is walked completely", LENS[k]);
+		check(ok == TRUE && saves == LENS[k] && tab[first + LENS[k] - 1].clustersize == 555, msg);
+	}
 	reset(); build_cycle(first, 4, 2); master.xlink = first;
 	ok = UpdateLinkDir(&master, 555, &gd);
 	check(ok == FALSE && bounded(), "UpdateLinkDir: a cyclic chain terminates with FALSE");
@@ -272,13 +277,12 @@ static void test_walks(void)
 	ok = MoveLink(&master, 555, &gd);
 	check(ok == TRUE && saves == 3 && tab[10].clustersize == 555 && tab[12].clustersize == 555,
 		"MoveLink: the head updates every link of a short chain");
-	reset(); build_chain(first, MAXWALK); master.xlink = first;
-	ok = MoveLink(&master, 555, &gd);
-	check(ok == TRUE && saves == MAXWALK && tab[first + MAXWALK - 1].clustersize == 555,
-		"MoveLink: a chain of MAXWALK links is valid");
-	reset(); build_chain(first, MAXWALK + 1); master.xlink = first;
-	ok = MoveLink(&master, 555, &gd);
-	check(ok == FALSE && bounded() && saves <= MAXWALK, "MoveLink: a chain longer than MAXWALK is refused");
+	for (k = 0; k < NLENS; k++) {
+		reset(); build_chain(first, LENS[k]); master.xlink = first;
+		ok = MoveLink(&master, 555, &gd);
+		sprintf(msg, "MoveLink: a chain of %d links is walked completely", LENS[k]);
+		check(ok == TRUE && saves == LENS[k] && tab[first + LENS[k] - 1].clustersize == 555, msg);
+	}
 	reset(); build_cycle(first, 4, 3); master.xlink = first;
 	ok = MoveLink(&master, 555, &gd);
 	check(ok == FALSE && bounded(), "MoveLink: a cyclic chain terminates with FALSE");
@@ -361,21 +365,23 @@ static void test_createlink(void)
 	check(ok == DOSTRUE && tab[12].next == make_anode && tab[10].next == 11 && tab[11].next == 12,
 		"CreateLink: the new link is appended to the tail of the chain");
 	check(master.xlink == first && changes == 0, "CreateLink: the object's entry is not rewritten for a later link");
-	reset(); build_chain(first, 4000); master.xlink = first;
-	ok = do_createlink(ST_FILE, &err);
-	check(ok == DOSTRUE && tab[first + 3999].next == make_anode && bounded(), "CreateLink: a long valid chain below the bound works");
-
-	/* a cyclic or overlong chain: bounded, reported, and the new link rolled back */
-	for (i = 0; i < 2; i++) {
-		reset();
-		if (i == 0) build_cycle(first, 5, 2); else build_chain(first, MAXWALK + 3);
-		master.xlink = first;
+	for (i = 0; i < NLENS; i++) {
+		char msg[96];
+		reset(); build_chain(first, LENS[i]); master.xlink = first;
 		ok = do_createlink(ST_FILE, &err);
-		printf("  CreateLink %s chain: rc=%d err=%ld get_calls=%ld runaway=%d\n", i ? "overlong" : "cyclic", ok, (long)err, get_calls, runaway);
-		check(ok == DOSFALSE && err == PFS_ERROR_INCONSISTENT && bounded(), "CreateLink: a cyclic/overlong link list fails with INCONSISTENT");
-		check(removed == 1 && nfreed == 1 && freed[0] == make_anode, "CreateLink: the half-made link is removed and its anode freed");
-		check(tab[first + 4].next == (i == 0 ? first + 2 : first + 5), "CreateLink: the chain is not modified");
+		sprintf(msg, "CreateLink: a link is appended to a chain of %d links", LENS[i]);
+		check(ok == DOSTRUE && tab[first + LENS[i] - 1].next == make_anode && removed == 0 && nfreed == 0 && bounded(), msg);
 	}
+
+	/* a cyclic chain: reported, and the new link rolled back */
+	reset();
+	build_cycle(first, 5, 2);
+	master.xlink = first;
+	ok = do_createlink(ST_FILE, &err);
+	printf("  CreateLink cyclic chain: rc=%d err=%ld get_calls=%ld runaway=%d\n", ok, (long)err, get_calls, runaway);
+	check(ok == DOSFALSE && err == PFS_ERROR_INCONSISTENT && bounded(), "CreateLink: a cyclic link list fails with INCONSISTENT");
+	check(removed == 1 && nfreed == 1 && freed[0] == make_anode, "CreateLink: the half-made link is removed and its anode freed");
+	check(tab[first + 4].next == first + 2, "CreateLink: the chain is not modified");
 }
 
 static BOOL do_rollover(ULONG size, SIPTR *err)
@@ -427,7 +433,7 @@ int main(void)
 	test_walks();
 	test_createlink();
 	test_rollover();
-	if (failures == 0) { printf("  PASS: dir_links_live: link walks are bounded, CreateLink/CreateRollover guards hold\n"); return 0; }
+	if (failures == 0) { printf("  PASS: dir_links_live: link walks follow any valid chain and stop on cycles, CreateLink/CreateRollover guards hold\n"); return 0; }
 	printf("  FAIL: dir_links_live: %d check(s) failed\n", failures);
 	return 1;
 }

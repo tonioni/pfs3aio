@@ -1,4 +1,4 @@
-/* LIVE @src directory.c @func DeleteLink @func RemapLinks
+/* LIVE @src directory.c @func DeleteLink @func RemapLinks @src anodes.c @func GetNextAnode
  *
  * Lifts the checkout's real DeleteLink and RemapLinks (hard-link bookkeeping
  * of directory.c) and asserts the checks added to them. The other link
@@ -17,9 +17,10 @@
  *    failing refetch (also with OBJECT_NOT_FOUND) is a link_failure.
  *  - Normal cases: the link is first in the list (the master is rewritten
  *    with the next link), in the middle, last, or not in the list at all.
- *  - MAXWALK: the walk along the master's list to find the predecessor stops
- *    after MAXWALK steps; a cyclic list ends in link_failure instead of a
- *    hang (GetAnode is a mock that counts and caps the calls).
+ *  - No length limit: the walk along the master's list to find the
+ *    predecessor follows a valid list of any length (5000 links here). A
+ *    cyclic list is detected (GetNextAnode, Brent) and ends in link_failure
+ *    instead of a hang (GetAnode is a mock that counts and caps the calls).
  * RemapLinks promotes the first link of a deleted master to be the master.
  *  - Promoting a DIRECTORY also sets the new parent in its dirblocks:
  *    SetDirParent(directory anode, new directory); a failure of
@@ -35,7 +36,6 @@ typedef int8_t BYTE; typedef intptr_t SIPTR; typedef uintptr_t IPTR; typedef int
 #define FALSE 0
 #define DOSTRUE (-1)
 #define DOSFALSE 0
-#define MAXWALK 4096			/* as in directory.c */
 #define ST_USERDIR 2
 #define ST_LINKDIR 4
 #define ST_FILE (-3)
@@ -131,6 +131,9 @@ static BOOL UpdateLinkDir(struct direntry *o, ULONG newdiran, globaldata *g)
 static BOOL SetDirParent(ULONG dirnodenr, ULONG parentnr, globaldata *g)
 { (void)g; dcalls++; sdp_node = dirnodenr; sdp_parent = parentnr; return sdp_ok; }
 
+/* state of a walk along an anode chain, as in anodes_protos.h */
+struct anodewalk { ULONG mark; ULONG steps; };
+#include "gen/GetNextAnode.c"			/* the REAL function from ../../anodes.c */
 #include "gen/DeleteLink.c"			/* the REAL functions from ../../directory.c */
 #include "gen/RemapLinks.c"
 
@@ -174,7 +177,7 @@ static int untouched(void)
 	return !memcmp(tab_before, tab, sizeof(tab)) && !memcmp(&lent_before, &lent, sizeof(lent)) &&
 		   !memcmp(&ment_before, &ment, sizeof(ment));
 }
-static int bounded(void) { return !runaway && get_calls <= MAXWALK + 3; }
+static int bounded(void) { return !runaway; }
 
 static BOOL delete_link(SIPTR *err)
 {
@@ -262,22 +265,23 @@ static void test_deletelink(void)
 	check(ok == DOSTRUE && saves == 0 && tab[LN2].next == 0 && nfreed == 1 && freed[0] == LN && !vol.metadata_error,
 		"DeleteLink: a link missing from the list is just freed");
 
-	/* MAXWALK: the walk for the predecessor */
+	/* the walk for the predecessor: any valid length, cycles detected */
 	reset(); ment.xlink = CH;
 	for (i = 0; i < 4000; i++) { tab[CH + i].next = (i == 3999) ? LN : CH + i + 1; }
 	tab[LN].next = LN2;
 	ok = delete_link(&err);
 	check(ok == DOSTRUE && tab[CH + 3999].next == LN2 && nfreed == 1 && freed[0] == LN && bounded(),
-		"DeleteLink: a long valid list (below the bound) is walked to the predecessor");
-	reset(); ment.xlink = CH;				/* LN is the MAXWALK+1-th element: predecessor reached with n == MAXWALK */
-	for (i = 0; i < MAXWALK; i++) { tab[CH + i].next = (i == MAXWALK - 1) ? LN : CH + i + 1; }
+		"DeleteLink: a list of 4000 links is walked to the predecessor");
+	reset(); ment.xlink = CH;				/* 4096 and 4097 links: the sizes the old fixed bound sat at */
+	for (i = 0; i < 4097; i++) { tab[CH + i].next = (i == 4096) ? LN : CH + i + 1; }
 	ok = delete_link(&err);
-	check(ok == DOSTRUE && tab[CH + MAXWALK - 1].next == 0 && bounded(), "DeleteLink: a list that just fits the bound works");
-	reset(); ment.xlink = CH;				/* longer than the bound: refused */
+	check(ok == DOSTRUE && tab[CH + 4096].next == 0 && nfreed == 1 && freed[0] == LN && !vol.metadata_error && bounded(),
+		"DeleteLink: a list of 4098 links works");
+	reset(); ment.xlink = CH;
 	for (i = 0; i < 5000; i++) { tab[CH + i].next = (i == 4999) ? LN : CH + i + 1; }
 	ok = delete_link(&err);
-	check(ok == DOSFALSE && err == PFS_ERROR_INCONSISTENT && vol.metadata_error && nfreed == 0 && bounded(),
-		"DeleteLink: a list longer than MAXWALK fails with INCONSISTENT");
+	check(ok == DOSTRUE && tab[CH + 4999].next == 0 && nfreed == 1 && freed[0] == LN && !vol.metadata_error && bounded(),
+		"DeleteLink: a list of 5000 links works, no metadata error");
 	reset(); ment.xlink = CH;				/* cycle that does not contain LN */
 	tab[CH].next = CH + 1; tab[CH + 1].next = CH + 2; tab[CH + 2].next = CH + 1;
 	ok = delete_link(&err);

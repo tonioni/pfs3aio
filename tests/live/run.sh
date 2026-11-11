@@ -40,9 +40,14 @@ extract() {  # $1=file $2=func
 for t in *_live.c; do
   [ -e $t ] || continue
   # gather @src/@func directives (a test may lift several funcs)
-  src=$(grep -oE '@src [^ ]+' $t | awk '{print $2}' | head -1)
+  # (a later @src switches the file the following @funcs are taken from)
+  src=
   ok=1
-  for fn in $(grep -oE '@func [A-Za-z_][A-Za-z0-9_]*' $t | awk '{print $2}'); do
+  for tok in $(grep -oE '@(src|func) [^ ]+' $t | tr ' ' ':'); do
+    case $tok in
+      @src:*) src=${tok#@src:}; continue ;;
+    esac
+    fn=${tok#@func:}
     if [ ! -f $SRCROOT/$src ]; then echo "  MISS  $t: no $SRCROOT/$src"; ok=0; break; fi
     extract $SRCROOT/$src $fn > $OUT/gen/$fn.c
     [ -s $OUT/gen/$fn.c ] || { echo "  MISS  $t: could not extract $fn from $src"; ok=0; break; }
