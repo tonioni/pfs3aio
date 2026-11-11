@@ -73,12 +73,12 @@ jobs:
         with:
           name: pfs3aio-handlers
 
+      - uses: astral-sh/setup-uv@v10.3.3
+
       - name: Install AmiFUSE
         run: |
-          apt-get update
-          apt-get install -y libfuse2t64
-          python3 -m venv /opt/amifuse
-          /opt/amifuse/bin/pip install --no-deps -r tests/requirements.txt
+          uv venv /opt/amifuse
+          uv pip install --python /opt/amifuse --no-deps -r tests/requirements.txt
 
       - name: Run the test
         run: PATH=/opt/amifuse/bin:$PATH ${{ matrix.test }}
