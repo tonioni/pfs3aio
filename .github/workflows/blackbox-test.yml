@@ -1,0 +1,84 @@
+name: pfs3aio black-box tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "*.c"
+      - "*.h"
+      - "*.s"
+      - "*.asm"
+      - makefile
+      - tests/largefile64.py
+      - tests/hardlink.py
+      - tests/manylinks.py
+      - tests/requirements.txt
+      - .github/workflows/blackbox-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the handlers
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mark checkout as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build both variants
+        run: make -j2 all-variants
+
+      - name: Upload handlers
+        uses: actions/upload-artifact@v6
+        with:
+          name: pfs3aio-handlers
+          path: |
+            pfs3aio
+            pfs3aio-largefile
+          if-no-files-found: error
+
+  blackbox:
+    name: ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Large file packets under AmiFUSE
+            timeout: 30
+            test: python tests/largefile64.py --driver pfs3aio-largefile
+          - name: Hard link promotion under AmiFUSE
+            timeout: 15
+            test: python tests/hardlink.py --driver pfs3aio
+          - name: A file with more than 4096 hard links under AmiFUSE
+            timeout: 60
+            test: python tests/manylinks.py --driver pfs3aio
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download handlers
+        uses: actions/download-artifact@v7
+        with:
+          name: pfs3aio-handlers
+
+      - name: Install AmiFUSE
+        run: |
+          apt-get update
+          apt-get install -y libfuse2t64
+          python3 -m venv /opt/amifuse
+          /opt/amifuse/bin/pip install --no-deps -r tests/requirements.txt
+
+      - name: Run the test
+        run: PATH=/opt/amifuse/bin:$PATH ${{ matrix.test }}

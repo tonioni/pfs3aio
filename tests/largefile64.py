@@ -62,6 +62,7 @@ G = 1 << 30
 FOUR_G = 4 * G
 PKT = 96
 
+SUMMARY = {"largefile64": "Large file packets", "hardlink": "Hard link", "manylinks": "Many hard links"}
 failed = 0
 passed = 0
 failures = []        # (check, got, want) of every failed check
@@ -80,21 +81,21 @@ def check(what, got, want):
     return ok
 
 
-def report(title):
+def report(title, name="largefile64"):
     """The last line, and in GitHub Actions the failed checks as annotations
     and as a table in the job summary."""
-    print("== largefile64: %d passed, %d failed ==" % (passed, failed))
+    print("== %s: %d passed, %d failed ==" % (name, passed, failed))
     if not os.environ.get("GITHUB_ACTIONS"):
         return
     for what, g, w in failures:
         msg = "%s: got %s, want %s" % (what, g, w)
         msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-        print("::error title=largefile64::" + msg)
+        print("::error title=%s::%s" % (name, msg))
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
         cell = lambda t: t.replace("|", "\\|").replace("`", "'")
         with open(path, "a") as f:
-            f.write("### Large file packets: %s\n\n%d passed, %d failed\n" % (title, passed, failed))
+            f.write("### %s: %s\n\n%d passed, %d failed\n" % (SUMMARY.get(name, name), title, passed, failed))
             if failures:
                 f.write("\n| check | got | want |\n|---|---|---|\n")
                 for what, g, w in failures:
