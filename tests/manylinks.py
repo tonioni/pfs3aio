@@ -54,8 +54,9 @@ class Volume:
         self.b = b
         self.last = {}
         run_until, log = b._run_until_replies, b._log_replies
-        # walking thousands of links takes the handler more than the default 50 bursts
-        b._run_until_replies = lambda *a, **k: run_until(*a, **dict(dict(max_iters=100000), **k))
+        # walking thousands of links takes the handler more than the default 50 bursts;
+        # no sleep between the bursts, the handler is busy, not waiting
+        b._run_until_replies = lambda *a, **k: run_until(*a, **dict(dict(max_iters=100000, sleep_base=0.0), **k))
 
         def keep(label, replies):
             self.last[label] = replies
