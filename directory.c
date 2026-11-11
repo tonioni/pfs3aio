@@ -2099,7 +2099,7 @@ static BOOL DeleteDir(union objectinfo *info, SIPTR *error, globaldata * g)
 	struct canode anode, chnode;
 	struct volumedata *volume = g->currentvolume;
 	struct cdirblock *dirblk;
-	UWORD t;
+	struct anodewalk walk;
 
 	anode.nr = FIANODENR(&info->file);
 	if (!DirIsEmpty(anode.nr, error, g))
@@ -2112,14 +2112,16 @@ static BOOL DeleteDir(union objectinfo *info, SIPTR *error, globaldata * g)
 		 * otherwise update disk
 		 */
 		chnode.next = anode.nr;
-		for (t=1; chnode.next; t++)
-			if (!t || !GetAnode(&chnode, chnode.next, g))
+		walk.mark = 0;		/* no anode read yet */
+		walk.steps = 0;
+		while (chnode.next)
+			if (!GetNextAnode(&chnode, chnode.next, &walk, g))
 			{
 				*error = PFS_ERROR_INCONSISTENT;
 				return DOSFALSE;
 			}
 
-		if (2*t + alloc_data.rtbf_index > RTBF_THRESHOLD)
+		if (2*(walk.steps + 1) + alloc_data.rtbf_index > RTBF_THRESHOLD)
 			UpdateDisk (g);
 
 		/* do it (btw: fails if dirblock contains more than 128 empty
@@ -2201,6 +2203,7 @@ static BOOL DirIsEmpty(ULONG anodenr, SIPTR *error, globaldata * g)
 {
 	struct canode anode;
 	struct cdirblock *dirblok;
+	struct anodewalk walk;
 
 	if (!GetAnode(&anode, anodenr, g))
 	{
@@ -2209,9 +2212,11 @@ static BOOL DirIsEmpty(ULONG anodenr, SIPTR *error, globaldata * g)
 	}
 	dirblok = LoadDirBlock(anode.blocknr, g);
 
+	walk.mark = anodenr;
+	walk.steps = 0;
 	while (dirblok && (FIRSTENTRY(dirblok)->next == 0) && anode.next)
 	{
-		if (!GetAnode(&anode, anode.next, g))
+		if (!GetNextAnode(&anode, anode.next, &walk, g))
 		{
 			*error = PFS_ERROR_INCONSISTENT;
 			return DOSFALSE;

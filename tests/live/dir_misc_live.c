@@ -1,4 +1,4 @@
-/* LIVE @src directory.c @func DeleteDir @func KillEmpty @func NewDir
+/* LIVE @src directory.c @func DeleteDir @func KillEmpty @func NewDir @src anodes.c @func GetNextAnode
  *
  * Lifts the checkout's real DeleteDir, KillEmpty and NewDir.
  *
@@ -10,11 +10,10 @@
  *    directory's anode; nothing found / unreadable: DOSFALSE.
  *
  * DeleteDir:
- *  - the anode chain of a directory is walked with a UWORD counter t. A cyclic
- *    chain (corrupt disk) must end with PFS_ERROR_INCONSISTENT when t wraps to
- *    0 -- before that the walk never ended -- and nothing may be freed;
- *    ordinary chains, also one of 65534 anodes (the largest t can count
- *    without wrapping), are deleted: every anode and its block is freed.
+ *  - a chain of any length is deleted: every anode and its block is freed,
+ *    also for 65535 anodes and more;
+ *  - a cyclic chain (corrupt disk), also a long tail into a cycle, ends with
+ *    PFS_ERROR_INCONSISTENT (GetNextAnode, Brent) and nothing is freed.
  *
  * NewDir, when AddListEntry fails (it "cannot" -- AFS_ERROR_NEWDIR_ADDLISTENTRY):
  *  - returns NULL with *error == ERROR_OBJECT_IN_USE (not a stale value);
@@ -105,12 +104,12 @@ static ULONG si_dirnodenr; static char si_name[16];
 static int getanode_calls, runaway;
 
 /* ---- anode table of DeleteDir: tbl_next[nr] / block nr + 1000 ---- */
-#define NTAB 70000
+#define NTAB 140000
 static ULONG tbl_next[NTAB]; static int tbl_ok[NTAB];
 static BOOL GetAnode(struct canode *a, ULONG nr, globaldata *g)
 {
 	(void)g;
-	if (++getanode_calls > 400000) runaway = 1;
+	if (++getanode_calls > 1000000) runaway = 1;
 	if (runaway || nr == 0 || nr >= NTAB || !tbl_ok[nr]) {
 		a->clustersize = a->next = 0; a->blocknr = ~0UL; a->nr = nr;
 		return FALSE;
@@ -211,6 +210,8 @@ static struct cdirblock *MakeDirBlock(ULONG blocknr, ULONG anodenr, ULONG rootan
 }
 static LONG ErrorMsg(CONST_STRPTR msg, void *arg, globaldata *g) { (void)arg; (void)g; errormsg_calls++; last_msg = (const UBYTE *)msg; return 0; }
 
+struct anodewalk { ULONG mark; ULONG steps; };
+#include "gen/GetNextAnode.c"			/* the REAL function from ../../anodes.c */
 #include "gen/DeleteDir.c"			/* the REAL functions from ../../directory.c */
 #include "gen/KillEmpty.c"
 #include "gen/NewDir.c"
@@ -320,19 +321,34 @@ static void test_deletedir(void)
 	CHECK(restobefreed_calls == 3 && rtbf_first == 1001 && rtbf_last == 1003, "3 anode chain: blocks 1001..1003 to be freed");
 	CHECK(changedirentry_calls == 1 && updatedisk_calls == 0, "3 anode chain: entry removed, no early disk update");
 
-	/* the longest chain t can count: still deleted entirely */
-	reset(); chain(65534); e = 0;
-	r = DeleteDir(&info, &e, &gd);
-	CHECK(r == DOSTRUE && freeanode_calls == 65534 && freed_last == 65534, "65534 anode chain: deleted (r=%d freed %d e=%ld)", r, freeanode_calls, (long)e);
-	CHECK(changedirentry_calls == 1 && updatedisk_calls == 1, "65534 anode chain: entry removed, disk updated for the tobefreed cache");
+	/* long chains, also past what a 16-bit counter holds: deleted entirely */
+	{
+		static const ULONG lens[] = { 65534, 65535, 65536, 65537, 131072 };
+		int i;
+		for (i = 0; i < 5; i++) {
+			ULONG n = lens[i];
+			reset(); chain(n); e = 0;
+			r = DeleteDir(&info, &e, &gd);
+			CHECK(r == DOSTRUE && freeanode_calls == (int)n && freed_last == n && restobefreed_calls == (int)n,
+				  "%u anode chain: deleted (r=%d freed %d e=%ld)", (unsigned)n, r, freeanode_calls, (long)e);
+			CHECK(changedirentry_calls == 1 && updatedisk_calls == 1,
+				  "%u anode chain: entry removed, disk updated for the tobefreed cache", (unsigned)n);
+		}
+	}
 
 	/* two anodes pointing at each other: corrupt, must end with an error and free nothing */
 	reset(); chain(2); tbl_next[2] = 1; e = 0;
 	r = DeleteDir(&info, &e, &gd);
 	CHECK(!runaway, "cyclic chain: the walk must stop on its own (GetAnode calls %d)", getanode_calls);
 	CHECK(r == DOSFALSE && e == PFS_ERROR_INCONSISTENT, "cyclic chain: DOSFALSE, PFS_ERROR_INCONSISTENT (r=%d e=%ld)", r, (long)e);
-	CHECK(getanode_calls <= 65535, "cyclic chain: ended when the counter wrapped (GetAnode calls %d)", getanode_calls);
+	CHECK(getanode_calls <= 8, "cyclic chain: ended within a few reads (GetAnode calls %d)", getanode_calls);
 	CHECK(nothing_deleted(), "cyclic chain: nothing freed or removed (freed %d entry %d)", freeanode_calls, changedirentry_calls);
+
+	/* a long tail into a cycle: 100000 anodes, the last one back to 70000 */
+	reset(); chain(100000); tbl_next[100000] = 70000; e = 0;
+	r = DeleteDir(&info, &e, &gd);
+	CHECK(!runaway && r == DOSFALSE && e == PFS_ERROR_INCONSISTENT && nothing_deleted(),
+		  "tail into a cycle: DOSFALSE, INCONSISTENT, nothing freed (r=%d e=%ld runaway %d)", r, (long)e, runaway);
 
 	/* an anode pointing at itself */
 	reset(); chain(1); tbl_next[1] = 1; e = 0;
@@ -425,6 +441,6 @@ int main(void)
 	test_deletedir();
 	test_newdir();
 	if (failures) { printf("dir_misc_live: %d FAILED\n", failures); return 1; }
-	printf("  PASS: KillEmpty only deletes real directories; DeleteDir stops on cyclic chains; NewDir cleanup\n");
+	printf("  PASS: KillEmpty only deletes real directories; DeleteDir deletes chains of any length, stops on cyclic chains; NewDir cleanup\n");
 	return 0;
 }
