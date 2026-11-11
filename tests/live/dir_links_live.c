@@ -5,7 +5,7 @@
  *
  * Link-list walks. The link list of a hard-linked object is a chain of
  * anodes; on a corrupt disk it can point back at an earlier one.
- * UpdateLinks, UpdateLinkDir, MoveLink and the tail walk of CreateLink must
+ * UpdateLinks, UpdateLinkDir and MoveLink must
  * follow a valid chain of any length (4096, 4097, 4098 and 8000 links are
  * tried: a fixed length cap rejected a valid disk) and fail instead of looping
  * on a cycle (GetNextAnode, Brent). GetAnode is a mock on a synthetic anode
@@ -19,9 +19,10 @@
  *  - MakeDirEntry failing gives ERROR_DISK_FULL (nothing allocated, nothing
  *    freed); AddDirectoryEntry failing gives ERROR_DISK_FULL and frees the
  *    link's anode;
- *  - a cyclic list is reported as PFS_ERROR_INCONSISTENT and the half-made
- *    link is rolled back (entry removed, anode freed);
- *  - normal cases: first link and appending to a chain.
+ *  - normal cases: first link, and a later link goes right after the first
+ *    one without walking the chain (any length, also a cyclic one);
+ *  - an unreadable first link rolls the half-made link back (entry removed,
+ *    anode freed).
  * CreateRollover: every failure path (MakeDirEntry, GetAnodeChain,
  * AddDirectoryEntry, AllocateBlocksAC) reports ERROR_DISK_FULL and releases
  * exactly what was acquired up to that point.
@@ -359,29 +360,35 @@ static void test_createlink(void)
 	check(nfreed == 1 && freed[0] == make_anode, "CreateLink: AddDirectoryEntry failure frees the link anode");
 	check(saves == 0 && removed == 0 && changes == 0 && master.xlink == 0, "CreateLink: the object is left unchanged");
 
-	/* appending to an existing chain: the old tail points at the new link */
+	/* a later link: it goes right after the first one, the rest keeps its order */
 	reset(); build_chain(first, 3); master.xlink = first;
 	ok = do_createlink(ST_FILE, &err);
-	check(ok == DOSTRUE && tab[12].next == make_anode && tab[10].next == 11 && tab[11].next == 12,
-		"CreateLink: the new link is appended to the tail of the chain");
+	check(ok == DOSTRUE && tab[10].next == make_anode && tab[make_anode].next == 11 && tab[11].next == 12 && tab[12].next == 0,
+		"CreateLink: the new link goes right after the first one");
 	check(master.xlink == first && changes == 0, "CreateLink: the object's entry is not rewritten for a later link");
 	for (i = 0; i < NLENS; i++) {
 		char msg[96];
 		reset(); build_chain(first, LENS[i]); master.xlink = first;
 		ok = do_createlink(ST_FILE, &err);
-		sprintf(msg, "CreateLink: a link is appended to a chain of %d links", LENS[i]);
-		check(ok == DOSTRUE && tab[first + LENS[i] - 1].next == make_anode && removed == 0 && nfreed == 0 && bounded(), msg);
+		sprintf(msg, "CreateLink: a link is added to a chain of %d links with one anode read", LENS[i]);
+		check(ok == DOSTRUE && tab[first].next == make_anode && tab[make_anode].next == first + 1
+			&& tab[first + LENS[i] - 1].next == 0 && get_calls == 1 && removed == 0 && nfreed == 0, msg);
 	}
 
-	/* a cyclic chain: reported, and the new link rolled back */
+	/* a cyclic chain: no walk, so no hang; the link goes after the first one */
 	reset();
 	build_cycle(first, 5, 2);
 	master.xlink = first;
 	ok = do_createlink(ST_FILE, &err);
-	printf("  CreateLink cyclic chain: rc=%d err=%ld get_calls=%ld runaway=%d\n", ok, (long)err, get_calls, runaway);
-	check(ok == DOSFALSE && err == PFS_ERROR_INCONSISTENT && bounded(), "CreateLink: a cyclic link list fails with INCONSISTENT");
-	check(removed == 1 && nfreed == 1 && freed[0] == make_anode, "CreateLink: the half-made link is removed and its anode freed");
-	check(tab[first + 4].next == first + 2, "CreateLink: the chain is not modified");
+	check(ok == DOSTRUE && get_calls == 1 && tab[first].next == make_anode && tab[make_anode].next == first + 1,
+		"CreateLink: a cyclic link list does not stop a new link");
+
+	/* the first link cannot be read: the half-made link is rolled back */
+	reset(); build_chain(first, 3); master.xlink = first; get_calls = CAP;
+	ok = do_createlink(ST_FILE, &err);
+	check(ok == DOSFALSE && err == PFS_ERROR_INCONSISTENT, "CreateLink: an unreadable first link gives INCONSISTENT");
+	check(removed == 1 && nfreed == 1 && freed[0] == make_anode && tab[first].next == first + 1,
+		"CreateLink: the half-made link is removed, its anode freed and the chain kept");
 }
 
 static BOOL do_rollover(ULONG size, SIPTR *err)

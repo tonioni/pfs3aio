@@ -199,7 +199,7 @@ make
 uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512]
 ```
 
-Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. The link list is walked from its start for every new link, so it takes about 15 minutes. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
 ## everything
 

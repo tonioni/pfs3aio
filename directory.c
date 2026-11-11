@@ -3003,10 +3003,9 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	struct direntry *objectentry, *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct extrafields extrafields;
-	struct canode linknode;
+	struct canode linknode, head;
 	size_t l;
 	LONG lookup;
-	struct anodewalk walk;
 
 	ENTER("CreateLink");
 #if DELDIR
@@ -3119,10 +3118,18 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 		return DOSFALSE;
 	}
 
-	/* make linknode */
+	/* make linknode; a later link goes right after the first one */
+	GetExtraFields(objectentry, &extrafields);
+	linklist = extrafields.link;
 	linknode.clustersize = object->file.dirblock->blk.anodenr;
 	linknode.blocknr = newlink->file.dirblock->blk.anodenr;
 	linknode.next = 0;
+	if (linklist)
+	{
+		if (!GetAnode(&head, linklist, g))
+			goto link_read_error;
+		linknode.next = head.next;
+	}
 	if (!SaveAnode(&linknode, newlink->file.direntry->anode, g))
 	{
 		ULONG linkanode = newlink->file.direntry->anode;
@@ -3133,8 +3140,7 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	}
 
 	/* change objectentry */
-	GetExtraFields(objectentry, &extrafields);
-	if (!(linklist = extrafields.link))
+	if (!linklist)
 	{
 		/* there were no links yet ->
 		 * add link field. Use entrybuffer and destentry pointer
@@ -3162,16 +3168,9 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	}
 	else
 	{
-		/* add new link to chain */
-		if (!GetAnode(&linknode, extrafields.link, g))
-			goto link_read_error;
-		walk.mark = extrafields.link;
-		walk.steps = 0;
-		while (linknode.next)
-			if (!GetNextAnode(&linknode, linknode.next, &walk, g))
-				goto link_read_error;
-		linknode.next = newlink->file.direntry->anode;
-		if (!SaveAnode(&linknode, linknode.nr, g))
+		/* add new link after the first one */
+		head.next = newlink->file.direntry->anode;
+		if (!SaveAnode(&head, head.nr, g))
 		{
 			ULONG linkanode = newlink->file.direntry->anode;
 			RemoveDirEntry(newlink->file, g);

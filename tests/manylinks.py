@@ -13,8 +13,7 @@ step after which the volume refuses writes (213 Disk not validated) is named. At
 end the image is mounted again, in a new process, the directory and a link have to
 read and a file has to be writable.
 
-Needs amifuse and rdbtool. The list is walked from its start for every new link,
-so the run takes about 15 minutes.
+Needs amifuse and rdbtool.
 
 Prints a line per check and, last, "== manylinks: <n> passed, <m> failed ==".
 In GitHub Actions the failed checks are also annotations and a table in the job
