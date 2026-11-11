@@ -255,7 +255,7 @@ def put(bridge, name, data):
 
 
 def scratch_dir():
-    """The test scratch space of tests/builddir.zsh: <repo>/build/tests or TEST_BUILD_DIR."""
+    """The test scratch space of tests/builddir.sh: <repo>/build/tests or TEST_BUILD_DIR."""
     d = os.path.abspath(os.environ.get("TEST_BUILD_DIR") or os.path.join(ROOT, "build", "tests"))
     marker = os.path.join(d, ".build-dir")
     if not os.path.exists(marker):

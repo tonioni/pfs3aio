@@ -9,7 +9,7 @@
 set -u
 DIR=${0:A:h}
 REPO=${DIR:h}
-. $DIR/builddir.zsh
+. $DIR/builddir.sh
 DRV=""
 STRICT=0
 typeset -a STOCK QUICK
@@ -27,7 +27,7 @@ rc=0
 blackbox="ran"
 
 echo "===== live-source proofs (fail on broken tree, pass on fixed) ====="
-zsh $DIR/live/run.sh || rc=1
+bash $DIR/live/run.sh || rc=1
 
 # black-box layer is optional: needs amifuse + a built driver
 [ -z "$DRV" ] && [ -x $DEFAULT_DRIVER ] && DRV=$DEFAULT_DRIVER

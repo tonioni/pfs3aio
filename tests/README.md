@@ -11,8 +11,8 @@ corresponding fix is applied it PASSES. That is what makes it a proof the fix di
 something, rather than a demonstration that always passes.
 
 ```sh
-zsh tests/live/run.sh                        # test this checkout's source (../..)
-SRCROOT=/path/to/other/tree zsh tests/live/run.sh
+bash tests/live/run.sh                       # test this checkout's source (../..)
+SRCROOT=/path/to/other/tree bash tests/live/run.sh
 ```
 
 The test binaries and extracted functions are written to `build/tests/live` (see

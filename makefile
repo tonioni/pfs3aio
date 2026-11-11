@@ -82,7 +82,7 @@ all-variants:
 $(OBJS): makefile
 
 check:
-	zsh tests/live/run.sh
+	bash tests/live/run.sh
 
 # Build in a fresh staging directory, so repeated invocations cannot retain
 # obsolete files in an existing archive. Only publish a CRC-checked archive.

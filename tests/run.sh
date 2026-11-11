@@ -19,7 +19,7 @@
 set -u
 SCRIPT_DIR=${0:A:h}
 REPO=${SCRIPT_DIR:h}
-. $SCRIPT_DIR/builddir.zsh
+. $SCRIPT_DIR/builddir.sh
 FI=$SCRIPT_DIR/fi.py
 TMP=$TEST_BUILD_DIR/blackbox-tmp
 FIXDIR=$SCRIPT_DIR/fixtures
