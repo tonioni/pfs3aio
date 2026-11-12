@@ -1,11 +1,11 @@
-/* LIVE @src update.c @func GetAnodeOfDBlk @func UpdateDBLK @func RemoveEmptyDBlocks
+/* LIVE @src update.c @func GetAnodeOfDBlk @func UpdateDBLK @func FreeEmptyDBlk @func RemoveEmptyDBlocks
  *
  * GetAnodeOfDBlk(anodenr, blocknr, anode*, prev*, g) walks the anode chain of
  * a dir block to the anode of block `blocknr`, with a walk record so that a
  * chain that loops back (also onto itself) cannot be followed forever. Its
- * two callers, UpdateDBLK and RemoveEmptyDBlocks, must treat FALSE as "not
- * found". Lifts the real GetAnodeOfDBlk, UpdateDBLK and RemoveEmptyDBlocks
- * from update.c. GetAnode, TrySaveAnode, RemoveFromAnodeChain, the lists and
+ * callers, UpdateDBLK and FreeEmptyDBlk, must treat FALSE as "not found".
+ * Lifts the real GetAnodeOfDBlk, UpdateDBLK, FreeEmptyDBlk and
+ * RemoveEmptyDBlocks from update.c. GetAnode, TrySaveAnode, RemoveFromAnodeChain, the lists and
  * the cache/free bookkeeping are mocks. GetNextAnode lives in anodes.c (the
  * test can lift from one file only): the copy below is VERBATIM from
  * anodes.c. GetAnode gives up after 100000 calls (runaway = endless loop) and,
@@ -24,17 +24,20 @@
  *  FALSE from the walk -> FALSE without the "inconsistency" message (that is
  *  only for a chain without the block) and without saving anything, even if
  *  the leftover anode of a failed read happens to carry the wanted blocknr.
- * RemoveEmptyDBlocks: empty blocks with a good chain are removed (prev passed
- *  on), blocks whose chain loops / can't be read / lacks the block are kept,
- *  unlocked again, updateok is cleared, and the loop goes on with the next
- *  block; a failed walk never reaches RemoveFromAnodeChain.
+ * RemoveEmptyDBlocks (through FreeEmptyDBlk): empty blocks behind the first
+ *  one with a good chain are removed (prev passed on); blocks whose chain
+ *  loops / can't be read / lacks the block are kept, unlocked again, updateok
+ *  is cleared, and the loop goes on with the next block; a failed walk never
+ *  reaches RemoveFromAnodeChain. The first block of a directory and blocks
+ *  with an unreadable head anode are kept without clearing updateok; a block
+ *  locked by the packet is not even looked at.
  */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL;
+typedef uint32_t ULONG; typedef uint16_t UWORD; typedef int16_t WORD; typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL;
 #define TRUE 1
 #define FALSE 0
 #define DB(x)
@@ -136,7 +139,7 @@ BOOL GetNextAnode(struct canode *anode, ULONG anodenr, struct anodewalk *walk, g
 static int ntrysave, trysave_ok, nerrmsg, nrehash, nremovechain, nfreelru, nfreereserved, ntofree;
 static ULONG saved_nr, saved_blocknr;
 static ULONG rc_nr[8], rc_prev[8], rc_anodenr[8];
-static ULONG freeres[8], tofree[8], first_blocknr;
+static ULONG freeres[8], tofree[8];
 
 static BOOL TrySaveAnode(struct canode *anode, ULONG anodenr, globaldata *g)
 {
@@ -147,7 +150,6 @@ static BOOL TrySaveAnode(struct canode *anode, ULONG anodenr, globaldata *g)
 }
 #define ReHash(blk, list, mask) (nrehash++)
 static long ErrorMsg(const char *m, void *args, globaldata *g) { nerrmsg++; return 0; }
-static BOOL IsFirstDBlk(struct cdirblock *blk, globaldata *g) { return blk->blocknr == first_blocknr; }
 static BOOL RemoveFromAnodeChain(struct canode *anode, ULONG previous, ULONG anodenr, globaldata *g)
 {
 	if (nremovechain < 8) { rc_nr[nremovechain] = anode->nr; rc_prev[nremovechain] = previous; rc_anodenr[nremovechain] = anodenr; }
@@ -168,6 +170,7 @@ static void mock_remove(struct MN *n) { n->prev->next = n->next; n->next->prev =
 
 #include "gen/GetAnodeOfDBlk.c"                  /* the REAL functions from ../../update.c */
 #include "gen/UpdateDBLK.c"
+#include "gen/FreeEmptyDBlk.c"
 #include "gen/RemoveEmptyDBlocks.c"
 #undef updateok				/* only the lifted code needs the macro */
 
@@ -183,7 +186,6 @@ static void reset(void)
 	getcalls = 0; runaway = 0; failnr = 0;
 	ntrysave = nerrmsg = nrehash = nremovechain = nfreelru = nfreereserved = ntofree = 0;
 	trysave_ok = TRUE;
-	first_blocknr = 0;
 	memset(&G, 0, sizeof G);
 	G.locknr = 7;
 	G.currentvolume = &VOL;
@@ -349,21 +351,22 @@ static int inlist(struct cdirblock *b)
 static void test_remove(void)
 {
 	int i;
-	struct cdirblock *ok1, *ok2, *loop, *unread, *missing, *nonempty, *ok3, *selfloop, *first;
+	struct cdirblock *ok1, *ok2, *loop, *unread, *missing, *nonempty, *ok3, *selfloop, *first, *locked;
 
 	reset();
 	for (i = 0; i <= HASHM_DIR; i++)
 		ml_init(&VOL.dirblks[i]);
-	chain(10, 1, 100);					/* anode 10 owns block 100 */
+	chain(10, 2, 100);					/* 10(100) -> 11(101) */
 	chain(20, 2, 200);					/* 20(200) -> 21(201) */
 	chain(30, 2, 300); anodes[31].next = 30;	/* loop, blocks 300/301 */
 	chain(50, 2, 500);					/* chain without block 599 */
 	chain(70, 3, 700);					/* 70 -> 71 -> 72 */
 	chain(80, 1, 800); anodes[80].next = 80;	/* anode linking itself */
+	chain(90, 2, 900);					/* 90(900) -> 91(901) */
 	/* anode 40 does not exist */
 
-	/* list 0: ok1, loop, unread, ok2 ; list 3: missing, nonempty, selfloop, first, ok3 */
-	ok1 = addblk(0, 0, 100, 10, 1);
+	/* list 0: ok1, loop, unread, ok2 ; list 3: missing, nonempty, selfloop, first, ok3, locked */
+	ok1 = addblk(0, 0, 101, 10, 1);
 	loop = addblk(0, 1, 399, 30, 1);
 	unread = addblk(0, 2, 401, 40, 1);
 	ok2 = addblk(0, 3, 201, 20, 1);
@@ -371,30 +374,52 @@ static void test_remove(void)
 	missing = addblk(3, 4, 599, 50, 1);
 	nonempty = addblk(3, 5, 701, 70, 0);
 	selfloop = addblk(3, 6, 899, 80, 1);
-	first = addblk(3, 7, 200, 20, 1);
-	first_blocknr = 200;
+	first = addblk(3, 7, 200, 20, 1);			/* head anode 20 owns it */
 	ok3 = addblk(3, 8, 702, 70, 1);
+	locked = addblk(3, 9, 901, 90, 1);
+	locked->used = G.locknr;				/* in use by the packet */
 
 	RemoveEmptyDBlocks(&VOL, &G);
 
 	CHECK(!runaway, "RemoveEmptyDBlocks: endless loop on a looping anode chain");
 	CHECK(!inlist(ok1) && !inlist(ok2) && !inlist(ok3), "blocks with a good chain must be removed (%d %d %d still listed)", inlist(ok1), inlist(ok2), inlist(ok3));
-	CHECK(inlist(loop) && inlist(unread) && inlist(missing) && inlist(nonempty) && inlist(selfloop) && inlist(first), "blocks with a bad chain, non-empty or first block must stay (loop %d unread %d missing %d nonempty %d selfloop %d first %d)", inlist(loop), inlist(unread), inlist(missing), inlist(nonempty), inlist(selfloop), inlist(first));
+	CHECK(inlist(loop) && inlist(unread) && inlist(missing) && inlist(nonempty) && inlist(selfloop) && inlist(first) && inlist(locked), "blocks with a bad chain, non-empty, first or locked block must stay (loop %d unread %d missing %d nonempty %d selfloop %d first %d locked %d)", inlist(loop), inlist(unread), inlist(missing), inlist(nonempty), inlist(selfloop), inlist(first), inlist(locked));
 	CHECK(nremovechain == 3 && nfreelru == 3, "RemoveFromAnodeChain called %d times (want 3), FreeLRU %d", nremovechain, nfreelru);
-	CHECK(rc_nr[0] == 10 && rc_prev[0] == 0 && rc_anodenr[0] == 10, "ok1: removed with anode %lu prev %lu first %lu", (unsigned long)rc_nr[0], (unsigned long)rc_prev[0], (unsigned long)rc_anodenr[0]);
+	CHECK(rc_nr[0] == 11 && rc_prev[0] == 10 && rc_anodenr[0] == 10, "ok1: removed with anode %lu prev %lu first %lu", (unsigned long)rc_nr[0], (unsigned long)rc_prev[0], (unsigned long)rc_anodenr[0]);
 	CHECK(rc_nr[1] == 21 && rc_prev[1] == 20 && rc_anodenr[1] == 20, "ok2: removed with anode %lu prev %lu first %lu", (unsigned long)rc_nr[1], (unsigned long)rc_prev[1], (unsigned long)rc_anodenr[1]);
 	CHECK(rc_nr[2] == 72 && rc_prev[2] == 71 && rc_anodenr[2] == 70, "ok3: removed with anode %lu prev %lu first %lu", (unsigned long)rc_nr[2], (unsigned long)rc_prev[2], (unsigned long)rc_anodenr[2]);
 	/* a changed block frees its reserved block and queues the old location, an unchanged one its own */
-	CHECK(nfreereserved == 1 && freeres[0] == 201 && ntofree == 3 && tofree[0] == 100 && tofree[1] == 1201 && tofree[2] == 702, "block accounting: %d reserved, %d to free", nfreereserved, ntofree);
+	CHECK(nfreereserved == 1 && freeres[0] == 201 && ntofree == 3 && tofree[0] == 101 && tofree[1] == 1201 && tofree[2] == 702, "block accounting: %d reserved, %d to free", nfreereserved, ntofree);
 	CHECK(G.updateok == FALSE, "a block that could not be removed must clear updateok");
 	CHECK(loop->used == 0 && unread->used == 0 && missing->used == 0 && selfloop->used == 0 && nonempty->used == 0 && first->used == 0, "kept blocks must be unlocked again");
+	CHECK(locked->used == G.locknr, "a block locked by the packet must stay locked");
+
+	/* the first block, an unreadable head and a locked block: kept, updateok untouched, no read for the locked one */
+	reset();
+	for (i = 0; i <= HASHM_DIR; i++)
+		ml_init(&VOL.dirblks[i]);
+	chain(20, 2, 200);
+	first = addblk(1, 0, 200, 20, 1);
+	unread = addblk(1, 1, 401, 40, 1);
+	G.updateok = TRUE;
+	RemoveEmptyDBlocks(&VOL, &G);
+	CHECK(inlist(first) && inlist(unread) && nremovechain == 0 && nfreelru == 0 && G.updateok == TRUE, "first block / unreadable head: kept %d %d, updateok %d", inlist(first), inlist(unread), G.updateok);
+	reset();
+	for (i = 0; i <= HASHM_DIR; i++)
+		ml_init(&VOL.dirblks[i]);
+	chain(20, 2, 200);
+	locked = addblk(1, 0, 201, 20, 1);
+	locked->used = G.locknr;
+	G.updateok = TRUE;
+	RemoveEmptyDBlocks(&VOL, &G);
+	CHECK(inlist(locked) && getcalls == 0 && G.updateok == TRUE, "locked block: kept %d, %lu anode reads", inlist(locked), (unsigned long)getcalls);
 
 	/* only good chains: updateok untouched */
 	reset();
 	for (i = 0; i <= HASHM_DIR; i++)
 		ml_init(&VOL.dirblks[i]);
-	chain(10, 1, 100);
-	ok1 = addblk(1, 0, 100, 10, 1);
+	chain(10, 2, 100);
+	ok1 = addblk(1, 0, 101, 10, 1);
 	G.updateok = TRUE;
 	RemoveEmptyDBlocks(&VOL, &G);
 	CHECK(!inlist(ok1) && nremovechain == 1 && G.updateok == TRUE, "only good blocks: removed, updateok must stay TRUE");
@@ -403,7 +428,8 @@ static void test_remove(void)
 	reset();
 	for (i = 0; i <= HASHM_DIR; i++)
 		ml_init(&VOL.dirblks[i]);
-	unread = addblk(2, 0, 0xFFFFFFFFUL, 40, 1);			/* anode 40 unreadable: blocknr = ~0 */
+	chain(40, 2, 400); failnr = 41;
+	unread = addblk(2, 0, 0xFFFFFFFFUL, 40, 1);			/* anode 41 unreadable: blocknr = ~0 */
 	G.updateok = TRUE;
 	RemoveEmptyDBlocks(&VOL, &G);
 	CHECK(inlist(unread) && nremovechain == 0 && nfreelru == 0 && G.updateok == FALSE, "failed walk treated as found: removed %d, RemoveFromAnodeChain %d", !inlist(unread), nremovechain);
