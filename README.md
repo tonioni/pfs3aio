@@ -66,6 +66,13 @@ https://aminet.net/disk/misc/pfs3aio.readme
 Its version and archive contents have been adapted for these builds. Review
 the uploader details and add release-specific changes before a release.
 
+## Floppy image
+
+`make floppy` builds all four handlers and writes `pfs3aio.adf`, an 880K
+AmigaDOS floppy image named `PFS3AIO` containing the handlers, `LICENSE` and
+`versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
+removes the image.
+
 ## GitHub Actions
 
 CI builds the normal and large-file pairs in separate matrix jobs on branch
