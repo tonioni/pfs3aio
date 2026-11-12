@@ -58,6 +58,7 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `dir_deletelink_live.c` | `DeleteLink` follows a list of any length, fetches the master before changing anything (an unreadable master fails with nothing modified, a missing one is a dangling link and fine) and refetches it afterwards; `RemapLinks` sets the new parent of a promoted directory, not of a file |
 | `dir_setparent_live.c` | `SetDirParent` updates every dirblock of a multi-block, multi-anode directory and fails on an unreadable anode or block; `RenameAndMove` refuses a move into the directory's own subtree or a broken parent chain, and fails with `metadata_error` if the new parent cannot be written |
 | `dir_misc_live.c` | `KillEmpty` deletes real directories only (not a link to one); `DeleteDir` deletes a chain of any length and ends on a looping one; `NewDir` reports `ERROR_OBJECT_IN_USE` and releases the anode and entry when it cannot be listed |
+| `dirblk_free_live.c` | `RenameAcrossDirs` frees a directory block it leaves empty once no lock or ExNext position points into it (an ExNext position is moved on first), else marks it dirty; `RemoveDirEntry` still marks it dirty |
 | `dir_isempty_live.c` | `DirIsEmpty` follows a chain of empty directory blocks of any length and ends on a looping one with `PFS_ERROR_INCONSISTENT` |
 | `dir_entries_live.c` | `ExamineAll`/`FillInData` return `PFS_ERROR_INCONSISTENT` for an entry whose name and comment do not fit it instead of retrying it forever (a plain "does not fit the buffer" stays 0); `SearchInDir` and `SearchInDeldir` handle maximum-length names without overflowing their buffer |
 | `dd_openfromlock_live.c` | `dd_OpenFromLock` adds the new fileentry before removing the lock (a failed open leaves the lock usable), hiding the lock from its own conflict check meanwhile |
@@ -201,6 +202,15 @@ uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512]
 ```
 
 Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+
+## emptied directory blocks
+
+```sh
+make
+uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000]
+```
+
+Creates 1000 files in a directory on a partition with 10 buffers and deletes all but three, oldest first, newest first and in random order, or moves them to another directory. `tests/pfs3img.py` then reads the image: behind the first block of the directory no directory block may be empty, the removed blocks have to be free and the reserved bitmap has to agree with the rootblock. Files are also deleted while a listing of their directory is half way through: the listing has to go on with the files that are left, each listed once. Copies of the image taken during the deletes without a flush, as a power cut would leave it, have to hold a whole directory and mount. The image is then mounted again in a new process, the files that are left have to be listed and a directory can be emptied and deleted. Takes about 30 seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
 ## everything
 
