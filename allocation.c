@@ -501,7 +501,13 @@ BOOL AllocateBlocksAC (struct anodechain *achain, ULONG size, struct fileinfo *r
 							/* update reference */
 							if (ref)
 							{
-								SetDEFileSize(ref->direntry, GetDEFileSize(ref->direntry, g) + BLOCKSIZE, g);
+								/* the high part of the size changes only on a carry */
+								ULONG fsize = ref->direntry->fsize + BLOCKSIZE;
+
+								if (fsize < BLOCKSIZE)
+									SetDEFileSize(ref->direntry, GetDEFileSize(ref->direntry, g) + BLOCKSIZE, g);
+								else
+									ref->direntry->fsize = fsize;
 								if (IsUpdateNeeded(RTBF_POSTPONED_TH))
 								{
 									/* make state valid and update disk */
