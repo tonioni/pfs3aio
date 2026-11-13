@@ -35,6 +35,7 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `ds_maxtransfer_live.c` | DirectSCSI maxtransfer in native sectors (a 16 KiB MaxTransfer with 4 KB blocks no longer rounds to 0) |
 | `freeanode_live.c`      | FreeAnode marks the correct anodeblock (non-split and split mode, reserved anodes), reports a failed SaveAnode as FALSE without marking, ignores out-of-range seqnrs |
 | `update_cleanup_live.c` | Deferred reserved frees are persisted by a root-only write after the primary commit |
+| `pending_retry_live.c` | A block whose relocation fails marks its volume; `RetryPendingBlocks` relocates it and clears the mark, keeps the mark when the retry fails, and reads no cache list while nothing is marked |
 | `writeback_live.c` | Relative writeback deadline survives one-second reads and continuous packet traffic; idle flushing, retries and inhibit remain safe |
 | `directory_bounds_live.c` | Reject oversized directory entries and out-of-entry names/comments before caching; safely rewrite valid entries with maximum-length strings |
 | `dd_close_live.c` | `dd_Close` always removes the fileentry (failed volume check, flushed dirblock, ghost volume), so a ghost volume can die |

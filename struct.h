@@ -728,6 +728,7 @@ struct volumedata
 	ULONG   numblocks;                  /* total number of blocks               */
 	UWORD   bytesperblock;              /* blok size (datablocks)               */
 	UWORD   rescluster;                 /* reserved blocks cluster              */
+	BOOL    pendingblocks;              /* a cached block is CBLK_DIRTY_PENDING */
 };
 
 /*
