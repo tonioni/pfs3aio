@@ -4092,16 +4092,18 @@ struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata * g)
 			if (dirblk->blk.id == DBLKID)
 			{
 				struct direntry *entry = FIRSTENTRY(dirblk);
-				ULONG offset = 0;
+				ULONG offset = 0, space = DB_ENTRYSPACE;
+				UBYTE next;
 
-				while (entry->next)
+				while ((next = entry->next))
 				{
 					ULONG commentoffset;
+					UBYTE commentlen;
 
-					if ((entry->next & 1) != 0 ||
-						entry->next < sizeof(struct direntry) ||
-						entry->next > MAX_ENTRYSIZE ||
-						offset + entry->next + 1 > DB_ENTRYSPACE)
+					if ((next & 1) != 0 ||
+						next < sizeof(struct direntry) ||
+						next > MAX_ENTRYSIZE ||
+						offset + next + 1 > space)
 					{
 						FreeLRU((struct cachedblock *)dirblk);
 						return NULL;
@@ -4113,15 +4115,15 @@ struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata * g)
 					 * limit: existing names may predate a limit change.
 					 */
 					commentoffset = offsetof(struct direntry, startofname) + entry->nlength;
-					if (entry->nlength >= FNSIZE || commentoffset >= entry->next ||
-						*COMMENT(entry) >= CMSIZE ||
-						commentoffset + 1 + *COMMENT(entry) > entry->next)
+					if (entry->nlength >= FNSIZE || commentoffset >= next ||
+						(commentlen = *COMMENT(entry)) >= CMSIZE ||
+						commentoffset + 1 + commentlen > next)
 					{
 						FreeLRU((struct cachedblock *)dirblk);
 						return NULL;
 					}
-					offset += entry->next;
-					entry = NEXTENTRY(entry);
+					offset += next;
+					entry = (struct direntry *)((UBYTE *)entry + next);
 				}
 
 				dirblk->volume = g->currentvolume;
