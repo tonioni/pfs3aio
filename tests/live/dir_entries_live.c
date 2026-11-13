@@ -1,4 +1,4 @@
-/* LIVE @src directory.c @func SearchInDir @func SearchInDeldir @func FillInData @func ExamineAll
+/* LIVE @src directory.c @func SearchInDir @func SearchInDeldir @func EntryFileSize @func FileSize32 @func FillInData @func ExamineAll
  *
  * Lifts the checkout's real SearchInDir, SearchInDeldir, FillInData and
  * ExamineAll.
@@ -227,7 +227,7 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *b, SIPT
 
 /* ---- FillInData / ExamineAll collaborators ---- */
 static void GetExtraFields(struct direntry *de, struct extrafields *ef) { (void)de; memset(ef, 0, sizeof(*ef)); }
-static ULONG GetDEFileSize32(struct direntry *de, globaldata *g) { (void)g; return de->fsize; }
+typedef ULONG FSIZE;
 
 #define MAXENTS 8
 static struct direntry *ents[MAXENTS]; static int nents, cur, getnext_calls, getfirst_calls, runaway;
@@ -263,6 +263,8 @@ static BOOL MatchPatternNoCase(STRPTR p, STRPTR s) { (void)p; (void)s; return TR
 
 #include "gen/SearchInDir.c"			/* the REAL functions from ../../directory.c */
 #include "gen/SearchInDeldir.c"
+#include "gen/EntryFileSize.c"
+#include "gen/FileSize32.c"
 #include "gen/FillInData.c"
 #include "gen/ExamineAll.c"
 
