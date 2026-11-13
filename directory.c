@@ -4340,39 +4340,37 @@ void GetExtraFields(struct direntry *direntry, struct extrafields *extrafields)
 {
 	union extrawords *extra = (union extrawords *)extrafields;
 	UWORD *fields = (UWORD *)(((UBYTE *)direntry) + direntry->next);
+	UWORD *limit;
 	UWORD flags, i, minoffset;
 
+	memset(extra, 0, sizeof(*extra));
 	if ((direntry->next & 1) != 0 ||
 		direntry->next < sizeof(struct direntry) ||
 		offsetof(struct direntry, startofname) + direntry->nlength >= direntry->next)
 	{
-		memset(extra, 0, sizeof(*extra));
 		extrafields->prot |= direntry->protection;
 		return;
 	}
 	minoffset = (sizeof(struct direntry) + direntry->nlength + *COMMENT(direntry)) & 0xfffe;
 	if (direntry->next < minoffset + 2)
 	{
-		memset(extra, 0, sizeof(*extra));
 		extrafields->prot |= direntry->protection;
 		return;
 	}
 
-	flags = *(--fields);
-	for (i = 0; i < sizeof(struct extrafields) / 2; i++, flags >>= 1)
+	/* stop at the last present field; the others stay zero */
+	limit = (UWORD *)((UBYTE *)direntry + minoffset);
+	flags = *(--fields) & ((1 << (sizeof(struct extrafields) / 2)) - 1);
+	for (i = 0; flags; i++, flags >>= 1)
 	{
 		if (flags & 1)
 		{
-			if ((UBYTE *)(fields - 1) < (UBYTE *)direntry + minoffset)
+			if (fields - 1 < limit)
 			{
 				memset(extra, 0, sizeof(*extra));
 				break;
 			}
 			extra->w[i] = *(--fields);
-		}
-		else
-		{
-			extra->w[i] = 0;
 		}
 	}
 
