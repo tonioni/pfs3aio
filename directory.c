@@ -755,12 +755,14 @@ static LONG SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *in
 	{
 		entry = (struct direntry *)(&dirblock->blk.entries);
 
-		/* scan block */
+		/* scan block; intlcmp only for names of the right length */
 		while (entry->next)
 		{
-			found = intlcmp(intl_name, DIRENTRYNAME(entry));
-			if (found)
+			if (entry->nlength == intl_name[0] && intlcmp(intl_name, DIRENTRYNAME(entry)))
+			{
+				found = TRUE;
 				break;
+			}
 			entry = NEXTENTRY(entry);
 		}
 
@@ -4112,16 +4114,18 @@ struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata * g)
 			if (dirblk->blk.id == DBLKID)
 			{
 				struct direntry *entry = FIRSTENTRY(dirblk);
-				ULONG offset = 0;
+				ULONG offset = 0, space = DB_ENTRYSPACE;
+				UBYTE next;
 
-				while (entry->next)
+				while ((next = entry->next))
 				{
 					ULONG commentoffset;
+					UBYTE commentlen;
 
-					if ((entry->next & 1) != 0 ||
-						entry->next < sizeof(struct direntry) ||
-						entry->next > MAX_ENTRYSIZE ||
-						offset + entry->next + 1 > DB_ENTRYSPACE)
+					if ((next & 1) != 0 ||
+						next < sizeof(struct direntry) ||
+						next > MAX_ENTRYSIZE ||
+						offset + next + 1 > space)
 					{
 						FreeLRU((struct cachedblock *)dirblk);
 						return NULL;
@@ -4133,15 +4137,15 @@ struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata * g)
 					 * limit: existing names may predate a limit change.
 					 */
 					commentoffset = offsetof(struct direntry, startofname) + entry->nlength;
-					if (entry->nlength >= FNSIZE || commentoffset >= entry->next ||
-						*COMMENT(entry) >= CMSIZE ||
-						commentoffset + 1 + *COMMENT(entry) > entry->next)
+					if (entry->nlength >= FNSIZE || commentoffset >= next ||
+						(commentlen = *COMMENT(entry)) >= CMSIZE ||
+						commentoffset + 1 + commentlen > next)
 					{
 						FreeLRU((struct cachedblock *)dirblk);
 						return NULL;
 					}
-					offset += entry->next;
-					entry = NEXTENTRY(entry);
+					offset += next;
+					entry = (struct direntry *)((UBYTE *)entry + next);
 				}
 
 				dirblk->volume = g->currentvolume;
@@ -4360,39 +4364,37 @@ void GetExtraFields(struct direntry *direntry, struct extrafields *extrafields)
 {
 	union extrawords *extra = (union extrawords *)extrafields;
 	UWORD *fields = (UWORD *)(((UBYTE *)direntry) + direntry->next);
+	UWORD *limit;
 	UWORD flags, i, minoffset;
 
+	memset(extra, 0, sizeof(*extra));
 	if ((direntry->next & 1) != 0 ||
 		direntry->next < sizeof(struct direntry) ||
 		offsetof(struct direntry, startofname) + direntry->nlength >= direntry->next)
 	{
-		memset(extra, 0, sizeof(*extra));
 		extrafields->prot |= direntry->protection;
 		return;
 	}
 	minoffset = (sizeof(struct direntry) + direntry->nlength + *COMMENT(direntry)) & 0xfffe;
 	if (direntry->next < minoffset + 2)
 	{
-		memset(extra, 0, sizeof(*extra));
 		extrafields->prot |= direntry->protection;
 		return;
 	}
 
-	flags = *(--fields);
-	for (i = 0; i < sizeof(struct extrafields) / 2; i++, flags >>= 1)
+	/* stop at the last present field; the others stay zero */
+	limit = (UWORD *)((UBYTE *)direntry + minoffset);
+	flags = *(--fields) & ((1 << (sizeof(struct extrafields) / 2)) - 1);
+	for (i = 0; flags; i++, flags >>= 1)
 	{
 		if (flags & 1)
 		{
-			if ((UBYTE *)(fields - 1) < (UBYTE *)direntry + minoffset)
+			if (fields - 1 < limit)
 			{
 				memset(extra, 0, sizeof(*extra));
 				break;
 			}
 			extra->w[i] = *(--fields);
-		}
-		else
-		{
-			extra->w[i] = 0;
 		}
 	}
 

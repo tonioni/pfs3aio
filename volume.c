@@ -670,6 +670,7 @@ struct volumedata *MakeVolumeData (struct rootblock *rootblock, globaldata *g)
 	volume->rootblk = rootblock;
 	volume->rootblockchangeflag = FALSE;
 	volume->metadata_error = FALSE;
+	volume->pendingblocks = FALSE;
 
 	/* lijsten initieren */
 	for (list = &volume->fileentries; list <= &volume->notifylist; list++)

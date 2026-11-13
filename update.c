@@ -846,6 +846,7 @@ BOOL MakeBlockDirty (struct cachedblock *blk, globaldata *g)
 				blk->oldblocknr = 0;
 				FreeReservedBlock(blocknr, g);
 				blk->changeflag = CBLK_DIRTY_PENDING;
+				blk->volume->pendingblocks = TRUE;
 			}
 		}
 		else
@@ -854,6 +855,7 @@ BOOL MakeBlockDirty (struct cachedblock *blk, globaldata *g)
 			ErrorMsg(AFS_BETA_WARNING_2, NULL, g);
 #endif
 			blk->changeflag = CBLK_DIRTY_PENDING;
+			blk->volume->pendingblocks = TRUE;
 		}
 
 		blk->used = oldlock;    // unlock block
@@ -889,6 +891,9 @@ static BOOL RetryPendingLists(struct MinList *list, UWORD count, BOOL *pending, 
 static BOOL RetryPendingBlocks(struct volumedata *volume, globaldata *g)
 {
 	BOOL pending;
+
+	if (!volume->pendingblocks)
+		return TRUE;
 	do
 	{
 		pending = FALSE;
@@ -914,6 +919,7 @@ static BOOL RetryPendingBlocks(struct volumedata *volume, globaldata *g)
 		}
 #endif
 	} while (pending);
+	volume->pendingblocks = FALSE;
 	return TRUE;
 }
 
