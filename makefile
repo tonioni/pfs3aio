@@ -54,7 +54,7 @@ MISSING_DEPS = $(foreach obj,$(C_OBJS),$(if $(wildcard $(obj:.o=.d)),,$(obj)))
 
 -include $(C_OBJS:.o=.d)
 
-.PHONY: all largefile all-variants lha archive check clean force-deps
+.PHONY: all largefile all-variants floppy lha archive check clean force-deps
 $(MISSING_DEPS): force-deps
 force-deps:
 
@@ -80,6 +80,11 @@ all-variants:
 	$(MAKE) LARGE_FILE_SIZE=1 all
 
 $(OBJS): makefile
+
+# 880K AmigaDOS floppy holding the handlers.
+FLOPPY_FILES = pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom LICENSE versionhistory.doc
+floppy: all-variants
+	$(PYTHON) tools/mkadf.py pfs3aio.adf PFS3AIO $(FLOPPY_FILES)
 
 check:
 	bash tests/live/run.sh
@@ -120,7 +125,7 @@ archive: dist.readme.in
 
 clean:
 	$(RM) build/normal/*.o build/normal/*.d build/largefile/*.o build/largefile/*.d
-	$(RM) pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom
+	$(RM) pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfs3aio.adf
 
 $(BUILD_DIR):
 	mkdir -p $@
