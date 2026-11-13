@@ -213,6 +213,15 @@ uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000]
 
 Creates 1000 files in a directory on a partition with 10 buffers and deletes all but three, oldest first, newest first and in random order, or moves them to another directory. `tests/pfs3img.py` then reads the image: behind the first block of the directory no directory block may be empty, the removed blocks have to be free and the reserved bitmap has to agree with the rootblock. Files are also deleted while a listing of their directory is half way through: the listing has to go on with the files that are left, each listed once. Copies of the image taken during the deletes without a flush, as a power cut would leave it, have to hold a whole directory and mount. The image is then mounted again in a new process, the files that are left have to be listed and a directory can be emptied and deleted. Takes about 30 seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
+## damaged directory block
+
+```sh
+make
+uv run tests/damageddir.py [--driver pfs3aio]
+```
+
+Creates a directory whose files fill three directory blocks and clears the id of the second block in the image. In a new process the files of the first block are deleted, and deleting the directory has to fail with 213 Disk not validated and leave it in place; older versions answer 216 Directory not empty while the directory lists empty. Takes seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+
 ## everything
 
 ```sh
