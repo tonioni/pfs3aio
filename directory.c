@@ -754,12 +754,14 @@ static LONG SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *in
 	{
 		entry = (struct direntry *)(&dirblock->blk.entries);
 
-		/* scan block */
+		/* scan block; intlcmp only for names of the right length */
 		while (entry->next)
 		{
-			found = intlcmp(intl_name, DIRENTRYNAME(entry));
-			if (found)
+			if (entry->nlength == intl_name[0] && intlcmp(intl_name, DIRENTRYNAME(entry)))
+			{
+				found = TRUE;
 				break;
+			}
 			entry = NEXTENTRY(entry);
 		}
 
