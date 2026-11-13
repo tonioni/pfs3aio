@@ -1090,6 +1090,17 @@ void InitAnodes (struct volumedata *volume, BOOL formatting, globaldata *g)
  *   available, the anodebitmap is updated, otherwise the anode is
  *   taken.
  */
+/* Position of the last nonzero entry of index[0..n-1], -1 if there is none */
+static int LastIndex(LONG *index, UWORD n)
+{
+	LONG *p = index + n;
+
+	while (p != index)
+		if (*--p)
+			return p - index;
+	return -1;
+}
+
 static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 {
 	struct cindexblock *iblk;
@@ -1123,7 +1134,7 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 			if (!sblk)
 				goto error;
 
-			for (i=andata.indexperblock - 1; i >= 0 && !sblk->blk.index[i]; i--);
+			i = LastIndex(sblk->blk.index, andata.indexperblock);
 		}
 		else
 		{
@@ -1138,7 +1149,7 @@ static void MakeAnodeBitmap (BOOL formatting, globaldata *g)
 		if (!iblk)
 			goto error;
 
-		for (j=andata.indexperblock - 1; j >= 0 && !iblk->blk.index[j]; j--);
+		j = LastIndex(iblk->blk.index, andata.indexperblock);
 		if (j < 0)
 			goto error;
 	}
