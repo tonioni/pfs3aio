@@ -1079,6 +1079,28 @@ BOOL ExamineNextFile(lockentry_t *file, struct FileInfoBlock * fib, FSIZE *size6
 	return DOSTRUE;
 }
 
+/* GetDEFileSize from extra fields already read; they are read when largefile is set */
+static FSIZE EntryFileSize(struct direntry *direntry, struct extrafields *extrafields, globaldata *g)
+{
+#if LARGE_FILE_SIZE
+	if (g->largefile)
+		return ((FSIZE)direntry->fsize) | ((FSIZE)extrafields->fsizex << 32);
+#else
+	(void)extrafields;
+	(void)g;
+#endif
+	return direntry->fsize;
+}
+
+/* GetDEFileSize32 of a size */
+static ULONG FileSize32(FSIZE size)
+{
+#if LARGE_FILE_SIZE
+	if (size > MAXFILESIZE32)
+		return MAXFILESIZE32;
+#endif
+	return (ULONG)size;
+}
 
 /* Fill fileinfoblock of a file
  */
@@ -1109,14 +1131,16 @@ static BOOL FillFib(struct direntry *direntry, struct cdirblock *dirblock, struc
 	namelen = min(namelen, sizeof(fib->fib_FileName) - 2);
 	commentlen = min(commentlen, sizeof(fib->fib_Comment) - 2);
 	
-	size = GetDEFileSize(direntry, g);
+	if (g->dirextension)
+		GetExtraFields(direntry, &extrafields);
+	size = EntryFileSize(direntry, &extrafields, g);
 	if (size64)
 		*size64 = size;
 	/* fib->fib_DiskKey done by Examine(Next) */
 	fib->fib_DirEntryType = direntry->type;
 	fib->fib_EntryType = direntry->type;
 	fib->fib_Protection = (ULONG)direntry->protection;
-	fib->fib_Size = GetDEFileSize32(direntry, g);
+	fib->fib_Size = FileSize32(size);
 	fib->fib_NumBlocks = (size >> BLOCKSHIFT) + ((size & BLOCKSIZEMASK) != 0);
 	fib->fib_Date.ds_Days = direntry->creationday;
 	fib->fib_Date.ds_Minute = direntry->creationminute;
@@ -1130,7 +1154,6 @@ static BOOL FillFib(struct direntry *direntry, struct cdirblock *dirblock, struc
 
 	if (g->dirextension)
 	{
-		GetExtraFields(direntry, &extrafields);
 		fib->fib_Protection |= extrafields.prot;
 		fib->fib_OwnerUID = extrafields.uid;
 		fib->fib_OwnerGID = extrafields.gid;
@@ -1369,7 +1392,7 @@ static ULONG FillInData(struct ExAllData *buffer, LONG type, struct direntry *di
 				buffer->ed_Size64 = extrafields.virtualsize;
 			else
 #endif
-				buffer->ed_Size64 = GetDEFileSize(direntry, g);
+				buffer->ed_Size64 = EntryFileSize(direntry, &extrafields, g);
 #endif
 		case ED_OWNER:
 			buffer->ed_OwnerUID = extrafields.uid;
@@ -1394,7 +1417,7 @@ static ULONG FillInData(struct ExAllData *buffer, LONG type, struct direntry *di
 				buffer->ed_Size = extrafields.virtualsize;
 			else
 #endif
-				buffer->ed_Size = GetDEFileSize32(direntry, g);
+				buffer->ed_Size = FileSize32(EntryFileSize(direntry, &extrafields, g));
 
 		case ED_TYPE:
 			buffer->ed_Type = direntry->type;
