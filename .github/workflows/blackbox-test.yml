@@ -12,6 +12,8 @@ on:
       - tests/largefile64.py
       - tests/hardlink.py
       - tests/manylinks.py
+      - tests/emptyblocks.py
+      - tests/pfs3img.py
       - tests/requirements.txt
       - .github/workflows/blackbox-test.yml
 
@@ -63,6 +65,9 @@ jobs:
           - name: A file with more than 4096 hard links under AmiFUSE
             timeout: 60
             test: tests/manylinks.py --driver pfs3aio
+          - name: Emptied directory blocks under AmiFUSE
+            timeout: 15
+            test: tests/emptyblocks.py --driver pfs3aio
     steps:
       - uses: actions/checkout@v7
         with:

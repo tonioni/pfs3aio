@@ -137,7 +137,6 @@ static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptyIBlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptySBlocks(struct volumedata *volume, globaldata *g);
 static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, ULONG *prev, globaldata *g);
-static BOOL IsFirstDBlk(struct cdirblock *blk, globaldata *g);
 static BOOL IsEmptyABlk(struct canodeblock *ablk, globaldata *g);
 static BOOL IsEmptyIBlk(struct cindexblock *blk, globaldata *g);
 static BOOL UpdateList (struct cachedblock *blk, globaldata *g);
@@ -389,9 +388,8 @@ BOOL UpdateDisk (globaldata *g)
 static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g)
 {
   struct cdirblock *blk, *next;
-  struct canode anode;
-  ULONG previous;
   UWORD i;
+  WORD r;
 
 	for (i=0; i<=HASHM_DIR; i++)
 	{
@@ -413,32 +411,13 @@ static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g)
 			}
 			myoldlock = blk->used;
 			LOCK(blk);
-			if (IsEmptyDBlk(blk) && !IsFirstDBlk(blk, g) && !waslocked )
-			{
-				if (GetAnodeOfDBlk(blk->blk.anodenr, blk->blocknr, &anode, &previous, g) &&
-					anode.blocknr == blk->blocknr &&
-					RemoveFromAnodeChain(&anode, previous, blk->blk.anodenr, g))
-				{
-					MinRemove(blk);
-					if (blk->changeflag == TRUE)
-					{
-						FreeReservedBlock(blk->blocknr, g);
-						ResToBeFreed(blk->oldblocknr, g);
-					}
-					else
-						ResToBeFreed(blk->blocknr, g);
-					FreeLRU((struct cachedblock *)blk);
-				}
-				else
-				{
-					updateok = FALSE;
-					blk->used = myoldlock;
-				}
-			}
-			else
-			{
-				blk->used = myoldlock;
-			}
+			r = 0;
+			if (!waslocked && IsEmptyDBlk(blk))
+				r = FreeEmptyDBlk((struct cachedblock *)blk, g);
+			if (r < 0)
+				updateok = FALSE;
+			if (r <= 0)
+				blk->used = myoldlock;	/* a freed blk is a pool buffer */
 			if (nextislocked)
 				next->used = nextlock;
 		}
@@ -470,15 +449,36 @@ static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, U
 	return TRUE;
 }
 
-static BOOL IsFirstDBlk(struct cdirblock *blk, globaldata *g)
+/*
+ * Frees an empty dirblock: unlinks its anode and releases its location.
+ * The first block of a directory is kept. Returns 1 if freed, 0 if it is
+ * the first block (or the head anode is unreadable), -1 if the block is not
+ * in its chain or the chain could not be changed.
+ */
+WORD FreeEmptyDBlk(struct cachedblock *cblk, globaldata *g)
 {
-  BOOL first;
+  struct cdirblock *blk = (struct cdirblock *)cblk;
   struct canode anode;
+  ULONG previous;
 
-	first = !GetAnode(&anode, blk->blk.anodenr, g) ||
-		anode.blocknr == blk->blocknr;
-
-	return first;
+	if (!GetAnodeOfDBlk(blk->blk.anodenr, blk->blocknr, &anode, &previous, g))
+		return previous ? -1 : 0;
+	if (anode.blocknr != blk->blocknr)
+		return -1;
+	if (!previous)
+		return 0;
+	if (!RemoveFromAnodeChain(&anode, previous, blk->blk.anodenr, g))
+		return -1;
+	MinRemove(blk);
+	if (blk->changeflag == TRUE)
+	{
+		FreeReservedBlock(blk->blocknr, g);
+		ResToBeFreed(blk->oldblocknr, g);
+	}
+	else
+		ResToBeFreed(blk->blocknr, g);
+	FreeLRU(cblk);
+	return 1;
 }
 
 

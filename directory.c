@@ -317,8 +317,9 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 static BOOL RenameWithinDir(struct fileinfo from, struct direntry *to, struct fileinfo *result, globaldata * g);
 static BOOL RenameAcrossDirs(struct fileinfo from, struct direntry *to, union objectinfo *destdir, struct fileinfo *result, globaldata * g);
 static void RemoveDirEntry(struct fileinfo info, globaldata * g);
+static BOOL CutDirEntry(struct fileinfo info, globaldata * g);
 static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry, struct fileinfo *newinfo, globaldata * g);
-static void UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g);
+static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g);
 
 #if VERSION23
 static int AllocDeldirSlot(globaldata * g);
@@ -3465,7 +3466,7 @@ ULONG SetRollover(fileentry_t *rollfile, struct rolloverinfo *roinfo, globaldata
  * in: from, to, destdir
  * out: result
  *
- * from can become INVALID..
+ * from can become INVALID.., from.dirblock can be freed
  */
 
 BOOL ChangeDirEntry(struct fileinfo from, struct direntry *to,
@@ -3490,6 +3491,7 @@ static BOOL RenameAcrossDirs(struct fileinfo from, struct direntry *to,
 		   union objectinfo *destdir, struct fileinfo *result, globaldata * g)
 {
 	UWORD removedlen;
+	BOOL empty;
 
 	/* may not be evicted while AddDirectoryEntry loads other blocks */
 	LOCK(from.dirblock);
@@ -3508,11 +3510,14 @@ static BOOL RenameAcrossDirs(struct fileinfo from, struct direntry *to,
 			return FALSE;
 	}
 
-	/* remove old entry */
+	/* remove old entry; free its block if that leaves it empty and
+	 * nothing points into it any more
+	 */
 	removedlen = from.direntry->next;
-	RemoveDirEntry(from, g);
-
-	UpdateChangedRef(from, result, -removedlen, g);
+	empty = CutDirEntry(from, g);
+	if (UpdateChangedRef(from, result, -removedlen, g) || !empty ||
+		FreeEmptyDBlk((struct cachedblock *)from.dirblock, g) <= 0)
+		MakeBlockDirty((struct cachedblock *)from.dirblock, g);
 	if (result)
 		LOCK(result->dirblock);
 	return TRUE;
@@ -3772,6 +3777,15 @@ static void RenameInPlace(struct fileinfo from, struct direntry *to, struct file
  */
 static void RemoveDirEntry(struct fileinfo info, globaldata * g)
 {
+	CutDirEntry(info, g);
+	MakeBlockDirty((struct cachedblock *)info.dirblock, g);     // %6.2
+}
+
+/* Removes the entry without marking its block dirty; TRUE if the block is
+ * empty now
+ */
+static BOOL CutDirEntry(struct fileinfo info, globaldata * g)
+{
 	UBYTE *endofblok, *startofblok, *destofblok, *startofclear;
 	UWORD clearlen;
 	SIPTR error;
@@ -3794,8 +3808,7 @@ static void RemoveDirEntry(struct fileinfo info, globaldata * g)
 	/* makes info invalid!! */
 	if (info.direntry->next)
 		memset(startofclear, 0, clearlen);
-	MakeBlockDirty((struct cachedblock *)info.dirblock, g);     // %6.2
-
+	return !FIRSTENTRY(info.dirblock)->next;
 }
 
 
@@ -3940,11 +3953,13 @@ static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry,
 /*
  * Update references
  * diff is direntry size difference (new - original)
+ * Returns TRUE if a reference still points into from.dirblock.
  */
-static void UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g)
+static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g)
 {
 	struct volumedata *volume = from.dirblock->volume;
 	listentry_t *fe;
+	BOOL held = FALSE;
 
 	for (fe = HeadOf(&volume->fileentries); fe->next; fe = fe->next)
 	{
@@ -3994,8 +4009,13 @@ static void UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff
 					}
 				}
 			}
+			if (dle->nextentry.dirblock == from.dirblock)
+				held = TRUE;
 		}
+		if (fe->info.file.dirblock == from.dirblock)
+			held = TRUE;
 	}
+	return held;
 }
 
 

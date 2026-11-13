@@ -5,6 +5,7 @@ update.c
 BOOL UpdateDisk(globaldata * );
 
 BOOL MakeBlockDirty(struct cachedblock * , globaldata * );
+WORD FreeEmptyDBlk(struct cachedblock *, globaldata *);
 
 
 void CheckUpdate (ULONG rtbf_threshold, globaldata *);
