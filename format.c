@@ -517,10 +517,6 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, SIPTR *error, 
 
 	rbl->reserved_blksize = resblocksize;
 
-#if LARGE_FILE_SIZE > 1
-	NormalErrorMsg(AFS_WARNING_EXPERIMENTAL_FILE, NULL, 1);
-#endif
-
 	rbl->datestamp = 1;
 	rbl->creationday = (UWORD)time.ds_Days;
 	rbl->creationminute = (UWORD)time.ds_Minute;
