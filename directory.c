@@ -4914,7 +4914,23 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, 
 }
 
 /*
- * Check if the blocks referenced by an anode are taken
+ * Are blocks blocknr..blocknr+size-1 in one tobefreed range (freed, not yet committed)?
+ */
+static BOOL PendingFree(ULONG blocknr, ULONG size, globaldata * g)
+{
+	ULONG i, offset;
+
+	for (i = 0; i < alloc_data.tobefreed_index; i++)
+	{
+		offset = blocknr - alloc_data.tobefreed[i][TBF_BLOCKNR];
+		if (offset < alloc_data.tobefreed[i][TBF_SIZE] && size <= alloc_data.tobefreed[i][TBF_SIZE] - offset)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+ * Check if the blocks referenced by an anode are taken (pending frees are not)
  */
 static LONG BlockTaken(struct canode *anode, globaldata * g)
 {
@@ -4930,6 +4946,8 @@ static LONG BlockTaken(struct canode *anode, globaldata * g)
 		anode->blocknr >= g->currentvolume->numblocks ||
 		anode->clustersize > g->currentvolume->numblocks - anode->blocknr)
 		return -1;
+	if (PendingFree(anode->blocknr, anode->clustersize, g))
+		return FALSE;
 
 	startbit = anode->blocknr - alloc_data.bitmapstart;
 	endbit = startbit + anode->clustersize - 1;
@@ -4957,7 +4975,8 @@ static LONG BlockTaken(struct canode *anode, globaldata * g)
 					/* block is taken, check it out */
 					blocknr = (bmseqnr * alloc_data.longsperbmb + bmoffset) * 32 + bit +
 						alloc_data.bitmapstart;
-					if (blocknr >= anode->blocknr && blocknr < anode->blocknr + anode->clustersize)
+					if (blocknr >= anode->blocknr && blocknr < anode->blocknr + anode->clustersize &&
+						!PendingFree(blocknr, 1, g))
 						return TRUE;
 				}
 			}

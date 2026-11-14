@@ -13,6 +13,7 @@ on:
       - tests/hardlink.py
       - tests/manylinks.py
       - tests/emptyblocks.py
+      - tests/deldirloss.py
       - tests/pfs3img.py
       - tests/requirements.txt
       - .github/workflows/blackbox-test.yml
@@ -68,6 +69,9 @@ jobs:
           - name: Emptied directory blocks under AmiFUSE
             timeout: 15
             test: tests/emptyblocks.py --driver pfs3aio
+          - name: Deleted file in the deldir under AmiFUSE
+            timeout: 10
+            test: tests/deldirloss.py --driver pfs3aio
     steps:
       - uses: actions/checkout@v7
         with:
