@@ -1,4 +1,4 @@
-/* LIVE @src directory.c @func LoadDirBlock @func ProtectFile @func GetExtraFields @func AddExtraFields
+/* LIVE @src directory.c @func LoadDirBlock @func SetExtraFields @func ProtectFile @func GetExtraFields @func AddExtraFields
  * Load real directory entries, then exercise a consumer of the cached block.
  * Mocks supply I/O/cache plumbing; parsing and protection updates are live code.
  */
@@ -108,6 +108,7 @@ static int ChangeDirEntry(struct fileinfo from, struct direntry *to,
 #include "gen/GetExtraFields.c"
 #include "gen/AddExtraFields.c"
 #include "gen/LoadDirBlock.c"
+#include "gen/SetExtraFields.c"
 #include "gen/ProtectFile.c"
 
 static struct direntry *entry(ULONG offset, UBYTE size, UBYTE name, UBYTE comment)

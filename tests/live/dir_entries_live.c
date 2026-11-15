@@ -1,4 +1,4 @@
-/* LIVE @src directory.c @func SearchInDir @func SearchInDeldir @func EntryFileSize @func FileSize32 @func FillInData @func ExamineAll
+/* LIVE @src directory.c @func SearchInDir @func SearchInDeldir @func EntryFileSize @func FileSize32 @func ExAllNameOffset @func FillInData @func ExamineAll
  *
  * Lifts the checkout's real SearchInDir, SearchInDeldir, FillInData and
  * ExamineAll.
@@ -253,9 +253,9 @@ void GetNextEntry(lockentry_t *le, globaldata *g)
 	set_next(le);
 }
 static struct deldirentry *GetDeldirEntry(IPTR *nr, SIPTR *error, globaldata *g) { (void)nr; (void)error; (void)g; return NULL; }
-static ULONG FillInDDEData(struct ExAllData *b, LONG t, struct deldirentry *d, ULONG n, ULONG s, globaldata *g)
+static ULONG FillInDDEData(struct ExAllData *b, LONG t, UWORD o, struct deldirentry *d, ULONG n, ULONG s, globaldata *g)
 {
-	(void)b; (void)t; (void)d; (void)n; (void)s; (void)g;
+	(void)b; (void)t; (void)o; (void)d; (void)n; (void)s; (void)g;
 	return 0;
 }
 static BOOL CallHookPkt(struct Hook *h, void *o, void *m) { (void)h; (void)o; (void)m; return TRUE; }
@@ -265,6 +265,7 @@ static BOOL MatchPatternNoCase(STRPTR p, STRPTR s) { (void)p; (void)s; return TR
 #include "gen/SearchInDeldir.c"
 #include "gen/EntryFileSize.c"
 #include "gen/FileSize32.c"
+#include "gen/ExAllNameOffset.c"
 #include "gen/FillInData.c"
 #include "gen/ExamineAll.c"
 
@@ -329,7 +330,7 @@ static void test_fillindata(void)
 		mk(e, "src", NULL, -1);
 		memset(&out, 0xAA, sizeof(out)); error = SENTINEL;
 		want = (ULONG)expect_size(type, "src", NULL);
-		r = FillInData(&out.d, type, (struct direntry *)e, sizeof(out), &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, sizeof(out), &error, &gd);
 		CHECK(r == want, "type %d valid, no comment: size %u want %u", (int)type, r, want);
 		CHECK(error == SENTINEL, "type %d valid: *error touched (%ld)", (int)type, (long)error);
 		CHECK(r && !strcmp(out.d.ed_Name, "src"), "type %d valid: name copied", (int)type);
@@ -337,7 +338,7 @@ static void test_fillindata(void)
 		mk(e, "src", "a comment", -1);
 		memset(&out, 0xAA, sizeof(out)); error = SENTINEL;
 		want = (ULONG)expect_size(type, "src", "a comment");
-		r = FillInData(&out.d, type, (struct direntry *)e, sizeof(out), &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, sizeof(out), &error, &gd);
 		CHECK(r == want, "type %d valid, comment: size %u want %u", (int)type, r, want);
 		CHECK(error == SENTINEL, "type %d valid with comment: *error touched", (int)type);
 		if (type >= ED_COMMENT)
@@ -350,7 +351,7 @@ static void test_fillindata(void)
 		memset(nm, 'n', 107); nm[107] = 0; memset(cm, 'c', 79); cm[79] = 0;
 		mk(e, nm, cm, -1);
 		memset(&out, 0xAA, sizeof(out)); error = SENTINEL;
-		r = FillInData(&out.d, ED_OWNER, (struct direntry *)e, sizeof(out), &error, &gd);
+		r = FillInData(&out.d, ED_OWNER, ExAllNameOffset(ED_OWNER), (struct direntry *)e, sizeof(out), &error, &gd);
 		CHECK(r == expect_size(ED_OWNER, nm, cm) && error == SENTINEL, "largest entry accepted (r=%u)", r);
 		CHECK(r && !strcmp(out.d.ed_Name, nm) && !strcmp(out.d.ed_Comment, cm), "largest entry copied");
 	}
@@ -361,7 +362,7 @@ static void test_fillindata(void)
 		want = (ULONG)expect_size(type, "src", "cmt");
 
 		memset(&out, 0xAA, sizeof(out)); error = SENTINEL;
-		r = FillInData(&out.d, type, (struct direntry *)e, want - 1, &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, want - 1, &error, &gd);
 		CHECK(r == 0, "type %d: one byte short must not fit (r=%u)", (int)type, r);
 		CHECK(error == SENTINEL, "type %d: not fitting is not an error (*error=%ld)", (int)type, (long)error);
 		{
@@ -371,11 +372,11 @@ static void test_fillindata(void)
 		}
 
 		memset(&out, 0xAA, sizeof(out)); error = SENTINEL;
-		r = FillInData(&out.d, type, (struct direntry *)e, want, &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, want, &error, &gd);
 		CHECK(r == want && error == SENTINEL, "type %d: exact fit (r=%u want %u)", (int)type, r, want);
 
 		error = SENTINEL;
-		r = FillInData(&out.d, type, (struct direntry *)e, 0, &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, 0, &error, &gd);
 		CHECK(r == 0 && error == SENTINEL, "type %d: no space at all is not an error", (int)type);
 	}
 
@@ -383,53 +384,53 @@ static void test_fillindata(void)
 	for (type = ED_NAME; type <= ED_OWNER; type++) {
 		mk(e, "src", NULL, 20);					/* comment length byte at 21 >= next */
 		error = SENTINEL;
-		r = FillInData(&out.d, type, (struct direntry *)e, sizeof(out), &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, sizeof(out), &error, &gd);
 		CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT,
 			"type %d: name beyond next: r=%u error=%ld", (int)type, r, (long)error);
 
 		error = SENTINEL;
-		r = FillInData(&out.d, type, (struct direntry *)e, 0, &error, &gd);
+		r = FillInData(&out.d, type, ExAllNameOffset(type), (struct direntry *)e, 0, &error, &gd);
 		CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT,
 			"type %d: corrupt entry and no space: corruption must win (error=%ld)", (int)type, (long)error);
 	}
 	mk(e, "src", NULL, 22);
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_NAME, (struct direntry *)e, sizeof(out), &error, &gd);
+	r = FillInData(&out.d, ED_NAME, ExAllNameOffset(ED_NAME), (struct direntry *)e, sizeof(out), &error, &gd);
 	CHECK(r != 0 && error == SENTINEL, "next just covers name + comment byte: valid (r=%u)", r);
 
 	mk(e, "src", NULL, 0);
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_NAME, (struct direntry *)e, sizeof(out), &error, &gd);
+	r = FillInData(&out.d, ED_NAME, ExAllNameOffset(ED_NAME), (struct direntry *)e, sizeof(out), &error, &gd);
 	CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT, "next == 0: error (r=%u error=%ld)", r, (long)error);
 
 	/* corrupt: comment longer than what is left of the entry */
 	mk(e, "src", "x", 22);						/* room for 0 comment chars */
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_COMMENT, (struct direntry *)e, sizeof(out), &error, &gd);
+	r = FillInData(&out.d, ED_COMMENT, ExAllNameOffset(ED_COMMENT), (struct direntry *)e, sizeof(out), &error, &gd);
 	CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT,
 		"comment 1 char, no room: r=%u error=%ld", r, (long)error);
 
 	mk(e, "src", "xy", 24);						/* room for 2 */
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_COMMENT, (struct direntry *)e, sizeof(out), &error, &gd);
+	r = FillInData(&out.d, ED_COMMENT, ExAllNameOffset(ED_COMMENT), (struct direntry *)e, sizeof(out), &error, &gd);
 	CHECK(r != 0 && error == SENTINEL && !strcmp(out.d.ed_Comment, "xy"), "comment exactly fills entry: valid (r=%u)", r);
 
 	mk(e, "src", "xyz", 24);					/* one too many */
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_COMMENT, (struct direntry *)e, sizeof(out), &error, &gd);
+	r = FillInData(&out.d, ED_COMMENT, ExAllNameOffset(ED_COMMENT), (struct direntry *)e, sizeof(out), &error, &gd);
 	CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT,
 		"comment one char too long: r=%u error=%ld", r, (long)error);
 
 	mk(e, "src", NULL, 30);						/* garbage comment length byte */
 	e[eco("src")] = 0xFF;
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_NAME, (struct direntry *)e, sizeof(out), &error, &gd);
+	r = FillInData(&out.d, ED_NAME, ExAllNameOffset(ED_NAME), (struct direntry *)e, sizeof(out), &error, &gd);
 	CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT, "comment length 255: r=%u error=%ld", r, (long)error);
 
 	/* the same two failures are not mixed up: a corrupt entry is never "does not fit" */
 	mk(e, "src", "xyz", 24);
 	error = SENTINEL;
-	r = FillInData(&out.d, ED_COMMENT, (struct direntry *)e, 1, &error, &gd);
+	r = FillInData(&out.d, ED_COMMENT, ExAllNameOffset(ED_COMMENT), (struct direntry *)e, 1, &error, &gd);
 	CHECK(r == 0 && error == PFS_ERROR_INCONSISTENT, "corrupt entry, 1 byte of space: still corrupt");
 }
 

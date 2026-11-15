@@ -295,13 +295,14 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, 
 static LONG BlockTaken(struct canode *anode, globaldata *g);
 static BOOL FillDelfileFib(struct deldirentry *dde, ULONG slotnr, struct FileInfoBlock *fib, globaldata *g);
 static struct deldirentry *GetDeldirEntry(IPTR *nr, SIPTR *error, globaldata *g);
-static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g);
+static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, UWORD nameoffset, struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g);
 static struct cdeldirblock *GetDeldirBlock(ULONG seqnr, globaldata *g);
 #endif
 static BOOL GetFirstEntry(lockentry_t *, globaldata *);
 static BOOL GetFirstNonEmptyDE(ULONG anodenr, struct fileinfo *, ULONG *, globaldata *);
 static void RemakeNextEntry(lockentry_t *, struct FileInfoBlock *, globaldata *);
-static ULONG FillInData(struct ExAllData *, LONG, struct direntry *, ULONG, SIPTR *, globaldata *);
+static UWORD ExAllNameOffset(LONG type);
+static ULONG FillInData(struct ExAllData *, LONG, UWORD, struct direntry *, ULONG, SIPTR *, globaldata *);
 static BOOL DeleteDir(union objectinfo *, SIPTR *, globaldata *);
 static BOOL DirIsEmpty(ULONG, SIPTR *, globaldata *);
 static BOOL MakeDirEntry(BYTE type, UBYTE *name, UBYTE *entrybuffer, globaldata * g);
@@ -319,6 +320,9 @@ static BOOL RenameAcrossDirs(struct fileinfo from, struct direntry *to, union ob
 static void RemoveDirEntry(struct fileinfo info, globaldata * g);
 static BOOL CutDirEntry(struct fileinfo info, globaldata * g);
 static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry, struct fileinfo *newinfo, globaldata * g);
+static BOOL SetExtraFields(struct fileinfo *file, struct extrafields *extra, SIPTR *error, globaldata *g);
+static BOOL NameIsFree(union objectinfo *dir, STRPTR name, union objectinfo *found, SIPTR *error, globaldata *g);
+static struct cdirblock *NewFirstDirBlock(ULONG diranodenr, ULONG parent, globaldata *g);
 static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g);
 
 #if VERSION23
@@ -1290,15 +1294,49 @@ void GetNextEntry(lockentry_t *file, globaldata * g)
 	}
 }
 
+/* offset of the name in an ExAllData of this type */
+static UWORD ExAllNameOffset(LONG type)
+{
+	switch (type)
+	{
+		case ED_TYPE:
+			return offsetof(struct ExAllData, ed_Size);
+
+		case ED_SIZE:
+			return offsetof(struct ExAllData, ed_Prot);
+
+		case ED_PROTECTION:
+			return offsetof(struct ExAllData, ed_Days);
+
+		case ED_DATE:
+			return offsetof(struct ExAllData, ed_Comment);
+
+		case ED_COMMENT:
+			return offsetof(struct ExAllData, ed_OwnerUID);
+
+		case ED_OWNER:
+#if defined(__MORPHOS__)
+			return offsetof(struct ExAllData, ed_Size64);
+
+		case ED_SIZE64:
+#endif
+			return sizeof(struct ExAllData);
+
+		case ED_NAME:
+		default:
+			return offsetof(struct ExAllData, ed_Type);
+	}
+}
+
 /* ExamineAll
  *
  * fill buffer with directory information
  *
  * Note: +- 2000 stack needed
  */
-static ULONG FillInData(struct ExAllData *buffer, LONG type, struct direntry *direntry, ULONG spaceleft, SIPTR *error, globaldata *g)
+static ULONG FillInData(struct ExAllData *buffer, LONG type, UWORD nameoffset, struct direntry *direntry, ULONG spaceleft, SIPTR *error, globaldata *g)
 {
-	UWORD nameoffset, commentoffset = 0;
+	UWORD commentoffset = 0;
 	UBYTE *name, *comment = NULL;
 	UCOUNT size;
 	struct extrafields extrafields;
@@ -1317,50 +1355,8 @@ static ULONG FillInData(struct ExAllData *buffer, LONG type, struct direntry *di
 		return 0;
 	}
 
-	/* get location to put name */
-	switch (type)
-	{
-		case ED_NAME:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-
-		case ED_TYPE:
-			size = offsetof(struct ExAllData, ed_Size);
-			break;
-
-		case ED_SIZE:
-			size = offsetof(struct ExAllData, ed_Prot);
-			break;
-
-		case ED_PROTECTION:
-			size = offsetof(struct ExAllData, ed_Days);
-			break;
-
-		case ED_DATE:
-			size = offsetof(struct ExAllData, ed_Comment);
-			break;
-
-		case ED_COMMENT:
-			size = offsetof(struct ExAllData, ed_OwnerUID);
-			break;
-
-		case ED_OWNER:
-#if defined(__MORPHOS__)
-			size = offsetof(struct ExAllData, ed_Size64);
-			break;
-
-		case ED_SIZE64:
-#endif
-			size = sizeof(struct ExAllData);
-			break;
-
-		default:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-	}
-
 	/* size of name */
-	nameoffset = size;
+	size = nameoffset;
 	name = &direntry->nlength;
 	size += namelen + 1;
 
@@ -1440,7 +1436,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 	struct direntry *direntry;
 	struct ExAllData *lasteaentry = NULL;
 	ULONG spaceleft, size;
-	UWORD j;
+	UWORD j, nameoffset;
 	BOOL eod;
 #if DELDIR
 	struct deldirentry *dde;
@@ -1475,6 +1471,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 	/* Prepare loop */
 	spaceleft = buflen;
 	j = 0;                      // # direntries in buffer
+	nameoffset = ExAllNameOffset(type);
 
 #if DELDIR
 	if (IsDelDir(object->le.info))
@@ -1485,7 +1482,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 		{
 			BOOL wanted;
 
-			size = FillInDDEData((struct ExAllData *)buffer, type, dde, ctrl->eac_LastKey,
+			size = FillInDDEData((struct ExAllData *)buffer, type, nameoffset, dde, ctrl->eac_LastKey,
 									spaceleft, g);
 			if (size)
 			{
@@ -1565,7 +1562,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 		else
 			break;
 
-		size = FillInData((struct ExAllData *)buffer, type, direntry,
+		size = FillInData((struct ExAllData *)buffer, type, nameoffset, direntry,
 							spaceleft, error, g);
 		if (size)
 		{
@@ -2605,6 +2602,25 @@ BOOL AddComment(union objectinfo * info, STRPTR comment, SIPTR *error, globaldat
 	}
 }
 
+/* Rewrites the entry of file with the extra fields in extra */
+static BOOL SetExtraFields(struct fileinfo *file, struct extrafields *extra, SIPTR *error, globaldata *g)
+{
+	union objectinfo directory;
+	UBYTE entrybuffer[MAX_ENTRYSIZE];
+	struct direntry *destentry = (struct direntry *)entrybuffer;
+
+	memcpy(destentry, file->direntry, file->direntry->next);
+	AddExtraFields(destentry, extra);
+	if (!GetParent((union objectinfo *)file, &directory, error, g))
+		return FALSE;
+	if (!ChangeDirEntry(*file, destentry, &directory, file, g))
+	{
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+	return TRUE;
+}
+
 /* ProtectFile, SetDate
  *
  * - simple direntry in cache change, no change in size 
@@ -2653,31 +2669,12 @@ BOOL ProtectFile(struct fileinfo * file, ULONG protection, SIPTR *error, globald
 	/* add second part of protection */
 	if (g->dirextension)
 	{
-		union objectinfo directory;
-		struct direntry *sourceentry, *destentry;
 		struct extrafields extrafields;
-		UBYTE entrybuffer[MAX_ENTRYSIZE];
 
-		/* make new direntry */
-		destentry = (struct direntry *)entrybuffer;
-		sourceentry = file->direntry;
-
-		/* copy source */
-		memcpy(destentry, sourceentry, sourceentry->next);
-
-		/* set new extrafields */
-		GetExtraFields(sourceentry, &extrafields);
+		GetExtraFields(file->direntry, &extrafields);
 		extrafields.prot = protection;
-		AddExtraFields(destentry, &extrafields);
-
-		/* commit changes */
-		if (!GetParent((union objectinfo *)file, &directory, error, g))
+		if (!SetExtraFields(file, &extrafields, error, g))
 			return DOSFALSE;
-		else if (!ChangeDirEntry(*file, destentry, &directory, file, g))
-		{
-			*error = ERROR_DISK_FULL;
-			return DOSFALSE;
-		}
 	}
 
 	/* mark block for update and return success */
@@ -2688,9 +2685,6 @@ BOOL ProtectFile(struct fileinfo * file, ULONG protection, SIPTR *error, globald
 BOOL SetOwnerID(struct fileinfo * file, ULONG owner, SIPTR *error, globaldata * g)
 {
 	struct extrafields extrafields;
-	union objectinfo directory;
-	struct direntry *sourceentry, *destentry;
-	UBYTE entrybuffer[MAX_ENTRYSIZE];
 
 	ENTER("SetOwnerID");
 #if DELDIR
@@ -2724,27 +2718,11 @@ BOOL SetOwnerID(struct fileinfo * file, ULONG owner, SIPTR *error, globaldata * 
 		return DOSFALSE;
 	}
 
-	/* make new direntry */
-	destentry = (struct direntry *)entrybuffer;
-	sourceentry = file->direntry;
-
-	/* copy source */
-	memcpy(destentry, sourceentry, sourceentry->next);
-
-	/* set new extrafields */
-	GetExtraFields(sourceentry, &extrafields);
+	GetExtraFields(file->direntry, &extrafields);
 	extrafields.uid = owner >> 16;
 	extrafields.gid = owner & 0xffff;
-	AddExtraFields(destentry, &extrafields);
-
-	/* commit changes */
-	if (!GetParent((union objectinfo *)file, &directory, error, g))
+	if (!SetExtraFields(file, &extrafields, error, g))
 		return DOSFALSE;
-	else if (!ChangeDirEntry(*file, destentry, &directory, file, g))
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
 
 	MakeBlockDirty((struct cachedblock *)file->dirblock, g);
 	return DOSTRUE;
@@ -2878,18 +2856,65 @@ LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, UL
 	return (LONG) (ptr - buffer);
 }
 
-BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink, union objectinfo *newlink, SIPTR *error, globaldata * g)
+/* TRUE if name can be made in dir: name is not empty (it is cut to the
+ * longest file name), the reserved area is not locked and dir holds no
+ * object of that name; *found is overwritten. FALSE with *error set.
+ */
+static BOOL NameIsFree(union objectinfo *dir, STRPTR name, union objectinfo *found, SIPTR *error, globaldata *g)
 {
 	ULONG anodenr;
+	size_t l;
+	LONG lookup;
+
+	/* get anodenr of directory */
+	if (!dir || IsVolume(*dir))
+		anodenr = ANODE_ROOTDIR;
+	else
+	{
+		anodenr = FIANODENR(&dir->file);
+		LOCK(dir->file.dirblock);
+	}
+
+	/* truncate filename to 31 characters */
+	if (!(l = strlen(name)))
+	{
+		*error = ERROR_INVALID_COMPONENT_NAME;
+		return FALSE;
+	}
+	if (l > FILENAMESIZE - 1)
+		name[FILENAMESIZE - 1] = 0x0;
+
+	/* check reserved area lock */
+	if (ReservedAreaIsLocked)
+	{
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+
+	/* check if a file by that name already exists */
+	lookup = SearchInDir(anodenr, name, found, g);
+	if (lookup < 0)
+	{
+		*error = PFS_ERROR_INCONSISTENT;
+		return FALSE;
+	}
+	if (lookup)
+	{
+		*error = ERROR_OBJECT_EXISTS;
+		return FALSE;
+	}
+	return TRUE;
+}
+
+BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink, union objectinfo *newlink, SIPTR *error, globaldata * g)
+{
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct direntry *de;
 	UBYTE *softblock = NULL;
 	struct canode anode;
 	struct anodechain *achain = NULL;
-	size_t l;
 	size_t targetlen;
 	ULONG rc;
-	LONG lookup;
 
 	ENTER("CreateSoftLink");
 #if DELDIR
@@ -2910,43 +2935,9 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 		return DOSFALSE;
 	}
 
-	/* get anodenr of directory */
-	if (!linkdir || IsVolume(*linkdir))
-		anodenr = ANODE_ROOTDIR;
-	else
-	{
-		anodenr = FIANODENR(&linkdir->file);
-		LOCK(linkdir->file.dirblock);
-	}
-
-	/* truncate filename to 31 characters */
-	if (!(l = strlen(linkname)))
-	{
-		*error = ERROR_INVALID_COMPONENT_NAME;
+	/* the name must be new in the directory */
+	if (!NameIsFree(linkdir, linkname, newlink, error, g))
 		return DOSFALSE;
-	}
-	if (l > FILENAMESIZE - 1)
-		linkname[FILENAMESIZE - 1] = 0x0;
-
-	/* check reserved area lock */
-	if (ReservedAreaIsLocked)
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
-
-	/* check if a file by that name already exists */
-	lookup = SearchInDir(anodenr, linkname, newlink, g);
-	if (lookup < 0)
-	{
-		*error = PFS_ERROR_INCONSISTENT;
-		return DOSFALSE;
-	}
-	if (lookup)
-	{
-		*error = ERROR_OBJECT_EXISTS;
-		return DOSFALSE;
-	}
 
 	softblock = AllocVec(BLOCKSIZE, MEMF_CLEAR);
 	if (!softblock) {
@@ -3030,13 +3021,11 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 				union objectinfo * newlink, SIPTR *error, globaldata * g)
 {
 	union objectinfo info, odi;
-	ULONG anodenr, linklist;
+	ULONG linklist;
 	struct direntry *objectentry, *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct extrafields extrafields;
 	struct canode linknode, head;
-	size_t l;
-	LONG lookup;
 
 	ENTER("CreateLink");
 #if DELDIR
@@ -3065,45 +3054,9 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	if (!CheckVolume(g->currentvolume, 1, error, g))
 		return DOSFALSE;
 
-	/* get anodenr */
-	if (!linkdir || IsVolume(*linkdir))
-	{
-		anodenr = ANODE_ROOTDIR;
-	}
-	else
-	{
-		anodenr = FIANODENR(&linkdir->file);
-		LOCK(linkdir->file.dirblock);
-	}
-
-	/* truncate filename to 31 characters */
-	if (!(l = strlen(linkname)))
-	{
-		*error = ERROR_INVALID_COMPONENT_NAME;
+	/* the name must be new in the directory */
+	if (!NameIsFree(linkdir, linkname, &info, error, g))
 		return DOSFALSE;
-	}
-	if (l > FILENAMESIZE - 1)
-		linkname[FILENAMESIZE - 1] = 0x0;
-
-	/* check reserved area lock */
-	if (ReservedAreaIsLocked)
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
-
-	/* check if a file by that name already exists */
-	lookup = SearchInDir(anodenr, linkname, &info, g);
-	if (lookup < 0)
-	{
-		*error = PFS_ERROR_INCONSISTENT;
-		return DOSFALSE;
-	}
-	if (lookup)
-	{
-		*error = ERROR_OBJECT_EXISTS;
-		return DOSFALSE;
-	}
 
 	/* make directory entry 
 	 * the anode allocated is the link list element
@@ -3284,12 +3237,9 @@ void Touch(struct fileinfo *info, globaldata * g)   // ook archiveflag..
 BOOL CreateRollover(union objectinfo *dir, STRPTR rollname, ULONG size,
 					union objectinfo *result, SIPTR *error, globaldata * g)
 {
-	ULONG anodenr;
 	struct direntry *de;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct anodechain *ac;
-	size_t l;
-	LONG lookup;
 
 	DB(Trace(1, "CreateRollover", "name %s size %d \n", rollname, size));
 #if DELDIR
@@ -3319,43 +3269,9 @@ BOOL CreateRollover(union objectinfo *dir, STRPTR rollname, ULONG size,
 	if (!CheckVolume(g->currentvolume, 1, error, g))
 		return DOSFALSE;
 
-	/* get anodenr of directory */
-	if (!dir || IsVolume(*dir))
-		anodenr = ANODE_ROOTDIR;
-	else
-	{
-		anodenr = FIANODENR(&dir->file);
-		LOCK(dir->file.dirblock);
-	}
-
-	/* truncate filename to 31 characters */
-	if (!(l = strlen(rollname)))
-	{
-		*error = ERROR_INVALID_COMPONENT_NAME;
+	/* the name must be new in the directory */
+	if (!NameIsFree(dir, rollname, result, error, g))
 		return DOSFALSE;
-	}
-	if (l > FILENAMESIZE - 1)
-		rollname[FILENAMESIZE - 1] = 0x0;
-
-	/* check reserved area lock */
-	if (ReservedAreaIsLocked)
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
-
-	/* check if a file by that name already exists */
-	lookup = SearchInDir(anodenr, rollname, result, g);
-	if (lookup < 0)
-	{
-		*error = PFS_ERROR_INCONSISTENT;
-		return DOSFALSE;
-	}
-	if (lookup)
-	{
-		*error = ERROR_OBJECT_EXISTS;
-		return DOSFALSE;
-	}
 
 	/* make directory entry 
 	 * the anode allocated is the link list element
@@ -3613,6 +3529,50 @@ static struct direntry *CheckFit(struct cdirblock *blok, int needed, globaldata 
 }
 
 /*
+ * A new first block of directory diranodenr: the old first block moves to
+ * a new anode behind it. NULL on failure, with the chain as it was.
+ */
+static struct cdirblock *NewFirstDirBlock(ULONG diranodenr, ULONG parent, globaldata *g)
+{
+	struct canode anode, newanode;
+	struct cdirblock *blk;
+	ULONG newanodenr;
+
+	newanode.clustersize = 1;
+	if (!(newanode.blocknr = AllocReservedBlock(g)))
+		return NULL;
+	if (!GetAnode(&anode, diranodenr, g))
+	{
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	if (!(newanodenr = AllocAnode(anode.next ? anode.next : anode.nr, g)))
+	{
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	newanode.nr = diranodenr;
+	newanode.next = anode.nr = newanodenr;
+	if (!SaveAnode(&anode, anode.nr, g))
+	{
+		FreeAnode(newanodenr, g);
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	if (!(blk = MakeDirBlock(newanode.blocknr, newanode.nr, diranodenr, parent, g)))
+	{
+		/* the old first block was saved under newanodenr; the head
+		 * anode itself is unchanged, so only the copy goes */
+		FreeAnode(newanodenr, g);
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	if (!SaveAnode(&newanode, newanode.nr, g))
+		return NULL;
+	return blk;
+}
+
+/*
  * Moves firstentry to previous block, changing it to to. To can point to de.direntry
  * if wanted.
  * Return new fileinfo in 'result'
@@ -3674,28 +3634,17 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 		struct cdirblock *newblock;
 		ULONG newanodenr;
 
-		newanode.clustersize = 1;
 		parent = de.dirblock->blk.parent;
-		if (!(newanode.blocknr = AllocReservedBlock(g)))
-			return FALSE;
-
 		if (!prev)
 		{
-			if (!GetAnode(&anode, de.dirblock->blk.anodenr, g))
-			{
-				FreeReservedBlock(newanode.blocknr, g);
+			if (!(newblock = NewFirstDirBlock(de.dirblock->blk.anodenr, parent, g)))
 				return FALSE;
-			}
-			if (!(newanodenr = AllocAnode (anode.next ? anode.next : anode.nr, g)))
-			{
-				FreeReservedBlock (newanode.blocknr, g);
-				return FALSE;
-			}
-			newanode.nr = anode.nr;
-			newanode.next = anode.nr = newanodenr;
 		}
 		else
 		{
+			newanode.clustersize = 1;
+			if (!(newanode.blocknr = AllocReservedBlock(g)))
+				return FALSE;
 			if (!(newanodenr = AllocAnode (anode.nr, g)))
 			{
 				FreeReservedBlock (newanode.blocknr, g);
@@ -3704,38 +3653,27 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 			newanode.nr = newanodenr;
 			newanode.next = anode.next;
 			anode.next = newanode.nr;
-		}
-
-		if (!SaveAnode(&anode, anode.nr, g))
-		{
-			FreeAnode(newanodenr, g);
-			FreeReservedBlock(newanode.blocknr, g);
-			return FALSE;
-		}
-		newblock = MakeDirBlock(newanode.blocknr, newanode.nr, de.dirblock->blk.anodenr, parent, g);
-		if (!newblock)
-		{
-			/* undo the chain changes: the head anode itself was not
-			 * rewritten yet (newanode is saved only after MakeDirBlock)
-			 */
-			if (!prev)
+			if (!SaveAnode(&anode, anode.nr, g))
 			{
-				/* the old head contents were copied to newanodenr;
-				 * the head anode still has its original contents */
-				FreeAnode (newanodenr, g);
+				FreeAnode(newanodenr, g);
+				FreeReservedBlock(newanode.blocknr, g);
+				return FALSE;
 			}
-			else
+			newblock = MakeDirBlock(newanode.blocknr, newanode.nr, de.dirblock->blk.anodenr, parent, g);
+			if (!newblock)
 			{
+				/* undo the chain change: newanode is saved only after
+				 * MakeDirBlock */
 				anode.next = newanode.next;
 				if (!SaveAnode(&anode, anode.nr, g))
 					return FALSE;
 				FreeAnode (newanodenr, g);
+				FreeReservedBlock (newanode.blocknr, g);
+				return FALSE;
 			}
-			FreeReservedBlock (newanode.blocknr, g);
-			return FALSE;
+			if (!SaveAnode(&newanode, newanode.nr, g))
+				return FALSE;
 		}
-		if (!SaveAnode(&newanode, newanode.nr, g))
-			return FALSE;
 
 		/* add entry */
 		dest = FIRSTENTRY(newblock);
@@ -3913,44 +3851,7 @@ static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry,
 	 */
 	if (!done && eof)
 	{
-		ULONG parent;
-		struct canode newanode;
-		ULONG newanodenr;
-
-		newanode.clustersize = 1;
-		parent = blok->blk.parent;
-		if (!(newanode.blocknr = AllocReservedBlock(g)))
-			return FALSE;
-		if (!GetAnode(&anode, diranodenr, g))
-		{
-			FreeReservedBlock(newanode.blocknr, g);
-			return FALSE;
-		}
-		if (!(newanodenr = AllocAnode (anode.next ? anode.next : anode.nr, g)))
-		{
-			FreeReservedBlock (newanode.blocknr, g);
-			return FALSE;
-		}
-		newanode.nr = diranodenr;
-		newanode.next = anode.nr = newanodenr;
-		if (!SaveAnode(&anode, anode.nr, g))
-		{
-			FreeAnode(newanodenr, g);
-			FreeReservedBlock(newanode.blocknr, g);
-			return FALSE;
-		}
-		blok = MakeDirBlock (newanode.blocknr, newanode.nr, diranodenr, parent, g);
-		if (!blok)
-		{
-			/* the old head contents were saved under newanodenr, but
-			 * the head anode (diranodenr) itself is unchanged - just
-			 * discard the copy
-			 */
-			FreeAnode (newanodenr, g);
-			FreeReservedBlock (newanode.blocknr, g);
-			return FALSE;
-		}
-		if (!SaveAnode(&newanode, newanode.nr, g))
+		if (!(blok = NewFirstDirBlock(diranodenr, blok->blk.parent, g)))
 			return FALSE;
 		entry = (struct direntry *)&blok->blk.entries;
 		memcpy(entry, newentry, newentry->next);
@@ -5114,52 +5015,17 @@ struct deldirentry *GetDeldirEntryQuick(ULONG ddnr, globaldata *g)
 	return &ddblk->blk.entries[ddnr%DELENTRIES_PER_BLOCK];
 }
 
-static ULONG FillInDDEData(struct ExAllData *buffer, LONG type,
+static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, UWORD nameoffset,
 		struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g)
 {
-	UWORD nameoffset, commentoffset = 0;
+	UWORD commentoffset = 0;
 	UBYTE *nameptr;
 	UCOUNT size;
 	unsigned i;
 	UBYTE appbuffer[6];
 
-	/* get location to put name */
-	switch (type)
-	{
-		case ED_NAME:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-		case ED_TYPE:
-			size = offsetof(struct ExAllData, ed_Size);
-			break;
-		case ED_SIZE:
-			size = offsetof(struct ExAllData, ed_Prot);
-			break;
-		case ED_PROTECTION:
-			size = offsetof(struct ExAllData, ed_Days);
-			break;
-		case ED_DATE:
-			size = offsetof(struct ExAllData, ed_Comment);
-			break;
-		case ED_COMMENT:
-			size = offsetof(struct ExAllData, ed_OwnerUID);
-			break;
-		case ED_OWNER:
-#if defined(__MORPHOS__)
-			size = offsetof(struct ExAllData, ed_Size64);
-			break;
-		case ED_SIZE64:
-#endif
-			size = sizeof(struct ExAllData);
-			break;
-		default:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-	}
-
 	/* size of name */
-	nameoffset = size;
-	size += dde->filename[0] + 4 + 1;   /* extra ddenr (3+1) and termination zero (1) */
+	size = nameoffset + dde->filename[0] + 4 + 1;   /* extra ddenr (3+1) and termination zero (1) */
 
 	/* size of comment */
 	if (type >= ED_COMMENT)
