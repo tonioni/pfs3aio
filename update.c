@@ -136,6 +136,7 @@ static void RemoveEmptyABlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptyDBlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptyIBlocks(struct volumedata *volume, globaldata *g);
 static void RemoveEmptySBlocks(struct volumedata *volume, globaldata *g);
+static void DropReservedBlock(struct cachedblock *blk, globaldata *g);
 static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, ULONG *prev, globaldata *g);
 static BOOL IsEmptyABlk(struct canodeblock *ablk, globaldata *g);
 static BOOL IsEmptyIBlk(struct cindexblock *blk, globaldata *g);
@@ -449,6 +450,23 @@ static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, U
 	return TRUE;
 }
 
+/* Takes a cached reserved block out of its list and frees it: a block
+ * moved in this update frees its new location now and its old one at the
+ * commit
+ */
+static void DropReservedBlock(struct cachedblock *blk, globaldata *g)
+{
+	MinRemove(blk);
+	if (blk->changeflag == TRUE)
+	{
+		FreeReservedBlock(blk->blocknr, g);
+		ResToBeFreed(blk->oldblocknr, g);
+	}
+	else
+		ResToBeFreed(blk->blocknr, g);
+	FreeLRU(blk);
+}
+
 /*
  * Frees an empty dirblock: unlinks its anode and releases its location.
  * The first block of a directory is kept. Returns 1 if freed, 0 if it is
@@ -469,15 +487,7 @@ WORD FreeEmptyDBlk(struct cachedblock *cblk, globaldata *g)
 		return 0;
 	if (!RemoveFromAnodeChain(&anode, previous, blk->blk.anodenr, g))
 		return -1;
-	MinRemove(blk);
-	if (blk->changeflag == TRUE)
-	{
-		FreeReservedBlock(blk->blocknr, g);
-		ResToBeFreed(blk->oldblocknr, g);
-	}
-	else
-		ResToBeFreed(blk->blocknr, g);
-	FreeLRU(cblk);
+	DropReservedBlock(cblk, g);
 	return 1;
 }
 
@@ -508,15 +518,7 @@ static void RemoveEmptyIBlocks(struct volumedata *volume, globaldata *g)
 		{
 			if (UpdateIBLK((struct cachedblock *)blk, 0, g))
 			{
-				MinRemove(blk);
-				if (blk->changeflag == TRUE)
-				{
-					FreeReservedBlock(blk->blocknr, g);
-					ResToBeFreed(blk->oldblocknr, g);
-				}
-				else
-					ResToBeFreed(blk->blocknr, g);
-				FreeLRU((struct cachedblock *)blk);
+				DropReservedBlock((struct cachedblock *)blk, g);
 			}
 			else
 			{
@@ -551,15 +553,7 @@ static void RemoveEmptySBlocks(struct volumedata *volume, globaldata *g)
 		{
 			if (UpdateSBLK((struct cachedblock *)blk, 0, g))
 			{
-				MinRemove(blk);
-				if (blk->changeflag == TRUE)
-				{
-					FreeReservedBlock(blk->blocknr, g);
-					ResToBeFreed(blk->oldblocknr, g);
-				}
-				else
-					ResToBeFreed(blk->blocknr, g);
-				FreeLRU((struct cachedblock *)blk);
+				DropReservedBlock((struct cachedblock *)blk, g);
 			}
 			else
 				updateok = FALSE;
@@ -610,15 +604,7 @@ static void RemoveEmptyABlocks(struct volumedata *volume, globaldata *g)
 					if (index->changeflag != CBLK_DIRTY_PENDING)
 					{
 						index->blk.index[indexoffset] = 0;
-						MinRemove(blk);
-						if (blk->changeflag == TRUE)
-						{
-							FreeReservedBlock(blk->blocknr, g);
-							ResToBeFreed(blk->oldblocknr, g);
-						}
-						else
-							ResToBeFreed(blk->blocknr, g);
-						FreeLRU((struct cachedblock *)blk);
+						DropReservedBlock((struct cachedblock *)blk, g);
 					}
 					else
 					{

@@ -1,4 +1,4 @@
-/* LIVE @src update.c @func GetAnodeOfDBlk @func UpdateDBLK @func FreeEmptyDBlk @func RemoveEmptyDBlocks
+/* LIVE @src update.c @func GetAnodeOfDBlk @func UpdateDBLK @func DropReservedBlock @func FreeEmptyDBlk @func RemoveEmptyDBlocks
  *
  * GetAnodeOfDBlk(anodenr, blocknr, anode*, prev*, g) walks the anode chain of
  * a dir block to the anode of block `blocknr`, with a walk record so that a
@@ -170,6 +170,7 @@ static void mock_remove(struct MN *n) { n->prev->next = n->next; n->next->prev =
 
 #include "gen/GetAnodeOfDBlk.c"                  /* the REAL functions from ../../update.c */
 #include "gen/UpdateDBLK.c"
+#include "gen/DropReservedBlock.c"
 #include "gen/FreeEmptyDBlk.c"
 #include "gen/RemoveEmptyDBlocks.c"
 #undef updateok				/* only the lifted code needs the macro */
