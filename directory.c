@@ -319,6 +319,7 @@ static BOOL RenameAcrossDirs(struct fileinfo from, struct direntry *to, union ob
 static void RemoveDirEntry(struct fileinfo info, globaldata * g);
 static BOOL CutDirEntry(struct fileinfo info, globaldata * g);
 static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry, struct fileinfo *newinfo, globaldata * g);
+static BOOL SetExtraFields(struct fileinfo *file, struct extrafields *extra, SIPTR *error, globaldata *g);
 static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g);
 
 #if VERSION23
@@ -2605,6 +2606,25 @@ BOOL AddComment(union objectinfo * info, STRPTR comment, SIPTR *error, globaldat
 	}
 }
 
+/* Rewrites the entry of file with the extra fields in extra */
+static BOOL SetExtraFields(struct fileinfo *file, struct extrafields *extra, SIPTR *error, globaldata *g)
+{
+	union objectinfo directory;
+	UBYTE entrybuffer[MAX_ENTRYSIZE];
+	struct direntry *destentry = (struct direntry *)entrybuffer;
+
+	memcpy(destentry, file->direntry, file->direntry->next);
+	AddExtraFields(destentry, extra);
+	if (!GetParent((union objectinfo *)file, &directory, error, g))
+		return FALSE;
+	if (!ChangeDirEntry(*file, destentry, &directory, file, g))
+	{
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+	return TRUE;
+}
+
 /* ProtectFile, SetDate
  *
  * - simple direntry in cache change, no change in size 
@@ -2653,31 +2673,12 @@ BOOL ProtectFile(struct fileinfo * file, ULONG protection, SIPTR *error, globald
 	/* add second part of protection */
 	if (g->dirextension)
 	{
-		union objectinfo directory;
-		struct direntry *sourceentry, *destentry;
 		struct extrafields extrafields;
-		UBYTE entrybuffer[MAX_ENTRYSIZE];
 
-		/* make new direntry */
-		destentry = (struct direntry *)entrybuffer;
-		sourceentry = file->direntry;
-
-		/* copy source */
-		memcpy(destentry, sourceentry, sourceentry->next);
-
-		/* set new extrafields */
-		GetExtraFields(sourceentry, &extrafields);
+		GetExtraFields(file->direntry, &extrafields);
 		extrafields.prot = protection;
-		AddExtraFields(destentry, &extrafields);
-
-		/* commit changes */
-		if (!GetParent((union objectinfo *)file, &directory, error, g))
+		if (!SetExtraFields(file, &extrafields, error, g))
 			return DOSFALSE;
-		else if (!ChangeDirEntry(*file, destentry, &directory, file, g))
-		{
-			*error = ERROR_DISK_FULL;
-			return DOSFALSE;
-		}
 	}
 
 	/* mark block for update and return success */
@@ -2688,9 +2689,6 @@ BOOL ProtectFile(struct fileinfo * file, ULONG protection, SIPTR *error, globald
 BOOL SetOwnerID(struct fileinfo * file, ULONG owner, SIPTR *error, globaldata * g)
 {
 	struct extrafields extrafields;
-	union objectinfo directory;
-	struct direntry *sourceentry, *destentry;
-	UBYTE entrybuffer[MAX_ENTRYSIZE];
 
 	ENTER("SetOwnerID");
 #if DELDIR
@@ -2724,27 +2722,11 @@ BOOL SetOwnerID(struct fileinfo * file, ULONG owner, SIPTR *error, globaldata * 
 		return DOSFALSE;
 	}
 
-	/* make new direntry */
-	destentry = (struct direntry *)entrybuffer;
-	sourceentry = file->direntry;
-
-	/* copy source */
-	memcpy(destentry, sourceentry, sourceentry->next);
-
-	/* set new extrafields */
-	GetExtraFields(sourceentry, &extrafields);
+	GetExtraFields(file->direntry, &extrafields);
 	extrafields.uid = owner >> 16;
 	extrafields.gid = owner & 0xffff;
-	AddExtraFields(destentry, &extrafields);
-
-	/* commit changes */
-	if (!GetParent((union objectinfo *)file, &directory, error, g))
+	if (!SetExtraFields(file, &extrafields, error, g))
 		return DOSFALSE;
-	else if (!ChangeDirEntry(*file, destentry, &directory, file, g))
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
 
 	MakeBlockDirty((struct cachedblock *)file->dirblock, g);
 	return DOSTRUE;
