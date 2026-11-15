@@ -1708,12 +1708,12 @@ ULONG DiskWrite(UBYTE *buffer, ULONG blockstowrite, ULONG blocknr, globaldata *g
 
 #if SCSIDIRECT
 
-static BOOL DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *command, UWORD commandlen, UBYTE direction, globaldata *g)
+static BOOL DoSCSICommand(UBYTE *data, ULONG datalen, ULONG minlen, UBYTE *command, UBYTE direction, globaldata *g)
 {
 	g->scsicmd.scsi_Data = (UWORD *)data;
 	g->scsicmd.scsi_Length = datalen;
 	g->scsicmd.scsi_Command = command;
-	g->scsicmd.scsi_CmdLength = commandlen;
+	g->scsicmd.scsi_CmdLength = command[0] < 0x20 ? 6 : 10;	/* group 0: 6 bytes, groups 1 and 2: 10 */
 	g->scsicmd.scsi_Flags = SCSIF_AUTOSENSE | direction; /* SCSIF_READ or SCSIF_WRITE */
 	g->scsicmd.scsi_SenseData = g->sense;
 	g->scsicmd.scsi_SenseLength = 18;
@@ -1846,7 +1846,7 @@ retry:
 		*((ULONG *)&cmdbuf[2]) = io_blocknr;
 		*((ULONG *)&cmdbuf[6]) = transfer << 8;
 		PROFILE_OFF();
-		if (!DoSCSICommand(io_buffer, transfer << BLOCKNATIVESHIFT, 0, cmdbuf, 10, write ? SCSIF_WRITE : SCSIF_READ, g))
+		if (!DoSCSICommand(io_buffer, transfer << BLOCKNATIVESHIFT, 0, cmdbuf, write ? SCSIF_WRITE : SCSIF_READ, g))
 		{
 			PROFILE_ON();
 			if (ErrorRequest(write, g->scsicmd.scsi_Status, io_blocknr, transfer, g))
@@ -2100,13 +2100,13 @@ BOOL get_scsi_geometry(globaldata *g)
 	geom->dg_BufMemType = env[DE_MEMBUFTYPE];
 	
 	// TUR
-	if (!DoSCSICommand(buffer, 0, 0, cmdbuf, 6, SCSIF_READ, g))
+	if (!DoSCSICommand(buffer, 0, 0, cmdbuf, SCSIF_READ, g))
 		return FALSE;
 
 	// INQUIRY
 	cmdbuf[0] = 0x12;
 	cmdbuf[4] = sizeof(struct SCSIInquiry);
-	if (!DoSCSICommand(buffer, cmdbuf[4], 2, cmdbuf, 6, SCSIF_READ, g))
+	if (!DoSCSICommand(buffer, cmdbuf[4], 2, cmdbuf, SCSIF_READ, g))
 		return FALSE;
 	inq = (struct SCSIInquiry*)buffer;
 	// check whether this device is connected
@@ -2123,7 +2123,7 @@ BOOL get_scsi_geometry(globaldata *g)
 	cmdbuf[0] = 0x1a;
 	cmdbuf[2] = 0x3f; // current values, all pages
 	cmdbuf[4] = 254;
-	if (DoSCSICommand(buffer, cmdbuf[4], sizeof(struct SCSIPageHeader) + sizeof(struct SCSIBlockDescriptor), cmdbuf, 6, SCSIF_READ, g)) {
+	if (DoSCSICommand(buffer, cmdbuf[4], sizeof(struct SCSIPageHeader) + sizeof(struct SCSIBlockDescriptor), cmdbuf, SCSIF_READ, g)) {
 		struct SCSIPageHeader *ph = (struct SCSIPageHeader*)buffer;
 		if (ph->spch_BlockDescriptorLength >= sizeof(struct SCSIBlockDescriptor) && ph->spch_ModeDataLength >= sizeof(struct SCSIPageHeader) - 1) {
 			struct SCSIBlockDescriptor *bd = (struct SCSIBlockDescriptor*)(ph + 1);
@@ -2137,7 +2137,7 @@ BOOL get_scsi_geometry(globaldata *g)
 	// READ_CAPACITY
 	memset(cmdbuf, 0, sizeof(cmdbuf));
 	cmdbuf[0] = 0x25;
-	if (DoSCSICommand(buffer, 8, sizeof(struct SCSICapacity), cmdbuf, 10, SCSIF_READ, g)) {
+	if (DoSCSICommand(buffer, 8, sizeof(struct SCSICapacity), cmdbuf, SCSIF_READ, g)) {
 		struct SCSICapacity *scc = (struct SCSICapacity*)buffer;
 		geom->dg_SectorSize = scc->scc_BlockLength ? scc->scc_BlockLength : 512;
 		if (scc->scc_Block + 1 != 0)
@@ -2153,7 +2153,7 @@ BOOL get_scsi_geometry(globaldata *g)
 	cmdbuf[2] = 0x04; // rigid drive geometry
 	cmdbuf[4] = 254;
 	memset(buffer, 0, sizeof(struct SCSIPageHeader) + sizeof(struct RigidDiskPage));
-	if (DoSCSICommand(buffer, cmdbuf[4], sizeof(struct SCSIPageHeader) + 2 + 4, cmdbuf, 6, SCSIF_READ, g)) {
+	if (DoSCSICommand(buffer, cmdbuf[4], sizeof(struct SCSIPageHeader) + 2 + 4, cmdbuf, SCSIF_READ, g)) {
 		struct SCSIPageHeader *ph = (struct SCSIPageHeader*)buffer;
 		struct RigidDiskPage *rdp = (struct RigidDiskPage*)(buffer + sizeof(struct SCSIPageHeader));
 		if (ph->spch_ModeDataLength >= sizeof(struct SCSIPageHeader) + 2 + 4 - 1 && ph->spch_BlockDescriptorLength == 0 && (rdp->rgp_PageCode & 0x3f) == 4 && rdp->rgp_PageLength >= 5 - 1) {
@@ -2204,7 +2204,7 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 		*((UWORD *)&cmdbuf[0]) = 0;
 		*((ULONG *)&cmdbuf[2]) = 0;
 		*((ULONG *)&cmdbuf[6]) = 0;
-		if (!DoSCSICommand(buffer, 0, 0, cmdbuf, 6, SCSIF_READ, g)) {
+		if (!DoSCSICommand(buffer, 0, 0, cmdbuf, SCSIF_READ, g)) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand TUR failed\n");
 #endif
@@ -2213,7 +2213,7 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 
 		/* Read Capacity */
 		*((UWORD *)&cmdbuf[0]) = 0x2500;
-		if (!DoSCSICommand(buffer, sizeof(struct SCSICapacity), sizeof(struct SCSICapacity), cmdbuf, 10, SCSIF_READ, g)) {
+		if (!DoSCSICommand(buffer, sizeof(struct SCSICapacity), sizeof(struct SCSICapacity), cmdbuf, SCSIF_READ, g)) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand Read Capacity failed\n");
 #endif
@@ -2240,7 +2240,7 @@ static BOOL testread_ds2(UBYTE *buffer, globaldata *g)
 		*((UWORD *)&cmdbuf[0]) = 0x2800;
 		*((ULONG *)&cmdbuf[2]) = g->lastblock << g->blocklogshift;
 		*((ULONG *)&cmdbuf[6]) = 1 << (8 + g->blocklogshift);
-		if (!DoSCSICommand(buffer, BLOCKSIZE, BLOCKSIZE, cmdbuf, 10, SCSIF_READ, g)) {
+		if (!DoSCSICommand(buffer, BLOCKSIZE, BLOCKSIZE, cmdbuf, SCSIF_READ, g)) {
 #if DETECTDEBUG
 			DebugPutStr("DoSCSICommand Read(10) failed\n");
 #endif
