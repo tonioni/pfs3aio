@@ -320,6 +320,7 @@ static void RemoveDirEntry(struct fileinfo info, globaldata * g);
 static BOOL CutDirEntry(struct fileinfo info, globaldata * g);
 static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry, struct fileinfo *newinfo, globaldata * g);
 static BOOL SetExtraFields(struct fileinfo *file, struct extrafields *extra, SIPTR *error, globaldata *g);
+static BOOL NameIsFree(union objectinfo *dir, STRPTR name, union objectinfo *found, SIPTR *error, globaldata *g);
 static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g);
 
 #if VERSION23
@@ -2860,18 +2861,65 @@ LONG ReadSoftLink(union objectinfo *linkfi, const char *prefix, char *buffer, UL
 	return (LONG) (ptr - buffer);
 }
 
-BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink, union objectinfo *newlink, SIPTR *error, globaldata * g)
+/* TRUE if name can be made in dir: name is not empty (it is cut to the
+ * longest file name), the reserved area is not locked and dir holds no
+ * object of that name; *found is overwritten. FALSE with *error set.
+ */
+static BOOL NameIsFree(union objectinfo *dir, STRPTR name, union objectinfo *found, SIPTR *error, globaldata *g)
 {
 	ULONG anodenr;
+	size_t l;
+	LONG lookup;
+
+	/* get anodenr of directory */
+	if (!dir || IsVolume(*dir))
+		anodenr = ANODE_ROOTDIR;
+	else
+	{
+		anodenr = FIANODENR(&dir->file);
+		LOCK(dir->file.dirblock);
+	}
+
+	/* truncate filename to 31 characters */
+	if (!(l = strlen(name)))
+	{
+		*error = ERROR_INVALID_COMPONENT_NAME;
+		return FALSE;
+	}
+	if (l > FILENAMESIZE - 1)
+		name[FILENAMESIZE - 1] = 0x0;
+
+	/* check reserved area lock */
+	if (ReservedAreaIsLocked)
+	{
+		*error = ERROR_DISK_FULL;
+		return FALSE;
+	}
+
+	/* check if a file by that name already exists */
+	lookup = SearchInDir(anodenr, name, found, g);
+	if (lookup < 0)
+	{
+		*error = PFS_ERROR_INCONSISTENT;
+		return FALSE;
+	}
+	if (lookup)
+	{
+		*error = ERROR_OBJECT_EXISTS;
+		return FALSE;
+	}
+	return TRUE;
+}
+
+BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink, union objectinfo *newlink, SIPTR *error, globaldata * g)
+{
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct direntry *de;
 	UBYTE *softblock = NULL;
 	struct canode anode;
 	struct anodechain *achain = NULL;
-	size_t l;
 	size_t targetlen;
 	ULONG rc;
-	LONG lookup;
 
 	ENTER("CreateSoftLink");
 #if DELDIR
@@ -2892,43 +2940,9 @@ BOOL CreateSoftLink(union objectinfo *linkdir, STRPTR linkname, STRPTR softlink,
 		return DOSFALSE;
 	}
 
-	/* get anodenr of directory */
-	if (!linkdir || IsVolume(*linkdir))
-		anodenr = ANODE_ROOTDIR;
-	else
-	{
-		anodenr = FIANODENR(&linkdir->file);
-		LOCK(linkdir->file.dirblock);
-	}
-
-	/* truncate filename to 31 characters */
-	if (!(l = strlen(linkname)))
-	{
-		*error = ERROR_INVALID_COMPONENT_NAME;
+	/* the name must be new in the directory */
+	if (!NameIsFree(linkdir, linkname, newlink, error, g))
 		return DOSFALSE;
-	}
-	if (l > FILENAMESIZE - 1)
-		linkname[FILENAMESIZE - 1] = 0x0;
-
-	/* check reserved area lock */
-	if (ReservedAreaIsLocked)
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
-
-	/* check if a file by that name already exists */
-	lookup = SearchInDir(anodenr, linkname, newlink, g);
-	if (lookup < 0)
-	{
-		*error = PFS_ERROR_INCONSISTENT;
-		return DOSFALSE;
-	}
-	if (lookup)
-	{
-		*error = ERROR_OBJECT_EXISTS;
-		return DOSFALSE;
-	}
 
 	softblock = AllocVec(BLOCKSIZE, MEMF_CLEAR);
 	if (!softblock) {
@@ -3012,13 +3026,11 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 				union objectinfo * newlink, SIPTR *error, globaldata * g)
 {
 	union objectinfo info, odi;
-	ULONG anodenr, linklist;
+	ULONG linklist;
 	struct direntry *objectentry, *destentry;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct extrafields extrafields;
 	struct canode linknode, head;
-	size_t l;
-	LONG lookup;
 
 	ENTER("CreateLink");
 #if DELDIR
@@ -3047,45 +3059,9 @@ BOOL CreateLink(union objectinfo * linkdir, STRPTR linkname, union objectinfo * 
 	if (!CheckVolume(g->currentvolume, 1, error, g))
 		return DOSFALSE;
 
-	/* get anodenr */
-	if (!linkdir || IsVolume(*linkdir))
-	{
-		anodenr = ANODE_ROOTDIR;
-	}
-	else
-	{
-		anodenr = FIANODENR(&linkdir->file);
-		LOCK(linkdir->file.dirblock);
-	}
-
-	/* truncate filename to 31 characters */
-	if (!(l = strlen(linkname)))
-	{
-		*error = ERROR_INVALID_COMPONENT_NAME;
+	/* the name must be new in the directory */
+	if (!NameIsFree(linkdir, linkname, &info, error, g))
 		return DOSFALSE;
-	}
-	if (l > FILENAMESIZE - 1)
-		linkname[FILENAMESIZE - 1] = 0x0;
-
-	/* check reserved area lock */
-	if (ReservedAreaIsLocked)
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
-
-	/* check if a file by that name already exists */
-	lookup = SearchInDir(anodenr, linkname, &info, g);
-	if (lookup < 0)
-	{
-		*error = PFS_ERROR_INCONSISTENT;
-		return DOSFALSE;
-	}
-	if (lookup)
-	{
-		*error = ERROR_OBJECT_EXISTS;
-		return DOSFALSE;
-	}
 
 	/* make directory entry 
 	 * the anode allocated is the link list element
@@ -3266,12 +3242,9 @@ void Touch(struct fileinfo *info, globaldata * g)   // ook archiveflag..
 BOOL CreateRollover(union objectinfo *dir, STRPTR rollname, ULONG size,
 					union objectinfo *result, SIPTR *error, globaldata * g)
 {
-	ULONG anodenr;
 	struct direntry *de;
 	UBYTE entrybuffer[MAX_ENTRYSIZE];
 	struct anodechain *ac;
-	size_t l;
-	LONG lookup;
 
 	DB(Trace(1, "CreateRollover", "name %s size %d \n", rollname, size));
 #if DELDIR
@@ -3301,43 +3274,9 @@ BOOL CreateRollover(union objectinfo *dir, STRPTR rollname, ULONG size,
 	if (!CheckVolume(g->currentvolume, 1, error, g))
 		return DOSFALSE;
 
-	/* get anodenr of directory */
-	if (!dir || IsVolume(*dir))
-		anodenr = ANODE_ROOTDIR;
-	else
-	{
-		anodenr = FIANODENR(&dir->file);
-		LOCK(dir->file.dirblock);
-	}
-
-	/* truncate filename to 31 characters */
-	if (!(l = strlen(rollname)))
-	{
-		*error = ERROR_INVALID_COMPONENT_NAME;
+	/* the name must be new in the directory */
+	if (!NameIsFree(dir, rollname, result, error, g))
 		return DOSFALSE;
-	}
-	if (l > FILENAMESIZE - 1)
-		rollname[FILENAMESIZE - 1] = 0x0;
-
-	/* check reserved area lock */
-	if (ReservedAreaIsLocked)
-	{
-		*error = ERROR_DISK_FULL;
-		return DOSFALSE;
-	}
-
-	/* check if a file by that name already exists */
-	lookup = SearchInDir(anodenr, rollname, result, g);
-	if (lookup < 0)
-	{
-		*error = PFS_ERROR_INCONSISTENT;
-		return DOSFALSE;
-	}
-	if (lookup)
-	{
-		*error = ERROR_OBJECT_EXISTS;
-		return DOSFALSE;
-	}
 
 	/* make directory entry 
 	 * the anode allocated is the link list element

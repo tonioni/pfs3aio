@@ -1,4 +1,4 @@
-/* LIVE @src directory.c @func UpdateLinks @func UpdateLinkDir @func MoveLink @func CreateLink @func CreateRollover @src anodes.c @func GetNextAnode
+/* LIVE @src directory.c @func UpdateLinks @func UpdateLinkDir @func MoveLink @func NameIsFree @func CreateLink @func CreateRollover @src anodes.c @func GetNextAnode
  *
  * Lifts the checkout's real link-list code of directory.c and asserts the
  * guards added to it. (DeleteLink and RemapLinks are in dir_deletelink_live.c.)
@@ -186,6 +186,7 @@ struct anodewalk { ULONG mark; ULONG steps; };
 #include "gen/UpdateLinks.c"			/* the REAL functions from ../../directory.c */
 #include "gen/UpdateLinkDir.c"
 #include "gen/MoveLink.c"
+#include "gen/NameIsFree.c"
 #include "gen/CreateLink.c"
 #include "gen/CreateRollover.c"
 
