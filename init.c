@@ -539,6 +539,31 @@ static void InstallResetHandler(struct globaldata *g)
 	}
 }
 
+#if !(defined(__MORPHOS__) && defined(SYSTEM_PRIVATE))
+/* Sends command with the reset interrupt ri to keyboard.device and waits
+ * for it on a port that lives only for the call
+ */
+static void ResetHandlerIO(UWORD command, struct Interrupt *ri, struct globaldata *g)
+{
+	struct IOStdReq *ioreq = g->resethandlerioreq;
+	struct MsgPort mp;
+
+	memset(&mp, 0, sizeof(mp));
+	mp.mp_Node.ln_Type = NT_MSGPORT;
+	mp.mp_Flags = PA_SIGNAL;
+	mp.mp_SigBit = g->resethandlersigbit;
+	mp.mp_SigTask = FindTask(0);
+	NewList(&mp.mp_MsgList);
+
+	ioreq->io_Message.mn_ReplyPort = &mp;
+	ioreq->io_Command = command;
+	ioreq->io_Data    = ri;
+	ioreq->io_Length  = sizeof(struct Interrupt);
+	DoIO((APTR) ioreq);
+	ioreq->io_Message.mn_ReplyPort = 0;
+}
+#endif
+
 void HandshakeResetHandler(struct globaldata *g)
 {
 	struct Interrupt *ri = g->resethandlerinterrupt;
@@ -547,23 +572,7 @@ void HandshakeResetHandler(struct globaldata *g)
 #if defined(__MORPHOS__) && defined(SYSTEM_PRIVATE)
 		FinishResetHandler(ri);
 #else
-		struct IOStdReq *ioreq = g->resethandlerioreq;
-		struct MsgPort mp;
-
-		memset(&mp, 0, sizeof(mp));
-		mp.mp_Node.ln_Type = NT_MSGPORT;
-		mp.mp_Flags = PA_SIGNAL;
-		mp.mp_SigBit = g->resethandlersigbit;
-		mp.mp_SigTask = FindTask(0);
-		NewList(&mp.mp_MsgList);
-
-		ioreq->io_Message.mn_ReplyPort = &mp;
-		ioreq->io_Command = KBD_RESETHANDLERDONE;
-		ioreq->io_Data    = ri;
-		ioreq->io_Length  = sizeof(struct Interrupt);
-		DoIO((APTR) ioreq);
-
-		ioreq->io_Message.mn_ReplyPort = 0;
+		ResetHandlerIO(KBD_RESETHANDLERDONE, ri, g);
 #endif
 	}
 }
@@ -577,22 +586,9 @@ void UninstallResetHandler(struct globaldata *g)
 #if defined(__MORPHOS__) && defined(SYSTEM_PRIVATE)
 		RemResetHandler(ri);
 #else
-		struct IOStdReq *ioreq = g->resethandlerioreq;
-		struct MsgPort mp;
-		memset(&mp, 0, sizeof(mp));
-		mp.mp_Node.ln_Type = NT_MSGPORT;
-		mp.mp_Flags = PA_SIGNAL;
-		mp.mp_SigBit = g->resethandlersigbit;
-		mp.mp_SigTask = FindTask(0);
-		NewList(&mp.mp_MsgList);
-
-		ioreq->io_Message.mn_ReplyPort = &mp;
-		ioreq->io_Command = KBD_REMRESETHANDLER;
-		ioreq->io_Data    = ri;
-		ioreq->io_Length  = sizeof(struct Interrupt);
-		DoIO((APTR) ioreq);
-		CloseDevice((APTR) ioreq);
-		DeleteIORequest((APTR) ioreq);
+		ResetHandlerIO(KBD_REMRESETHANDLER, ri, g);
+		CloseDevice((APTR) g->resethandlerioreq);
+		DeleteIORequest((APTR) g->resethandlerioreq);
 #endif
 		FreeVec(ri);
 		FreeSignal(g->resethandlersigbit);
