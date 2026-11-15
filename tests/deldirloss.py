@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A file in the deldir right after its delete, under AmiFUSE.
 
-    uv run tests/deldirloss.py [--driver pfs3aio] [--keep]
+    uv run tests/deldirloss.py [--driver pfs3aio] [--pds] [--keep]
 
 Deletes a file and lists .DELDIR before the next update: the file has to be
 listed and read back with its content, and stay listed after a flush. Its
@@ -10,6 +10,9 @@ before it. The same for a file with a hard link: deleting the file leaves it
 as the link and out of the deldir, deleting the link puts it there. Once the
 volume is filled after the update, the blocks are reused and the entries
 have to go.
+
+--pds formats a PDS\\3 partition: the device then takes block transfers only
+as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Needs amifuse and rdbtool.
 
@@ -34,9 +37,9 @@ check = L.check
 SIZE = 3000
 
 
-def make_image(path, driver):
+def make_image(path, driver, dostype):
     subprocess.run(["rdbtool", "-f", path, "create", "size=4M", "+", "init", "+",
-                    "add", "name=DH0", "size=95%", "dostype=0x50465303", "bs=512"],
+                    "add", "name=DH0", "size=95%", "dostype=0x%08x" % dostype, "bs=512"],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     r = subprocess.run([sys.executable, os.path.join(TESTS, "fi.py"), "format", path, "DH0", "V",
                         "--driver", driver], env=dict(os.environ, FI_CMD="none"), capture_output=True, text=True)
@@ -92,6 +95,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--driver", help="handler, default pfs3aio in the repository root")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--pds", action="store_true", help="PDS\\3 partition: every block transfer through HD_SCSICMD")
     a = ap.parse_args()
 
     driver = os.path.abspath(a.driver or os.path.join(ROOT, "pfs3aio"))
@@ -99,7 +103,7 @@ def main():
         sys.exit("no driver: " + driver + " (make)")
     tmp = tempfile.mkdtemp(prefix="deldirloss.", dir=L.scratch_dir())
     image = os.path.join(tmp, "deldir.hdf")
-    make_image(image, driver)
+    make_image(image, driver, L.PDS3_DOSTYPE if a.pds else L.PFS3_DOSTYPE)
     b = L.open_bridge(Path(image), Path(driver))
     try:
         run(b)

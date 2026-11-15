@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A file with more than 4096 hard links, under AmiFUSE.
 
-    uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512] [--keep]
+    uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512] [--pds] [--keep]
 
 Links one file 4100 times. Every link has to be made, and the functions that follow
 the link list have to work on the result: rewriting the file with a new size (the new
@@ -12,6 +12,9 @@ has to succeed. If a link or a step fails, the later steps still run, and the fi
 step after which the volume refuses writes (213 Disk not validated) is named. At the
 end the image is mounted again, in a new process, the directory and a link have to
 read and a file has to be writable.
+
+--pds formats a PDS\\3 partition: the device then takes block transfers only
+as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Needs amifuse and rdbtool.
 
@@ -196,6 +199,7 @@ def main():
                     help="logical block size of the volume (default %(default)s)")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--pds", action="store_true", help="PDS\\3 partition: every block transfer through HD_SCSICMD")
     ap.add_argument("--remount", metavar="IMAGE", help=argparse.SUPPRESS)
     a = ap.parse_args()
 
@@ -207,7 +211,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="manylinks.", dir=L.scratch_dir())
     image = os.path.join(tmp, "links.hdf")
     print("%s, image %s, %d links" % (driver, a.size, a.links))
-    L.make_image(image, a.size, driver, a.blocksize)
+    L.make_image(image, a.size, driver, a.blocksize, L.PDS3_DOSTYPE if a.pds else L.PFS3_DOSTYPE)
     b = L.open_bridge(Path(image), Path(driver), a.debug)
     want = big = made = None
     try:

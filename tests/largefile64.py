@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A file above 4G through the 64 bit packets of AmigaOS 4, under AmiFUSE.
 
-    uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--keep]
+    uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--pds] [--keep]
 
 Formats a sparse image, switches the large file flag on with ACTION_SET_LARGEFILE
 (unless the driver formatted it that way already) and grows a file past 4G with
@@ -12,6 +12,9 @@ free space after each step.
 The image has 4096 byte blocks; --blocksize 512 formats 512 byte blocks with a
 LARGE_FILE_SIZE 2 build. Needs a large file build (LARGE_FILE_SIZE 1 or 2),
 amifuse and rdbtool. Takes a few minutes with 4096 byte blocks.
+
+--pds formats a PDS\\3 partition: the device then takes block transfers only
+as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Prints a line per check and, last, "== largefile64: <n> passed, <m> failed ==".
 In GitHub Actions the failed checks are also annotations and a table in the job
@@ -206,20 +209,64 @@ class Examine64:
         return out
 
 
-def make_image(path, size, driver, blocksize):
+PFS3_DOSTYPE = 0x50465303
+PDS3_DOSTYPE = 0x50445303   # PFS3 through HD_SCSICMD (Direct SCSI)
+# block transfers other than HD_SCSICMD: CMD_READ, CMD_WRITE, TD_FORMAT, TD_READ64,
+# TD_WRITE64, TD_FORMAT64 and the NSD 64 bit read, write and format
+TD_TRANSFERS = (2, 3, 11, 24, 25, 27, 0xC000, 0xC001, 0xC003)
+
+
+def make_image(path, size, driver, blocksize, dostype=PFS3_DOSTYPE):
     if os.path.exists(path):
         os.remove(path)
     # 4096 byte logical blocks make the formatter choose PFS2, the only type
     # that can carry the large file flag. With 512 byte blocks the volume is
     # PFS1 unless the driver formats PFS2 itself (LARGE_FILE_SIZE 2).
     subprocess.run(["rdbtool", "-f", path, "create", "size=" + size, "+", "init", "+",
-                    "add", "name=DH0", "size=95%", "dostype=0x50465303", "bs=%d" % blocksize],
+                    "add", "name=DH0", "size=95%", "dostype=0x%08x" % dostype, "bs=%d" % blocksize],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     env = dict(os.environ, FI_CMD="none")
     r = subprocess.run([sys.executable, os.path.join(TESTS, "fi.py"), "format", path, "DH0", "V",
                         "--driver", driver], env=env, capture_output=True, text=True)
     if "format complete" not in (r.stdout + r.stderr).lower():
         sys.exit("format failed:\n" + r.stdout + r.stderr)
+
+
+def partition_dostype(image):
+    """de_DosType of the first partition in the RDB of the image."""
+    with open(image, "rb") as f:
+        data = f.read(512 * 256)
+    for o in range(0, len(data) - 511, 512):
+        if data[o:o + 4] == b"PART":
+            return struct.unpack(">I", data[o + 192:o + 196])[0]
+    return None
+
+
+def direct_scsi_only():
+    """The device answers block transfers other than HD_SCSICMD with IOERR_NOCMD.
+
+    PDS\\3 tries Direct SCSI first and falls back to the trackdisk commands if
+    that fails. With the fallback refused, a PDS\\3 volume works only through
+    HD_SCSICMD.
+    """
+    import amifuse.scsi_device as sd
+    from amitools.vamos.libstructs.exec_ import IORequestStruct
+
+    if getattr(sd.ScsiDevice, "direct_scsi_only", False):
+        return
+    begin_io = sd.ScsiDevice.BeginIO
+
+    def refuse_td(self, ctx, io_request):
+        ior = IORequestStruct(ctx.mem, io_request)
+        if ior.command.val not in TD_TRANSFERS:
+            return begin_io(self, ctx, io_request)
+        ior.error.val = -3              # IOERR_NOCMD
+        ior.actual.val = 0
+        ior.flags.val |= 1              # IOF_QUICK, as the device completes every request
+        return 0
+
+    sd.ScsiDevice.BeginIO = refuse_td
+    sd.ScsiDevice.direct_scsi_only = True
 
 
 def open_bridge(image, driver, debug=False):
@@ -229,6 +276,8 @@ def open_bridge(image, driver, debug=False):
     if not getattr(open_bridge, "patched", False):
         IL.IntuitionLibrary.EasyRequestArgs = lambda self, ctx, w, e, i, a: 0
         open_bridge.patched = True
+    if partition_dostype(image) == PDS3_DOSTYPE:
+        direct_scsi_only()
     return HandlerBridge(image, driver, read_only=False, debug=debug)
 
 
@@ -278,6 +327,7 @@ def main():
                     help="logical block size of the volume (default %(default)s)")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--pds", action="store_true", help="PDS\\3 partition: every block transfer through HD_SCSICMD")
     a = ap.parse_args()
 
     driver = a.driver or os.path.join(ROOT, "pfs3aio-largefile")
@@ -286,7 +336,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="lf64.", dir=scratch_dir())
     image = os.path.join(tmp, "big.hdf")
     print("%s, image %s" % (driver, a.size))
-    make_image(image, a.size, driver, a.blocksize)
+    make_image(image, a.size, driver, a.blocksize, PDS3_DOSTYPE if a.pds else PFS3_DOSTYPE)
 
     from pathlib import Path
     b = open_bridge(Path(image), Path(driver), a.debug)

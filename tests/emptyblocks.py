@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Directory blocks emptied by deletes, under AmiFUSE.
 
-    uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000] [--keep]
+    uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000] [--pds] [--keep]
 
 Creates many files in a directory, deletes all but a few (oldest first, newest
 first, in random order) or moves them to another directory, and reads the
@@ -14,6 +14,9 @@ listed once. Copies of the image taken during the deletes without a flush (a
 power cut) must hold a whole directory and mount. At the end the image is
 mounted again in a new process: the files that were kept have to be listed,
 and a directory can be emptied and deleted.
+
+--pds formats a PDS\\3 partition: the device then takes block transfers only
+as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Needs amifuse and rdbtool.
 
@@ -45,11 +48,11 @@ KEEP = 3
 SNAPS = 5            # copies of the image taken during the first mass delete, without a flush
 
 
-def make_image(path, driver):
+def make_image(path, driver, dostype):
     if os.path.exists(path):
         os.remove(path)
     subprocess.run(["rdbtool", "-f", path, "create", "size=64M", "+", "init", "+",
-                    "add", "name=DH0", "size=95%", "dostype=0x50465303", "bs=512",
+                    "add", "name=DH0", "size=95%", "dostype=0x%08x" % dostype, "bs=512",
                     "num_buffer=%d" % BUFFERS],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     env = dict(os.environ, FI_CMD="none")
@@ -266,6 +269,7 @@ def main():
     ap.add_argument("--files", type=int, default=1000)
     ap.add_argument("--keep", action="store_true", help="keep the image")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--pds", action="store_true", help="PDS\\3 partition: every block transfer through HD_SCSICMD")
     ap.add_argument("--phase", choices=("use", "reread", "snap"), help=argparse.SUPPRESS)
     ap.add_argument("--image", help=argparse.SUPPRESS)
     a = ap.parse_args()
@@ -279,7 +283,7 @@ def main():
 
     tmp = tempfile.mkdtemp(prefix="emptyblocks.", dir=L.scratch_dir())
     image = os.path.join(tmp, "eb.hdf")
-    make_image(image, driver)
+    make_image(image, driver, L.PDS3_DOSTYPE if a.pds else L.PFS3_DOSTYPE)
     snaps = [snapshot_name(image, i) for i in range(1, SNAPS + 1)]
 
     def child_run(phase, img):
