@@ -321,6 +321,7 @@ static BOOL CutDirEntry(struct fileinfo info, globaldata * g);
 static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry, struct fileinfo *newinfo, globaldata * g);
 static BOOL SetExtraFields(struct fileinfo *file, struct extrafields *extra, SIPTR *error, globaldata *g);
 static BOOL NameIsFree(union objectinfo *dir, STRPTR name, union objectinfo *found, SIPTR *error, globaldata *g);
+static struct cdirblock *NewFirstDirBlock(ULONG diranodenr, ULONG parent, globaldata *g);
 static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff, globaldata * g);
 
 #if VERSION23
@@ -3534,6 +3535,50 @@ static struct direntry *CheckFit(struct cdirblock *blok, int needed, globaldata 
 }
 
 /*
+ * A new first block of directory diranodenr: the old first block moves to
+ * a new anode behind it. NULL on failure, with the chain as it was.
+ */
+static struct cdirblock *NewFirstDirBlock(ULONG diranodenr, ULONG parent, globaldata *g)
+{
+	struct canode anode, newanode;
+	struct cdirblock *blk;
+	ULONG newanodenr;
+
+	newanode.clustersize = 1;
+	if (!(newanode.blocknr = AllocReservedBlock(g)))
+		return NULL;
+	if (!GetAnode(&anode, diranodenr, g))
+	{
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	if (!(newanodenr = AllocAnode(anode.next ? anode.next : anode.nr, g)))
+	{
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	newanode.nr = diranodenr;
+	newanode.next = anode.nr = newanodenr;
+	if (!SaveAnode(&anode, anode.nr, g))
+	{
+		FreeAnode(newanodenr, g);
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	if (!(blk = MakeDirBlock(newanode.blocknr, newanode.nr, diranodenr, parent, g)))
+	{
+		/* the old first block was saved under newanodenr; the head
+		 * anode itself is unchanged, so only the copy goes */
+		FreeAnode(newanodenr, g);
+		FreeReservedBlock(newanode.blocknr, g);
+		return NULL;
+	}
+	if (!SaveAnode(&newanode, newanode.nr, g))
+		return NULL;
+	return blk;
+}
+
+/*
  * Moves firstentry to previous block, changing it to to. To can point to de.direntry
  * if wanted.
  * Return new fileinfo in 'result'
@@ -3595,28 +3640,17 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 		struct cdirblock *newblock;
 		ULONG newanodenr;
 
-		newanode.clustersize = 1;
 		parent = de.dirblock->blk.parent;
-		if (!(newanode.blocknr = AllocReservedBlock(g)))
-			return FALSE;
-
 		if (!prev)
 		{
-			if (!GetAnode(&anode, de.dirblock->blk.anodenr, g))
-			{
-				FreeReservedBlock(newanode.blocknr, g);
+			if (!(newblock = NewFirstDirBlock(de.dirblock->blk.anodenr, parent, g)))
 				return FALSE;
-			}
-			if (!(newanodenr = AllocAnode (anode.next ? anode.next : anode.nr, g)))
-			{
-				FreeReservedBlock (newanode.blocknr, g);
-				return FALSE;
-			}
-			newanode.nr = anode.nr;
-			newanode.next = anode.nr = newanodenr;
 		}
 		else
 		{
+			newanode.clustersize = 1;
+			if (!(newanode.blocknr = AllocReservedBlock(g)))
+				return FALSE;
 			if (!(newanodenr = AllocAnode (anode.nr, g)))
 			{
 				FreeReservedBlock (newanode.blocknr, g);
@@ -3625,38 +3659,27 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 			newanode.nr = newanodenr;
 			newanode.next = anode.next;
 			anode.next = newanode.nr;
-		}
-
-		if (!SaveAnode(&anode, anode.nr, g))
-		{
-			FreeAnode(newanodenr, g);
-			FreeReservedBlock(newanode.blocknr, g);
-			return FALSE;
-		}
-		newblock = MakeDirBlock(newanode.blocknr, newanode.nr, de.dirblock->blk.anodenr, parent, g);
-		if (!newblock)
-		{
-			/* undo the chain changes: the head anode itself was not
-			 * rewritten yet (newanode is saved only after MakeDirBlock)
-			 */
-			if (!prev)
+			if (!SaveAnode(&anode, anode.nr, g))
 			{
-				/* the old head contents were copied to newanodenr;
-				 * the head anode still has its original contents */
-				FreeAnode (newanodenr, g);
+				FreeAnode(newanodenr, g);
+				FreeReservedBlock(newanode.blocknr, g);
+				return FALSE;
 			}
-			else
+			newblock = MakeDirBlock(newanode.blocknr, newanode.nr, de.dirblock->blk.anodenr, parent, g);
+			if (!newblock)
 			{
+				/* undo the chain change: newanode is saved only after
+				 * MakeDirBlock */
 				anode.next = newanode.next;
 				if (!SaveAnode(&anode, anode.nr, g))
 					return FALSE;
 				FreeAnode (newanodenr, g);
+				FreeReservedBlock (newanode.blocknr, g);
+				return FALSE;
 			}
-			FreeReservedBlock (newanode.blocknr, g);
-			return FALSE;
+			if (!SaveAnode(&newanode, newanode.nr, g))
+				return FALSE;
 		}
-		if (!SaveAnode(&newanode, newanode.nr, g))
-			return FALSE;
 
 		/* add entry */
 		dest = FIRSTENTRY(newblock);
@@ -3834,44 +3857,7 @@ static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry,
 	 */
 	if (!done && eof)
 	{
-		ULONG parent;
-		struct canode newanode;
-		ULONG newanodenr;
-
-		newanode.clustersize = 1;
-		parent = blok->blk.parent;
-		if (!(newanode.blocknr = AllocReservedBlock(g)))
-			return FALSE;
-		if (!GetAnode(&anode, diranodenr, g))
-		{
-			FreeReservedBlock(newanode.blocknr, g);
-			return FALSE;
-		}
-		if (!(newanodenr = AllocAnode (anode.next ? anode.next : anode.nr, g)))
-		{
-			FreeReservedBlock (newanode.blocknr, g);
-			return FALSE;
-		}
-		newanode.nr = diranodenr;
-		newanode.next = anode.nr = newanodenr;
-		if (!SaveAnode(&anode, anode.nr, g))
-		{
-			FreeAnode(newanodenr, g);
-			FreeReservedBlock(newanode.blocknr, g);
-			return FALSE;
-		}
-		blok = MakeDirBlock (newanode.blocknr, newanode.nr, diranodenr, parent, g);
-		if (!blok)
-		{
-			/* the old head contents were saved under newanodenr, but
-			 * the head anode (diranodenr) itself is unchanged - just
-			 * discard the copy
-			 */
-			FreeAnode (newanodenr, g);
-			FreeReservedBlock (newanode.blocknr, g);
-			return FALSE;
-		}
-		if (!SaveAnode(&newanode, newanode.nr, g))
+		if (!(blok = NewFirstDirBlock(diranodenr, blok->blk.parent, g)))
 			return FALSE;
 		entry = (struct direntry *)&blok->blk.entries;
 		memcpy(entry, newentry, newentry->next);
