@@ -295,13 +295,14 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, 
 static LONG BlockTaken(struct canode *anode, globaldata *g);
 static BOOL FillDelfileFib(struct deldirentry *dde, ULONG slotnr, struct FileInfoBlock *fib, globaldata *g);
 static struct deldirentry *GetDeldirEntry(IPTR *nr, SIPTR *error, globaldata *g);
-static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g);
+static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, UWORD nameoffset, struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g);
 static struct cdeldirblock *GetDeldirBlock(ULONG seqnr, globaldata *g);
 #endif
 static BOOL GetFirstEntry(lockentry_t *, globaldata *);
 static BOOL GetFirstNonEmptyDE(ULONG anodenr, struct fileinfo *, ULONG *, globaldata *);
 static void RemakeNextEntry(lockentry_t *, struct FileInfoBlock *, globaldata *);
-static ULONG FillInData(struct ExAllData *, LONG, struct direntry *, ULONG, SIPTR *, globaldata *);
+static UWORD ExAllNameOffset(LONG type);
+static ULONG FillInData(struct ExAllData *, LONG, UWORD, struct direntry *, ULONG, SIPTR *, globaldata *);
 static BOOL DeleteDir(union objectinfo *, SIPTR *, globaldata *);
 static BOOL DirIsEmpty(ULONG, SIPTR *, globaldata *);
 static BOOL MakeDirEntry(BYTE type, UBYTE *name, UBYTE *entrybuffer, globaldata * g);
@@ -1293,15 +1294,49 @@ void GetNextEntry(lockentry_t *file, globaldata * g)
 	}
 }
 
+/* offset of the name in an ExAllData of this type */
+static UWORD ExAllNameOffset(LONG type)
+{
+	switch (type)
+	{
+		case ED_TYPE:
+			return offsetof(struct ExAllData, ed_Size);
+
+		case ED_SIZE:
+			return offsetof(struct ExAllData, ed_Prot);
+
+		case ED_PROTECTION:
+			return offsetof(struct ExAllData, ed_Days);
+
+		case ED_DATE:
+			return offsetof(struct ExAllData, ed_Comment);
+
+		case ED_COMMENT:
+			return offsetof(struct ExAllData, ed_OwnerUID);
+
+		case ED_OWNER:
+#if defined(__MORPHOS__)
+			return offsetof(struct ExAllData, ed_Size64);
+
+		case ED_SIZE64:
+#endif
+			return sizeof(struct ExAllData);
+
+		case ED_NAME:
+		default:
+			return offsetof(struct ExAllData, ed_Type);
+	}
+}
+
 /* ExamineAll
  *
  * fill buffer with directory information
  *
  * Note: +- 2000 stack needed
  */
-static ULONG FillInData(struct ExAllData *buffer, LONG type, struct direntry *direntry, ULONG spaceleft, SIPTR *error, globaldata *g)
+static ULONG FillInData(struct ExAllData *buffer, LONG type, UWORD nameoffset, struct direntry *direntry, ULONG spaceleft, SIPTR *error, globaldata *g)
 {
-	UWORD nameoffset, commentoffset = 0;
+	UWORD commentoffset = 0;
 	UBYTE *name, *comment = NULL;
 	UCOUNT size;
 	struct extrafields extrafields;
@@ -1320,50 +1355,8 @@ static ULONG FillInData(struct ExAllData *buffer, LONG type, struct direntry *di
 		return 0;
 	}
 
-	/* get location to put name */
-	switch (type)
-	{
-		case ED_NAME:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-
-		case ED_TYPE:
-			size = offsetof(struct ExAllData, ed_Size);
-			break;
-
-		case ED_SIZE:
-			size = offsetof(struct ExAllData, ed_Prot);
-			break;
-
-		case ED_PROTECTION:
-			size = offsetof(struct ExAllData, ed_Days);
-			break;
-
-		case ED_DATE:
-			size = offsetof(struct ExAllData, ed_Comment);
-			break;
-
-		case ED_COMMENT:
-			size = offsetof(struct ExAllData, ed_OwnerUID);
-			break;
-
-		case ED_OWNER:
-#if defined(__MORPHOS__)
-			size = offsetof(struct ExAllData, ed_Size64);
-			break;
-
-		case ED_SIZE64:
-#endif
-			size = sizeof(struct ExAllData);
-			break;
-
-		default:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-	}
-
 	/* size of name */
-	nameoffset = size;
+	size = nameoffset;
 	name = &direntry->nlength;
 	size += namelen + 1;
 
@@ -1443,7 +1436,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 	struct direntry *direntry;
 	struct ExAllData *lasteaentry = NULL;
 	ULONG spaceleft, size;
-	UWORD j;
+	UWORD j, nameoffset;
 	BOOL eod;
 #if DELDIR
 	struct deldirentry *dde;
@@ -1478,6 +1471,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 	/* Prepare loop */
 	spaceleft = buflen;
 	j = 0;                      // # direntries in buffer
+	nameoffset = ExAllNameOffset(type);
 
 #if DELDIR
 	if (IsDelDir(object->le.info))
@@ -1488,7 +1482,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 		{
 			BOOL wanted;
 
-			size = FillInDDEData((struct ExAllData *)buffer, type, dde, ctrl->eac_LastKey,
+			size = FillInDDEData((struct ExAllData *)buffer, type, nameoffset, dde, ctrl->eac_LastKey,
 									spaceleft, g);
 			if (size)
 			{
@@ -1568,7 +1562,7 @@ BOOL ExamineAll(lockentry_t *object, UBYTE *buffer, ULONG buflen, LONG type, str
 		else
 			break;
 
-		size = FillInData((struct ExAllData *)buffer, type, direntry,
+		size = FillInData((struct ExAllData *)buffer, type, nameoffset, direntry,
 							spaceleft, error, g);
 		if (size)
 		{
@@ -5021,52 +5015,17 @@ struct deldirentry *GetDeldirEntryQuick(ULONG ddnr, globaldata *g)
 	return &ddblk->blk.entries[ddnr%DELENTRIES_PER_BLOCK];
 }
 
-static ULONG FillInDDEData(struct ExAllData *buffer, LONG type,
+static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, UWORD nameoffset,
 		struct deldirentry *dde, ULONG ddenr, ULONG spaceleft, globaldata *g)
 {
-	UWORD nameoffset, commentoffset = 0;
+	UWORD commentoffset = 0;
 	UBYTE *nameptr;
 	UCOUNT size;
 	unsigned i;
 	UBYTE appbuffer[6];
 
-	/* get location to put name */
-	switch (type)
-	{
-		case ED_NAME:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-		case ED_TYPE:
-			size = offsetof(struct ExAllData, ed_Size);
-			break;
-		case ED_SIZE:
-			size = offsetof(struct ExAllData, ed_Prot);
-			break;
-		case ED_PROTECTION:
-			size = offsetof(struct ExAllData, ed_Days);
-			break;
-		case ED_DATE:
-			size = offsetof(struct ExAllData, ed_Comment);
-			break;
-		case ED_COMMENT:
-			size = offsetof(struct ExAllData, ed_OwnerUID);
-			break;
-		case ED_OWNER:
-#if defined(__MORPHOS__)
-			size = offsetof(struct ExAllData, ed_Size64);
-			break;
-		case ED_SIZE64:
-#endif
-			size = sizeof(struct ExAllData);
-			break;
-		default:
-			size = offsetof(struct ExAllData, ed_Type);
-			break;
-	}
-
 	/* size of name */
-	nameoffset = size;
-	size += dde->filename[0] + 4 + 1;   /* extra ddenr (3+1) and termination zero (1) */
+	size = nameoffset + dde->filename[0] + 4 + 1;   /* extra ddenr (3+1) and termination zero (1) */
 
 	/* size of comment */
 	if (type >= ED_COMMENT)
