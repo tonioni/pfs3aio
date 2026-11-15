@@ -34,6 +34,33 @@ void HandleNotifyReplies(globaldata *g);
 void FreeNotifyObject(struct notifyobject *no, globaldata *g);
 void RemoveNotify(struct NotifyRequest *nr, struct MinList *extra, globaldata *g);
 
+/* Drops the anode chain and the cached block references of a lock or
+ * file entry; a sleeping entry is marked flushed
+ */
+static void DropEntryRefs(listentry_t *le, globaldata *g)
+{
+	if (IsFileEntry(le))
+	{
+		fileentry_t *fe = (fileentry_t *)le;
+
+		if (fe->anodechain)
+			DetachAnodeChain(fe->anodechain, g);
+		fe->anodechain = NULL;
+		fe->currnode = NULL;
+	}
+	if (le->sleepref)
+	{
+#if DELDIR
+		le->info.deldir.special = SPECIAL_FLUSHED;
+#else
+		le->info.file.direntry = NULL;
+#endif
+		le->info.file.dirblock = NULL;
+	}
+	le->dirblocknr = 0;
+	le->dirblockoffset = 0;
+}
+
 /* AFS extensions */
 #if EXTRAPACKETS
 static BOOL Sleep (SIPTR *error, globaldata *g);
@@ -471,26 +498,7 @@ static BOOL Sleep (SIPTR *error, globaldata *g)
 
 		for (le=HeadOf (&volume->fileentries); le->next; le=le->next)
 		{
-			if (IsFileEntry(le))
-			{
-				fileentry_t *fe = (fileentry_t *)le;
-
-				if (fe->anodechain)
-					DetachAnodeChain (fe->anodechain, g);
-				fe->anodechain = NULL;
-				fe->currnode = NULL;
-			}
-			if (le->sleepref)
-			{
-#if DELDIR
-				le->info.deldir.special = SPECIAL_FLUSHED;
-#else
-				le->info.file.direntry = NULL;
-#endif
-				le->info.file.dirblock = NULL;
-			}
-			le->dirblocknr = 0;
-			le->dirblockoffset = 0;
+			DropEntryRefs(le, g);
 
 			/* terminate examine chains */
 			if (le->type.flags.dir
@@ -733,26 +741,7 @@ rollback:
 	 * Drop them and clear references before invalidating clean cache blocks;
 	 * a later wake must read the sleepwalker's latest disk contents. */
 	for (le=HeadOf(&volume->fileentries); le->next; le=le->next)
-	{
-		if (IsFileEntry(le))
-		{
-			fileentry_t *fe = (fileentry_t *)le;
-			if (fe->anodechain)
-				DetachAnodeChain(fe->anodechain, g);
-			fe->anodechain = NULL;
-			fe->currnode = NULL;
-		}
-		if (le->sleepref)
-		{
-#if DELDIR
-			le->info.deldir.special = SPECIAL_FLUSHED;
-#else
-			le->info.file.direntry = NULL;
-#endif
-			le->info.file.dirblock = NULL;
-		}
-		le->dirblocknr = le->dirblockoffset = 0;
-	}
+		DropEntryRefs(le, g);
 	FreeUnusedResources(volume, g);
 	FlushDataCache(g);
 	return FALSE;
