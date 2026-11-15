@@ -181,7 +181,7 @@ the virtual clock. `run-all.sh` does not run this test.
 
 ```sh
 make largefile
-uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096]
+uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--pds]
 ```
 
 Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space. `--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`uv venv && uv pip install --no-deps -r tests/requirements.txt`). It takes a few minutes with 4096 byte blocks. `.github/workflows/blackbox-test.yml` runs it as a job of its own, by hand and for changes to the handler sources, the makefile and the test.
@@ -190,7 +190,7 @@ Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag
 
 ```sh
 make
-uv run tests/hardlink.py [--driver pfs3aio]
+uv run tests/hardlink.py [--driver pfs3aio] [--pds]
 ```
 
 Makes two hard links to a file and deletes the file. The first link has to become the file, with its size and content, and the second link has to follow it. A compiler that lets `CreateLink` skip the link field of the file fails this by leaving the link dangling. Needs `amifuse` and `rdbtool` like the test above and takes seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
@@ -199,7 +199,7 @@ Makes two hard links to a file and deletes the file. The first link has to becom
 
 ```sh
 make
-uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512]
+uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512] [--pds]
 ```
 
 Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
@@ -208,7 +208,7 @@ Links one file 4100 times. Every link has to be made, and the functions that fol
 
 ```sh
 make
-uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000]
+uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000] [--pds]
 ```
 
 Creates 1000 files in a directory on a partition with 10 buffers and deletes all but three, oldest first, newest first and in random order, or moves them to another directory. `tests/pfs3img.py` then reads the image: behind the first block of the directory no directory block may be empty, the removed blocks have to be free and the reserved bitmap has to agree with the rootblock. Files are also deleted while a listing of their directory is half way through: the listing has to go on with the files that are left, each listed once. Copies of the image taken during the deletes without a flush, as a power cut would leave it, have to hold a whole directory and mount. The image is then mounted again in a new process, the files that are left have to be listed and a directory can be emptied and deleted. Takes about 30 seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
@@ -217,10 +217,19 @@ Creates 1000 files in a directory on a partition with 10 buffers and deletes all
 
 ```sh
 make
-uv run tests/deldirloss.py [--driver pfs3aio]
+uv run tests/deldirloss.py [--driver pfs3aio] [--pds]
 ```
 
 Deletes a file and lists .DELDIR before the next update: the file has to be listed, read back with its content and stay listed after a flush. The same for a file with a hard link: deleting the file leaves it as the link and out of the deldir, deleting the link puts it there. After the volume is filled, the blocks are reused and the entries have to go. Takes seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+
+## Direct SCSI
+
+```sh
+make
+uv run tests/hardlink.py --pds
+```
+
+`largefile64.py`, `hardlink.py`, `manylinks.py`, `emptyblocks.py` and `deldirloss.py` take `--pds`: the partition gets the dostype `PDS\3` and the handler reads and writes it with `HD_SCSICMD` (Direct SCSI). `PDS\3` falls back to the trackdisk commands when Direct SCSI fails, so the device of the test answers every other block transfer with `IOERR_NOCMD` and the test fails instead. `.github/workflows/blackbox-test.yml` runs `largefile64.py`, `hardlink.py`, `emptyblocks.py` and `deldirloss.py` with `--pds` as jobs of their own.
 
 ## everything
 

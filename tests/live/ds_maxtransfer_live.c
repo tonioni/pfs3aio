@@ -34,8 +34,8 @@ typedef struct globaldata {
 
 static int ncmd;
 static BOOL BoundsCheck(BOOL w, ULONG b, ULONG n, globaldata *g){(void)w;(void)b;(void)n;(void)g;return 1;}
-static BOOL DoSCSICommand(UBYTE *d, ULONG dl, ULONG ml, UBYTE *c, UWORD cl, UBYTE dir, globaldata *g){
-    (void)d;(void)dl;(void)ml;(void)c;(void)cl;(void)dir;(void)g; ncmd++; return 1; }
+static BOOL DoSCSICommand(UBYTE *d, ULONG dl, ULONG ml, UBYTE *c, UBYTE dir, globaldata *g){
+    (void)d;(void)dl;(void)ml;(void)c;(void)dir;(void)g; ncmd++; return 1; }
 static BOOL ErrorRequest(BOOL w, UWORD s, ULONG b, ULONG t, globaldata *g){
     (void)w;(void)s;(void)b;(void)t;(void)g; return 0; }
 

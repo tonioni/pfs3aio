@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Deleting the original of a hard link keeps the data under the link.
 
-    uv run tests/hardlink.py [--driver pfs3aio]
+    uv run tests/hardlink.py [--driver pfs3aio] [--pds]
 
 Makes two hard links to a file and deletes the file. The first link has to
 become the file, with its size and content, and the second link has to follow
 it. A compiler that lets CreateLink skip the link field of the file fails this
 by leaving the link dangling. Needs amifuse and rdbtool, like the other tests
 here.
+
+--pds formats a PDS\\3 partition: the device then takes block transfers only
+as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Prints a line per check and, last, "== hardlink: <n> passed, <m> failed ==".
 Exit status is 0 only if every check passed.
@@ -71,6 +74,7 @@ def main():
     ap.add_argument("--driver", help="handler, default pfs3aio in the repository root")
     ap.add_argument("--size", default="32Mi")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--pds", action="store_true", help="PDS\\3 partition: every block transfer through HD_SCSICMD")
     a = ap.parse_args()
 
     driver = a.driver or os.path.join(ROOT, "pfs3aio")
@@ -78,7 +82,7 @@ def main():
         sys.exit("no driver: " + driver + " (make)")
     tmp = tempfile.mkdtemp(prefix="hardlink.", dir=L.scratch_dir())
     image = os.path.join(tmp, "link.hdf")
-    L.make_image(image, a.size, driver, 512)
+    L.make_image(image, a.size, driver, 512, L.PDS3_DOSTYPE if a.pds else L.PFS3_DOSTYPE)
     b = L.open_bridge(Path(image), Path(driver), a.debug)
     try:
         run(b)

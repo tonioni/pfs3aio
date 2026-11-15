@@ -34,8 +34,8 @@ typedef struct globaldata {
 
 static ULONG nat_lo, nat_hi; static int oob, ncmd, callno, fault_fired, retries;
 static BOOL BoundsCheck(BOOL w, ULONG b, ULONG n, globaldata *g){(void)w;(void)b;(void)n;(void)g;return 1;}
-static BOOL DoSCSICommand(UBYTE *d, ULONG dl, ULONG ml, UBYTE *cmd, UWORD cl, UBYTE dir, globaldata *g){
-    (void)d;(void)dl;(void)ml;(void)cl;(void)dir;(void)g;
+static BOOL DoSCSICommand(UBYTE *d, ULONG dl, ULONG ml, UBYTE *cmd, UBYTE dir, globaldata *g){
+    (void)d;(void)dl;(void)ml;(void)dir;(void)g;
     ULONG lba = *((ULONG*)&cmd[2]);
     ncmd++; if (lba < nat_lo || lba >= nat_hi) oob++;
     if (++callno == 2 && !fault_fired) { fault_fired = 1; return 0; }   /* fail 2nd once */

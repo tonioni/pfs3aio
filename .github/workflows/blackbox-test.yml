@@ -72,6 +72,18 @@ jobs:
           - name: Deleted file in the deldir under AmiFUSE
             timeout: 10
             test: tests/deldirloss.py --driver pfs3aio
+          - name: Large file packets through Direct SCSI under AmiFUSE
+            timeout: 30
+            test: tests/largefile64.py --driver pfs3aio-largefile --pds
+          - name: Hard link promotion through Direct SCSI under AmiFUSE
+            timeout: 15
+            test: tests/hardlink.py --driver pfs3aio --pds
+          - name: Emptied directory blocks through Direct SCSI under AmiFUSE
+            timeout: 15
+            test: tests/emptyblocks.py --driver pfs3aio --pds
+          - name: Deleted file in the deldir through Direct SCSI under AmiFUSE
+            timeout: 10
+            test: tests/deldirloss.py --driver pfs3aio --pds
     steps:
       - uses: actions/checkout@v7
         with:
