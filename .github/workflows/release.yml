@@ -28,13 +28,13 @@ jobs:
       contents: write
     steps:
       - name: Download distribution
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: release-artifacts
           path: artifacts
 
       - name: Create draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: pfs3aio ${{ github.ref_name }}

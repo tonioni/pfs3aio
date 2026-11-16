@@ -203,9 +203,10 @@ static struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata *g)
 	if (blocknr < 100 || blocknr >= 100 + NBLK || (int)(blocknr - 100) == loadfail_at) return NULL;
 	return &dblks[blocknr - 100].b;
 }
-static BOOL NextBlock(struct canode *a, ULONG *offset, globaldata *g)
+struct anodewalk { ULONG mark, steps; };
+static BOOL NextBlock(struct canode *a, ULONG *offset, struct anodewalk *w, globaldata *g)
 {
-	(void)g;
+	(void)g; (void)w;
 	if (nextfail_blocknr) { a->blocknr = ~0UL; return FALSE; }
 	if (*offset + 1 < (ULONG)nblocks) { (*offset)++; return TRUE; }
 	return FALSE;

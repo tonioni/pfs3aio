@@ -12,7 +12,7 @@ on:
       - tests/largefile64.py
       - tests/hardlink.py
       - tests/manylinks.py
-      - tests/emptyblocks.py
+      - tests/directorychains.py
       - tests/deldirloss.py
       - tests/pfs3img.py
       - tests/requirements.txt
@@ -39,7 +39,7 @@ jobs:
         run: make -j2 all-variants
 
       - name: Upload handlers
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pfs3aio-handlers
           path: |
@@ -66,9 +66,9 @@ jobs:
           - name: A file with more than 4096 hard links under AmiFUSE
             timeout: 60
             test: tests/manylinks.py --driver pfs3aio
-          - name: Emptied directory blocks under AmiFUSE
+          - name: Directory block chains under AmiFUSE
             timeout: 15
-            test: tests/emptyblocks.py --driver pfs3aio
+            test: tests/directorychains.py --driver pfs3aio
           - name: Deleted file in the deldir under AmiFUSE
             timeout: 10
             test: tests/deldirloss.py --driver pfs3aio
@@ -78,9 +78,9 @@ jobs:
           - name: Hard link promotion through Direct SCSI under AmiFUSE
             timeout: 15
             test: tests/hardlink.py --driver pfs3aio --pds
-          - name: Emptied directory blocks through Direct SCSI under AmiFUSE
+          - name: Directory block chains through Direct SCSI under AmiFUSE
             timeout: 15
-            test: tests/emptyblocks.py --driver pfs3aio --pds
+            test: tests/directorychains.py --driver pfs3aio --pds
           - name: Deleted file in the deldir through Direct SCSI under AmiFUSE
             timeout: 10
             test: tests/deldirloss.py --driver pfs3aio --pds
@@ -90,7 +90,7 @@ jobs:
           persist-credentials: false
 
       - name: Download handlers
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: pfs3aio-handlers
 

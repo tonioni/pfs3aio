@@ -27,8 +27,8 @@ def u16(b, o):
 
 
 class Image:
-    def __init__(self, path):
-        self.f = open(path, "rb")
+    def __init__(self, path, write=False):
+        self.f = open(path, "r+b" if write else "rb")
         self.part = self._partition()
         self.secsize = self.part[1]
         self.base = self.part[0]
@@ -75,8 +75,8 @@ class Image:
     def reserved(self, nr):
         return self.sectors(nr, self.rescluster)
 
-    def anode(self, nr):
-        """(clustersize, blocknr, next) of anode nr."""
+    def _anode_pos(self, nr):
+        """File offset of anode nr."""
         if self.split:
             seqnr, offset = nr >> 16, nr & 0xffff
         else:
@@ -86,8 +86,17 @@ class Image:
         ab = self.reserved(u32(ib, 12 + 4 * pos))
         if u32(ab, 8) != seqnr:
             raise ValueError("anode block %d has seqnr %d" % (seqnr, u32(ab, 8)))
-        o = 16 + 12 * offset
-        return u32(ab, o), u32(ab, o + 4), u32(ab, o + 8)
+        return self.base + u32(ib, 12 + 4 * pos) * self.secsize + 16 + 12 * offset
+
+    def anode(self, nr):
+        """(clustersize, blocknr, next) of anode nr."""
+        self.f.seek(self._anode_pos(nr))
+        return struct.unpack(">III", self.f.read(12))
+
+    def set_next(self, nr, nxt):
+        """Links anode nr to anode nxt (opened with write=True)."""
+        self.f.seek(self._anode_pos(nr) + 8)
+        self.f.write(struct.pack(">I", nxt))
 
     def entries(self, blk):
         """(name, type, anode) of the entries of a dirblock."""

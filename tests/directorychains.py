@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
-"""Directory blocks emptied by deletes, under AmiFUSE.
+"""Directory block chains under AmiFUSE.
 
-    uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000] [--pds] [--keep]
+    uv run tests/directorychains.py [--driver pfs3aio] [--files 1000] [--pds] [--keep]
 
-Creates many files in a directory, deletes all but a few (oldest first, newest
-first, in random order) or moves them to another directory, and reads the
-image: the directory's chain of directory blocks must not keep the emptied
-blocks. At most the first block of a directory may stay empty, and the removed
-blocks must be free. The partition has 10 buffers, so most emptied blocks have
-left the cache before the next update. A directory listing held open with
-ExNext while its files are deleted has to go on with the remaining files, each
-listed once. Copies of the image taken during the deletes without a flush (a
-power cut) must hold a whole directory and mount. At the end the image is
-mounted again in a new process: the files that were kept have to be listed,
-and a directory can be emptied and deleted.
+The partition has 10 buffers, so most blocks leave the cache before the next
+update.
+
+- emptied blocks: many files are created in a directory, then all but a few
+  are deleted (oldest first, newest first, in random order) or moved to
+  another directory. The chain of directory blocks must not keep the emptied
+  blocks: at most the first block may stay empty, the removed blocks must be
+  free.
+- listing held open: files are deleted and created while an ExNext listing of
+  their directory is half way through and goes on with another lock. The
+  listing has to go on with the remaining files, each listed once.
+- power cut: copies of the image taken during the deletes without a flush
+  must hold a whole directory and mount.
+- remount: the image is mounted again in a new process. The kept files have
+  to be listed, and a directory can be emptied and deleted.
+- looping chain: in a copy of the image the anode chain of D6 is linked back
+  to its start. A lookup and a create in D6 have to fail with an error, a
+  listing of D6 (also with another lock half way through) has to end with
+  that error after every file, and the handler has to go on answering.
 
 --pds formats a PDS\\3 partition: the device then takes block transfers only
 as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Needs amifuse and rdbtool.
 
-Prints a line per check and, last, "== emptyblocks: <n> passed, <m> failed ==".
+Prints a line per check and, last, "== directorychains: <n> passed, <m> failed ==".
 Exit status is 0 only if every check passed.
 """
 import argparse
@@ -37,15 +45,17 @@ ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
 
 import largefile64 as L  # noqa: E402  (also installs the timer shim)
-from manylinks import Volume  # noqa: E402
+from manylinks import Volume, err  # noqa: E402
 from pfs3img import Image  # noqa: E402
 
 check = L.check
 ACTION_EXAMINE_OBJECT, ACTION_EXAMINE_NEXT = 23, 24
-ERROR_NO_MORE_ENTRIES = 232
+ERROR_DISK_NOT_VALIDATED, ERROR_NO_MORE_ENTRIES = 213, 232
 BUFFERS = 10
 KEEP = 3
 SNAPS = 5            # copies of the image taken during the first mass delete, without a flush
+LOOPDIR = "D6"       # its anode chain is linked back to its start in a copy of the image
+LOOPTIME = 300       # seconds; a handler that follows the loop never replies
 
 
 def make_image(path, driver, dostype):
@@ -96,6 +106,12 @@ class Lister:
 
     def next(self):
         return self.send(ACTION_EXAMINE_NEXT)
+
+    def switch(self, path):
+        """Go on with a new lock on the directory: the handler finds the position again by name."""
+        old = self.lock
+        self.lock, _ = self.b.locate(0, path)
+        self.b.free_lock(old)
 
     def close(self):
         self.b.free_lock(self.lock)
@@ -198,8 +214,12 @@ def held_listing(b, v, d, n):
     lock, _ = b.locate(0, d)
     ls = Lister(b, d)
     seen = [ls.next()[0] for _ in range(n // 4)]
+    ls.switch(d)
+    seen.append(ls.next()[0])  # found again by the name in the FIB, which still exists
     bad = [f for f in names(n) if f not in keep and v.delete(lock, f) != "ok"]
     check("%s: delete while listed" % d, bad[:5], [])
+    made = sum(v.put("/%s/N%04d" % (d, i), b"") == "ok" for i in range(n // 2))
+    check("%s: create %d files while listed" % (d, n // 2), made, n // 2)
     b.flush_volume()
     rest, err = [], 0
     while True:
@@ -210,7 +230,7 @@ def held_listing(b, v, d, n):
     ls.close()
     b.free_lock(lock)
     check("%s: listing ends with %d" % (d, ERROR_NO_MORE_ENTRIES), err, ERROR_NO_MORE_ENTRIES)
-    check("%s: listed after the deletes are kept files" % d, [f for f in rest if f not in keep], [])
+    check("%s: listed after the deletes are kept or new files" % d, [f for f in rest if f not in keep and f[0] != "N"], [])
     allseen = seen + rest
     check("%s: no file listed twice" % d, len(allseen), len(set(allseen)))
     check("%s: every kept file listed" % d, sorted(keep - set(allseen)), [])
@@ -250,11 +270,53 @@ def reread(b, n):
     b.flush_volume()
 
 
+def make_loop(image, path):
+    """Copy of image with the last anode of LOOPDIR linked to its first."""
+    shutil.copyfile(image, path)
+    img = Image(path, write=True)
+    try:
+        nr, anodes = img.lookup(LOOPDIR), []
+        while nr:
+            anodes.append(nr)
+            nr = img.anode(nr)[2]
+        if not check("%s: more than one anode" % LOOPDIR, len(anodes) > 1, True):
+            return False
+        img.set_next(anodes[-1], anodes[0])
+        return True
+    finally:
+        img.close()
+
+
+def loop(b, n):
+    v = Volume(b)
+    del b._run_until_replies  # back to the default burst budget: a looping handler gives no reply
+    lock, res2 = b.locate(0, LOOPDIR + "/MISSING")
+    b.free_lock(lock)
+    check("loop: lock a missing name in %s" % LOOPDIR, "ok" if lock else err(res2), err(ERROR_DISK_NOT_VALIDATED))
+    check("loop: create a file in %s" % LOOPDIR, v.put("/%s/NEW" % LOOPDIR, b"x"), "open: " + err(ERROR_DISK_NOT_VALIDATED))
+    ls, seen, e = Lister(b, LOOPDIR), [], 0
+    while len(seen) < 3 * n:
+        if len(seen) == n // 2:
+            ls.switch(LOOPDIR)
+        name, e = ls.next()
+        if name is None:
+            break
+        seen.append(name)
+    ls.close()
+    check("loop: listing %s ends with %d" % (LOOPDIR, ERROR_DISK_NOT_VALIDATED), e, ERROR_DISK_NOT_VALIDATED)
+    check("loop: every file of %s listed" % LOOPDIR, sorted(set(seen)), names(n)[KEEP:])
+    lock, res2 = b.locate(0, "D2")
+    b.free_lock(lock)
+    check("loop: lock D2", "ok" if lock else err(res2), "ok")
+
+
 def child(a, driver):
     b = L.open_bridge(Path(a.image), Path(driver), a.debug)
     try:
         if a.phase == "use":
             run(b, a.image, a.files)
+        elif a.phase == "loop":
+            loop(b, a.files)
         else:
             (reread if a.phase == "reread" else snap)(b, a.files)
     finally:
@@ -270,7 +332,7 @@ def main():
     ap.add_argument("--keep", action="store_true", help="keep the image")
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--pds", action="store_true", help="PDS\\3 partition: every block transfer through HD_SCSICMD")
-    ap.add_argument("--phase", choices=("use", "reread", "snap"), help=argparse.SUPPRESS)
+    ap.add_argument("--phase", choices=("use", "reread", "snap", "loop"), help=argparse.SUPPRESS)
     ap.add_argument("--image", help=argparse.SUPPRESS)
     a = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)
@@ -281,17 +343,20 @@ def main():
     if a.phase:
         child(a, driver)
 
-    tmp = tempfile.mkdtemp(prefix="emptyblocks.", dir=L.scratch_dir())
-    image = os.path.join(tmp, "eb.hdf")
+    tmp = tempfile.mkdtemp(prefix="directorychains.", dir=L.scratch_dir())
+    image = os.path.join(tmp, "dc.hdf")
     make_image(image, driver, L.PDS3_DOSTYPE if a.pds else L.PFS3_DOSTYPE)
     snaps = [snapshot_name(image, i) for i in range(1, SNAPS + 1)]
 
-    def child_run(phase, img):
+    def child_run(phase, img, timeout=None):
         cmd = [sys.executable, os.path.abspath(__file__), "--driver", driver, "--files", str(a.files),
                "--phase", phase, "--image", img]
         if a.debug:
             cmd.append("--debug")
-        return subprocess.run(cmd).returncode
+        try:
+            return subprocess.run(cmd, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            return "no end in %d s" % timeout
 
     check("use", child_run("use", image), 0)
     for s in snaps:
@@ -299,14 +364,17 @@ def main():
             check_snapshot(s, "D1", a.files)
             check(os.path.basename(s) + ": mounted", child_run("snap", s), 0)
     check("reread", child_run("reread", image), 0)
+    looped = image + ".loop"
+    if make_loop(image, looped):
+        check("loop", child_run("loop", looped, LOOPTIME), 0)
     if a.keep:
         print("image kept: " + image)
     else:
-        for f in [image] + snaps:
+        for f in [image, looped] + snaps:
             if os.path.exists(f):
                 os.remove(f)
         os.rmdir(tmp)
-    L.report("512 byte blocks, %d buffers, %s" % (BUFFERS, os.path.basename(driver)), "emptyblocks")
+    L.report("512 byte blocks, %d buffers, %s" % (BUFFERS, os.path.basename(driver)), "directorychains")
     sys.exit(1 if L.failed else 0)
 
 
