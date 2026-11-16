@@ -3643,6 +3643,7 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 	struct direntry *dest;
 	struct cdirblock *prevblock;
 	struct canode anode;
+	struct anodewalk walk;
 	int removedlen;
 	ULONG prev;
 
@@ -3651,11 +3652,13 @@ static BOOL MoveToPrevious(struct fileinfo de, struct direntry *to, struct filei
 	/* get previous block */
 	if (!GetAnode(&anode, de.dirblock->blk.anodenr, g))
 		return FALSE;
+	walk.mark = anode.nr;
+	walk.steps = 0;
 	prev = 0;
 	while (anode.blocknr != de.dirblock->blocknr && anode.next)
 	{
 		prev = anode.nr;
-		if (!GetAnode(&anode, anode.next, g))
+		if (!GetNextAnode(&anode, anode.next, &walk, g))
 			return FALSE;
 	}
 
@@ -4848,6 +4851,7 @@ static struct deldirentry *SearchInDeldir(STRPTR delname, union objectinfo *resu
 static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, SIPTR *error, globaldata * g)
 {
 	struct canode anode;
+	struct anodewalk walk;
 	LONG taken;
 
 	/* check if deldirentry actually used */
@@ -4855,28 +4859,32 @@ static BOOL IsDelfileValid(struct deldirentry *dde, struct cdeldirblock *ddblk, 
 		return FALSE;
 
 	/* scan all blocks in the anodelist for validness */
-	for (anode.nr = dde->anodenr; anode.nr; anode.nr = anode.next)
+	if (!GetAnode(&anode, dde->anodenr, g))
+		goto inconsistent;
+	walk.mark = anode.nr;
+	walk.steps = 0;
+	for (;;)
 	{
-		if (!GetAnode(&anode, anode.nr, g) || (taken = BlockTaken(&anode, g)) < 0)
-		{
-			*error = PFS_ERROR_INCONSISTENT;
-			return FALSE;
-		}
+		if ((taken = BlockTaken(&anode, g)) < 0)
+			goto inconsistent;
 		if (taken)
 		{
 			/* free attached anodechain */
 			if (!FreeAnodesInChain(dde->anodenr, g))
-			{
-				*error = PFS_ERROR_INCONSISTENT;
-				return FALSE;
-			}
+				goto inconsistent;
 			dde->anodenr = 0;
 			MakeBlockDirty((struct cachedblock *)ddblk, g);
 			return FALSE;
 		}
+		if (!anode.next)
+			return TRUE;
+		if (!GetNextAnode(&anode, anode.next, &walk, g))
+			goto inconsistent;
 	}
 
-	return TRUE;
+inconsistent:
+	*error = PFS_ERROR_INCONSISTENT;
+	return FALSE;
 }
 
 /*
