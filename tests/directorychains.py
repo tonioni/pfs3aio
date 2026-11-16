@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
-"""Directory block chains: blocks emptied by deletes, a looping chain, under AmiFUSE.
+"""Directory block chains under AmiFUSE.
 
-    uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000] [--pds] [--keep]
+    uv run tests/directorychains.py [--driver pfs3aio] [--files 1000] [--pds] [--keep]
 
-Creates many files in a directory, deletes all but a few (oldest first, newest
-first, in random order) or moves them to another directory, and reads the
-image: the directory's chain of directory blocks must not keep the emptied
-blocks. At most the first block of a directory may stay empty, and the removed
-blocks must be free. The partition has 10 buffers, so most emptied blocks have
-left the cache before the next update. A directory listing held open with
-ExNext while its files are deleted has to go on with the remaining files, each
-listed once, also when files are created meanwhile and the listing goes
-on with another lock. Copies of the image taken during the deletes without a flush (a
-power cut) must hold a whole directory and mount. At the end the image is
-mounted again in a new process: the files that were kept have to be listed,
-and a directory can be emptied and deleted. Then the anode chain of D6 is
-linked back to its start in a copy of the image: a lookup and a create in D6
-have to fail with an error, a listing of D6 (also with another lock half way
-through) has to end with that error after every file, and the handler has to go on answering.
+The partition has 10 buffers, so most blocks leave the cache before the next
+update.
+
+- emptied blocks: many files are created in a directory, then all but a few
+  are deleted (oldest first, newest first, in random order) or moved to
+  another directory. The chain of directory blocks must not keep the emptied
+  blocks: at most the first block may stay empty, the removed blocks must be
+  free.
+- listing held open: files are deleted and created while an ExNext listing of
+  their directory is half way through and goes on with another lock. The
+  listing has to go on with the remaining files, each listed once.
+- power cut: copies of the image taken during the deletes without a flush
+  must hold a whole directory and mount.
+- remount: the image is mounted again in a new process. The kept files have
+  to be listed, and a directory can be emptied and deleted.
+- looping chain: in a copy of the image the anode chain of D6 is linked back
+  to its start. A lookup and a create in D6 have to fail with an error, a
+  listing of D6 (also with another lock half way through) has to end with
+  that error after every file, and the handler has to go on answering.
 
 --pds formats a PDS\\3 partition: the device then takes block transfers only
 as HD_SCSICMD, so the test runs through Direct SCSI.
 
 Needs amifuse and rdbtool.
 
-Prints a line per check and, last, "== emptyblocks: <n> passed, <m> failed ==".
+Prints a line per check and, last, "== directorychains: <n> passed, <m> failed ==".
 Exit status is 0 only if every check passed.
 """
 import argparse
@@ -339,8 +343,8 @@ def main():
     if a.phase:
         child(a, driver)
 
-    tmp = tempfile.mkdtemp(prefix="emptyblocks.", dir=L.scratch_dir())
-    image = os.path.join(tmp, "eb.hdf")
+    tmp = tempfile.mkdtemp(prefix="directorychains.", dir=L.scratch_dir())
+    image = os.path.join(tmp, "dc.hdf")
     make_image(image, driver, L.PDS3_DOSTYPE if a.pds else L.PFS3_DOSTYPE)
     snaps = [snapshot_name(image, i) for i in range(1, SNAPS + 1)]
 
@@ -370,7 +374,7 @@ def main():
             if os.path.exists(f):
                 os.remove(f)
         os.rmdir(tmp)
-    L.report("512 byte blocks, %d buffers, %s" % (BUFFERS, os.path.basename(driver)), "emptyblocks")
+    L.report("512 byte blocks, %d buffers, %s" % (BUFFERS, os.path.basename(driver)), "directorychains")
     sys.exit(1 if L.failed else 0)
 
 
