@@ -638,6 +638,7 @@ BOOL FindObject(union objectinfo *directory, STRPTR objectname,
 BOOL GetParent(union objectinfo *childfi, union objectinfo *parentfi, SIPTR *error, globaldata *g)
 {
 	struct canode anode;
+	struct anodewalk walk;
 	struct cdirblock *dirblock;
 	struct direntry *de;
 	ULONG anodeoffset = 0;
@@ -683,6 +684,8 @@ BOOL GetParent(union objectinfo *childfi, union objectinfo *parentfi, SIPTR *err
 		*error = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
+	walk.mark = anode.nr;
+	walk.steps = 0;
 	while (!found && !eod)
 	{
 		dirblock = LoadDirBlock(anode.blocknr + anodeoffset, g);
@@ -700,7 +703,7 @@ BOOL GetParent(union objectinfo *childfi, union objectinfo *parentfi, SIPTR *err
 			}
 
 			if (!found)
-				eod = !NextBlock(&anode, &anodeoffset, g);
+				eod = !NextBlock(&anode, &anodeoffset, &walk, g);
 		}
 		else
 		{
@@ -736,6 +739,7 @@ BOOL GetParent(union objectinfo *childfi, union objectinfo *parentfi, SIPTR *err
 static LONG SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *info, globaldata * g)
 {
 	struct canode anode;
+	struct anodewalk walk;
 	struct cdirblock *dirblock;
 	struct direntry *entry = NULL;
 	BOOL found = FALSE, eod = FALSE;
@@ -752,6 +756,8 @@ static LONG SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *in
 	intltoupper(intl_name);     /* international uppercase objectname */
 	if (!GetAnode(&anode, dirnodenr, g))
 		return -1;
+	walk.mark = anode.nr;
+	walk.steps = 0;
 	anodeoffset = 0;
 	dirblock = LoadDirBlock(anode.blocknr, g);
 
@@ -773,7 +779,7 @@ static LONG SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *in
 		/* load next block */
 		if (!found)
 		{
-			if (NextBlock(&anode, &anodeoffset, g))
+			if (NextBlock(&anode, &anodeoffset, &walk, g))
 				dirblock = LoadDirBlock(anode.blocknr + anodeoffset, g);
 			else if (anode.blocknr == (ULONG)~0UL)
 				return -1;
@@ -808,6 +814,7 @@ static LONG SearchInDir(ULONG dirnodenr, STRPTR objectname, union objectinfo *in
 BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, SIPTR *error, globaldata *g)
 {
 	struct canode anode;
+	struct anodewalk walk;
 	struct cdirblock *dirblock;
 	struct direntry *de;
 	ULONG anodeoffset = 0;
@@ -816,6 +823,8 @@ BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, SIPTR
 	/* Get directory and find object */
 	if (!GetAnode(&anode, diranodenr, g))
 		goto read_error;
+	walk.mark = anode.nr;
+	walk.steps = 0;
 	while (!found && !eod)
 	{
 		dirblock = LoadDirBlock(anode.blocknr + anodeoffset, g);
@@ -830,7 +839,7 @@ BOOL FetchObject(ULONG diranodenr, ULONG target, union objectinfo *result, SIPTR
 					break;
 			}
 
-			if (!found && !(eod = !NextBlock(&anode, &anodeoffset, g)))
+			if (!found && !(eod = !NextBlock(&anode, &anodeoffset, &walk, g)))
 				continue;
 			if (!found && anode.blocknr == (ULONG)~0UL)
 				goto read_error;
@@ -3796,6 +3805,7 @@ static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry,
 							  struct fileinfo *newinfo, globaldata * g)
 {
 	struct canode anode;
+	struct anodewalk walk;
 	ULONG anodeoffset = 0, diranodenr;
 	struct cdirblock *blok;
 	struct direntry *entry = NULL;
@@ -3810,6 +3820,8 @@ static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry,
 	/* check if space in existing dirblocks */
 	if (!GetAnode(&anode, diranodenr, g))
 		return FALSE;
+	walk.mark = anode.nr;
+	walk.steps = 0;
 	while (!done && !eof)
 	{
 		if (!(blok = LoadDirBlock(anode.blocknr + anodeoffset, g)))
@@ -3830,7 +3842,7 @@ static BOOL AddDirectoryEntry(union objectinfo *dir, struct direntry *newentry,
 			done = TRUE;
 			break;
 		}
-		if (!NextBlock(&anode, &anodeoffset, g))
+		if (!NextBlock(&anode, &anodeoffset, &walk, g))
 		{
 			if (anode.blocknr == (ULONG)~0UL)
 				return FALSE;
@@ -4681,18 +4693,21 @@ static BOOL MoveLink(struct direntry *object, ULONG newdiran, globaldata *g)
 static BOOL SetDirParent(ULONG dirnodenr, ULONG parentnr, globaldata * g)
 {
 	struct canode anode;
+	struct anodewalk walk;
 	ULONG anodeoffset = 0;
 	struct cdirblock *blk;
 
 	if (!GetAnode(&anode, dirnodenr, g))
 		return FALSE;
+	walk.mark = anode.nr;
+	walk.steps = 0;
 	do
 	{
 		if (!(blk = LoadDirBlock(anode.blocknr + anodeoffset, g)))
 			return FALSE;
 		blk->blk.parent = parentnr;
 		MakeBlockDirty((struct cachedblock *)blk, g);
-	} while (NextBlock(&anode, &anodeoffset, g));
+	} while (NextBlock(&anode, &anodeoffset, &walk, g));
 
 	/* NextBlock also fails if the next anode cannot be read */
 	return anode.blocknr != (ULONG)~0UL;

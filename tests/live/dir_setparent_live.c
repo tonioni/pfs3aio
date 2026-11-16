@@ -126,8 +126,10 @@ static BOOL GetAnode(struct canode *a, ULONG nr, globaldata *g)
 	return TRUE;
 }
 /* as the real NextBlock/CorrectAnode, without the cycle marker */
-static BOOL NextBlock(struct canode *a, ULONG *off, globaldata *g)
+struct anodewalk { ULONG mark, steps; };
+static BOOL NextBlock(struct canode *a, ULONG *off, struct anodewalk *w, globaldata *g)
 {
+	(void)w;
 	(*off)++;
 	while (*off >= a->clustersize) {
 		if (!a->next) return FALSE;

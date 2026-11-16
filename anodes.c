@@ -279,31 +279,32 @@ BOOL CorrectAnodeAC (struct anodechainnode **acnode, ULONG *anodeoffset, globald
 
 /*
  * Tries to fetch the block that follows after anodeoffset. Returns
- * success and anodeoffset is updated.
+ * success and anodeoffset is updated. walk is the caller's for the whole
+ * chain (mark = first anode, steps = 0), so a chain that loops back ends
+ * the walk; anode->blocknr is then ~0, as after a read error.
  */
-BOOL NextBlock (struct canode *anode, ULONG *anodeoffset, globaldata *g)
+BOOL NextBlock (struct canode *anode, ULONG *anodeoffset, struct anodewalk *walk, globaldata *g)
 {
 	(*anodeoffset)++;
-	return CorrectAnode(anode, anodeoffset, g);
+	return CorrectAnode(anode, anodeoffset, walk, g);
 }
 
 /* 
  * Correct anodeoffset overflow
  */
-BOOL CorrectAnode (struct canode *anode, ULONG *anodeoffset, globaldata *g)
+BOOL CorrectAnode (struct canode *anode, ULONG *anodeoffset, struct anodewalk *walk, globaldata *g)
 {
-	struct anodewalk walk;
-
-	walk.mark = anode->nr;
-	walk.steps = 0;
 	while(*anodeoffset >= anode->clustersize)
 	{
 		if(!anode->next)
 			return DOSFALSE;
 
 		*anodeoffset -= anode->clustersize;
-		if (!GetNextAnode(anode, anode->next, &walk, g))
+		if (!GetNextAnode(anode, anode->next, walk, g))
+		{
+			anode->blocknr = (ULONG)~0UL;
 			return DOSFALSE;
+		}
 	}
 
 	return DOSTRUE;

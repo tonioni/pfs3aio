@@ -204,14 +204,14 @@ uv run tests/manylinks.py [--driver pfs3aio] [--links 4100] [--blocksize 512] [-
 
 Links one file 4100 times. Every link has to be made, and the functions that follow the link list have to work on the result: rewriting the file with a new size (the new size has to reach the first and the last link), moving it into a directory, deleting the last link and deleting the original (the first link has to become the file). A file is written after the links are made and after each of these steps, and has to succeed. If a link or a step fails, the later steps still run and the first step after which the volume refuses writes (213 Disk not validated) is named. The image is then mounted again in a new process, the directory and a link have to read and a file has to be writable. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
-## emptied directory blocks
+## directory block chains
 
 ```sh
 make
 uv run tests/emptyblocks.py [--driver pfs3aio] [--files 1000] [--pds]
 ```
 
-Creates 1000 files in a directory on a partition with 10 buffers and deletes all but three, oldest first, newest first and in random order, or moves them to another directory. `tests/pfs3img.py` then reads the image: behind the first block of the directory no directory block may be empty, the removed blocks have to be free and the reserved bitmap has to agree with the rootblock. Files are also deleted while a listing of their directory is half way through: the listing has to go on with the files that are left, each listed once. Copies of the image taken during the deletes without a flush, as a power cut would leave it, have to hold a whole directory and mount. The image is then mounted again in a new process, the files that are left have to be listed and a directory can be emptied and deleted. Takes about 30 seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+Creates 1000 files in a directory on a partition with 10 buffers and deletes all but three, oldest first, newest first and in random order, or moves them to another directory. `tests/pfs3img.py` then reads the image: behind the first block of the directory no directory block may be empty, the removed blocks have to be free and the reserved bitmap has to agree with the rootblock. Files are also deleted while a listing of their directory is half way through: the listing has to go on with the files that are left, each listed once. Copies of the image taken during the deletes without a flush, as a power cut would leave it, have to hold a whole directory and mount. The image is then mounted again in a new process, the files that are left have to be listed and a directory can be emptied and deleted. Last, `tests/pfs3img.py` links the last anode of a directory back to its first in a copy of the image: a lookup and a create in that directory have to fail with 213 Disk not validated, and the handler has to answer the next packet. Takes about 30 seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
 ## deleted file in the deldir
 

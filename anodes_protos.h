@@ -8,8 +8,6 @@ BOOL NextBlockAC (struct anodechainnode **acnode, ULONG *anodeoffset, globaldata
 BOOL CorrectAnodeAC (struct anodechainnode **acnode, ULONG *anodeoffset, globaldata *g);
 
 struct cindexblock *GetSuperBlock (UWORD nr, globaldata *g);
-BOOL NextBlock(struct canode * , ULONG * , globaldata * );
-BOOL CorrectAnode(struct canode * , ULONG * , globaldata * );
 BOOL GetAnode(struct canode * , ULONG , globaldata * );
 /* state of a walk along an anode chain, see GetNextAnode */
 struct anodewalk
@@ -18,6 +16,8 @@ struct anodewalk
 	ULONG steps;	/* set to 0 */
 };
 BOOL GetNextAnode(struct canode *anode, ULONG anodenr, struct anodewalk *walk, globaldata *g);
+BOOL NextBlock(struct canode * , ULONG * , struct anodewalk * , globaldata * );
+BOOL CorrectAnode(struct canode * , ULONG * , struct anodewalk * , globaldata * );
 BOOL SaveAnode(struct canode * , ULONG , globaldata * );
 BOOL TrySaveAnode(struct canode * , ULONG , globaldata * );
 ULONG AllocAnode(ULONG connect, globaldata *g);

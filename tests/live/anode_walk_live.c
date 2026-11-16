@@ -1,4 +1,4 @@
-/* LIVE @src anodes.c @func GetNextAnode @func CorrectAnode
+/* LIVE @src anodes.c @func GetNextAnode @func CorrectAnode @func NextBlock
  *
  * CorrectAnode walks an anode chain to the anode that contains *anodeoffset.
  * It now follows the chain with GetNextAnode and a walk record (mark = the
@@ -18,6 +18,10 @@
  *  - cyclic chains (self loop, 2-cycle, a tail leading into a loop, loop not
  *    containing the start): DOSFALSE after only a handful of reads
  *  - a failing GetAnode (first and later step): DOSFALSE
+ *  - NextBlock with one walk over a whole chain, block by block: a valid
+ *    chain is walked to its end; a chain that loops back ends the walk after
+ *    a handful of reads with blocknr ~0, also when each step crosses only
+ *    one anode (the loop is not visible inside a single step)
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -67,6 +71,7 @@ failed:
 
 #include "gen/GetNextAnode.c"                  /* the REAL functions from ../../anodes.c */
 #include "gen/CorrectAnode.c"
+#include "gen/NextBlock.c"
 
 static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
@@ -90,7 +95,11 @@ static BOOL run(ULONG *off, struct canode *an, ULONG *ncalls)
 	if (!GetAnode(an, 1, &G))
 		return 2;
 	calls = 0;
-	r = CorrectAnode(an, off, &G);
+	{
+		struct anodewalk w;
+		w.mark = an->nr; w.steps = 0;
+		r = CorrectAnode(an, off, &w, &G);
+	}
 	*ncalls = calls;
 	return r;
 }
@@ -166,7 +175,11 @@ int main(void)
 	o = 100; calls = 0; runaway = 0;
 	GetAnode(&an, 7, &G);
 	calls = 0;
-	CHECK(CorrectAnode(&an, &o, &G) == DOSFALSE && !runaway && calls <= 8, "loop 7-8-7 started at 7: no termination (%lu reads)", (unsigned long)calls);
+	{
+		struct anodewalk w;
+		w.mark = an.nr; w.steps = 0;
+		CHECK(CorrectAnode(&an, &o, &w, &G) == DOSFALSE && !runaway && calls <= 8, "loop 7-8-7 started at 7: no termination (%lu reads)", (unsigned long)calls);
+	}
 
 	/* a failing GetAnode ends the walk with DOSFALSE */
 	table(4);
@@ -195,7 +208,33 @@ int main(void)
 	expect("valid chain of 70000 anodes", 69999, DOSTRUE, 70000, 0, 69999);
 	expect("valid chain of 70000 anodes, past the end", 70000, DOSFALSE, 0, 0, 69999);
 
+	/* NextBlock, one block per call, one walk for the whole chain */
+	{
+		static const struct { const char *name; ULONG loopto; } c[] = {
+			{ "valid chain", 0 }, { "loop back to the second anode", 2 }, { "last anode linked to itself", 10 } };
+		struct anodewalk w;
+		ULONG off, blocks;
+		unsigned k;
+
+		for (k = 0; k < sizeof(c) / sizeof(c[0]); k++)
+		{
+			table(10);
+			for (i = 1; i <= 10; i++) { csize[i] = 1; nextof[i] = i < 10 ? i + 1 : c[k].loopto; }
+			calls = 0; runaway = 0;
+			GetAnode(&an, 1, &G);
+			w.mark = an.nr; w.steps = 0;
+			off = 0; blocks = 1;
+			while (blocks < 1000 && NextBlock(&an, &off, &w, &G))
+				blocks++;
+			if (!c[k].loopto)
+				CHECK(blocks == 10 && an.blocknr != (ULONG)~0UL, "NextBlock, %s: %lu blocks, want 10", c[k].name, (unsigned long)blocks);
+			else
+				CHECK(blocks < 40 && !runaway && an.blocknr == (ULONG)~0UL, "NextBlock, %s: %lu blocks, blocknr %lx", c[k].name,
+					(unsigned long)blocks, (unsigned long)an.blocknr);
+		}
+	}
+
 	if (fails) { printf("  %d check(s) failed\n", fails); return 1; }
-	printf("  PASS: CorrectAnode ends on looping chains, valid chains are walked completely\n");
+	printf("  PASS: CorrectAnode and NextBlock end on looping chains, valid chains are walked completely\n");
 	return 0;
 }
