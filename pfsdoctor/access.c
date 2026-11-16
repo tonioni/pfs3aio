@@ -276,7 +276,7 @@ bool SaveAnode(canode_t *anode, uint32 nr)
 {
 	anodenr_t *split = (anodenr_t *)&nr;
 	c_anodeblock_t ablk;
-	uint32 buffer[MAXRESBLOCKSIZE/4];
+	static uint32 buffer[MAXRESBLOCKSIZE/4];
 
 	tablk.data = NULL;			/* kill anode read cache */
 	ablk.data = (anodeblock_t *)buffer;
