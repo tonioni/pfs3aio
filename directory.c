@@ -299,7 +299,7 @@ static ULONG FillInDDEData(struct ExAllData *buffer, LONG type, UWORD nameoffset
 static struct cdeldirblock *GetDeldirBlock(ULONG seqnr, globaldata *g);
 #endif
 static BOOL GetFirstEntry(lockentry_t *, globaldata *);
-static BOOL GetFirstNonEmptyDE(ULONG anodenr, struct fileinfo *, ULONG *, globaldata *);
+static BOOL GetFirstNonEmptyDE(struct canode *, BOOL, lockentry_t *, globaldata *);
 static void RemakeNextEntry(lockentry_t *, struct FileInfoBlock *, globaldata *);
 static UWORD ExAllNameOffset(LONG type);
 static ULONG FillInData(struct ExAllData *, LONG, UWORD, struct direntry *, ULONG, SIPTR *, globaldata *);
@@ -1189,42 +1189,86 @@ static BOOL FillFib(struct direntry *direntry, struct cdirblock *dirblock, struc
  */
 static BOOL GetFirstEntry(lockentry_t *le, globaldata * g)
 {
+	struct canode anode;
+
 	le->nexterror = 0;
 	le->nextdirblocknr = le->nextdirblockoffset = 0;
-	if (!GetFirstNonEmptyDE(le->le.anodenr, &le->nextentry, &le->nextanode, g))
+	le->nextwalk.mark = le->le.anodenr;
+	le->nextwalk.steps = 0;
+	if (!GetAnode(&anode, le->le.anodenr, g) ||
+		!GetFirstNonEmptyDE(&anode, FALSE, le, g))
 	{
+		le->nextentry.direntry = NULL;
+		le->nextentry.dirblock = NULL;
 		le->nexterror = PFS_ERROR_INCONSISTENT;
 		return FALSE;
 	}
 	return TRUE;
 }
 
-/* Get first non empty direntry starting from anode [anodenr] 
- * Returns {NULL, NULL} if end of dir, FALSE on read failure.
- */
-static BOOL GetFirstNonEmptyDE(ULONG anodenr, struct fileinfo *info, ULONG *foundanode, globaldata *g)
+/* TRUE if the anode chain of directory [head] ends */
+static BOOL DirChainEnds(ULONG head, globaldata *g)
 {
 	struct canode anode;
+	struct anodewalk walk;
+
+	if (!GetAnode(&anode, head, g))
+		return FALSE;
+	walk.mark = head;
+	walk.steps = 0;
+	while (anode.next)
+		if (!GetNextAnode(&anode, anode.next, &walk, g))
+			return FALSE;
+	return TRUE;
+}
+
+/* follows anode->next; a repeat is a loop only if the chain from [head] does not end */
+static BOOL NextDirAnode(struct canode *anode, struct anodewalk *walk, ULONG head, globaldata *g)
+{
+	ULONG next = anode->next;
+
+	if (GetNextAnode(anode, next, walk, g))
+		return TRUE;
+	if (!DirChainEnds(head, g))
+		return FALSE;
+	walk->mark = next;
+	walk->steps = 0;
+	return GetAnode(anode, next, g);
+}
+
+/* Examine position of [le] to the first entry from the block of [anode] on
+ * (behind it if [skip]). {NULL, NULL} at end of dir, FALSE on failure.
+ */
+static BOOL GetFirstNonEmptyDE(struct canode *anode, BOOL skip, lockentry_t *le, globaldata *g)
+{
+	struct fileinfo *info = &le->nextentry;
+
 	info->direntry = NULL;
 	info->dirblock = NULL;
-	*foundanode = 0;
-	while (anodenr)
+	le->nextanode = 0;
+	for (;;)
 	{
-		if (!GetAnode(&anode, anodenr, g) ||
-			!(info->dirblock = LoadDirBlock(anode.blocknr, g)))
+		if (!skip)
+		{
+			if (!(info->dirblock = LoadDirBlock(anode->blocknr, g)))
+				return FALSE;
+			info->direntry = FIRSTENTRY(info->dirblock);
+			if (info->direntry->next)
+			{
+				LOCK(info->dirblock);
+				le->nextanode = anode->nr;
+				return TRUE;
+			}
+		}
+		skip = FALSE;
+		if (!anode->next)
+			break;
+		if (!NextDirAnode(anode, &le->nextwalk, le->le.anodenr, g))
 		{
 			info->direntry = NULL;
 			info->dirblock = NULL;
 			return FALSE;
 		}
-		info->direntry = FIRSTENTRY(info->dirblock);
-		if (info->direntry->next)
-		{
-			LOCK(info->dirblock);
-			*foundanode = anode.nr;
-			return TRUE;
-		}
-		anodenr = anode.next;
 	}
 	info->direntry = NULL;
 	info->dirblock = NULL;
@@ -1260,47 +1304,53 @@ static void RemakeNextEntry(lockentry_t *file, struct FileInfoBlock *fib, global
 		else
 		{
 			struct canode anode;
-			ULONG cur = anodenr;
 
-			file->nextanode = anodenr;
-			while (cur)
+			file->nextwalk.mark = anodenr;
+			file->nextwalk.steps = 0;
+			if (!GetAnode(&anode, anodenr, g))
+				goto inconsistent;
+			for (;;)
 			{
-				if (!GetAnode(&anode, cur, g))
-				{
-					file->nextentry.dirblock = NULL;
-					file->nextentry.direntry = NULL;
-					file->nexterror = PFS_ERROR_INCONSISTENT;
-					return;
-				}
 				file->nextanode = anode.nr;
-				if (anode.blocknr == file->nextentry.dirblock->blocknr)
+				if (anode.blocknr == file->nextentry.dirblock->blocknr || !anode.next)
 					break;
-				cur = anode.next;
+				if (!NextDirAnode(&anode, &file->nextwalk, anodenr, g))
+					goto inconsistent;
 			}
 			GetNextEntry(file, g);
 		}
+	}
+	return;
+
+inconsistent:
+	file->nextentry.dirblock = NULL;
+	file->nextentry.direntry = NULL;
+	file->nexterror = PFS_ERROR_INCONSISTENT;
+}
+
+/* not static: kept out of GetNextEntry, which then needs no stack frame */
+void GetNextEntryBlock(lockentry_t *file, globaldata * g)
+{
+	struct canode anode;
+
+	/* NB: 'nextanode' is een verwarrende naam */
+	if (!GetAnode(&anode, file->nextanode, g) ||
+		!GetFirstNonEmptyDE(&anode, TRUE, file, g))
+	{
+		file->nextentry.direntry = NULL;
+		file->nextentry.dirblock = NULL;
+		file->nexterror = PFS_ERROR_INCONSISTENT;
 	}
 }
 
 void GetNextEntry(lockentry_t *file, globaldata * g)
 {
-	struct canode anode;
-
 	/* get nextentry */
 	file->nextentry.direntry = NEXTENTRY(file->nextentry.direntry);
 
 	/* no next entry? -> next block */
 	if (!file->nextentry.direntry->next)
-	{
-		/* NB: 'nextanode' is een verwarrende naam */
-		if (!GetAnode(&anode, file->nextanode, g) ||
-			!GetFirstNonEmptyDE(anode.next, &file->nextentry, &file->nextanode, g))
-		{
-			file->nextentry.direntry = NULL;
-			file->nextentry.dirblock = NULL;
-			file->nexterror = PFS_ERROR_INCONSISTENT;
-		}
-	}
+		GetNextEntryBlock(file, g);
 }
 
 /* offset of the name in an ExAllData of this type */

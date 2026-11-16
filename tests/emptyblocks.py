@@ -10,12 +10,14 @@ blocks. At most the first block of a directory may stay empty, and the removed
 blocks must be free. The partition has 10 buffers, so most emptied blocks have
 left the cache before the next update. A directory listing held open with
 ExNext while its files are deleted has to go on with the remaining files, each
-listed once. Copies of the image taken during the deletes without a flush (a
+listed once, also when files are created meanwhile and the listing goes
+on with another lock. Copies of the image taken during the deletes without a flush (a
 power cut) must hold a whole directory and mount. At the end the image is
 mounted again in a new process: the files that were kept have to be listed,
 and a directory can be emptied and deleted. Then the anode chain of D6 is
 linked back to its start in a copy of the image: a lookup and a create in D6
-have to fail with an error, and the handler has to go on answering.
+have to fail with an error, a listing of D6 (also with another lock half way
+through) has to end with that error after every file, and the handler has to go on answering.
 
 --pds formats a PDS\\3 partition: the device then takes block transfers only
 as HD_SCSICMD, so the test runs through Direct SCSI.
@@ -100,6 +102,12 @@ class Lister:
 
     def next(self):
         return self.send(ACTION_EXAMINE_NEXT)
+
+    def switch(self, path):
+        """Go on with a new lock on the directory: the handler finds the position again by name."""
+        old = self.lock
+        self.lock, _ = self.b.locate(0, path)
+        self.b.free_lock(old)
 
     def close(self):
         self.b.free_lock(self.lock)
@@ -202,8 +210,12 @@ def held_listing(b, v, d, n):
     lock, _ = b.locate(0, d)
     ls = Lister(b, d)
     seen = [ls.next()[0] for _ in range(n // 4)]
+    ls.switch(d)
+    seen.append(ls.next()[0])  # found again by the name in the FIB, which still exists
     bad = [f for f in names(n) if f not in keep and v.delete(lock, f) != "ok"]
     check("%s: delete while listed" % d, bad[:5], [])
+    made = sum(v.put("/%s/N%04d" % (d, i), b"") == "ok" for i in range(n // 2))
+    check("%s: create %d files while listed" % (d, n // 2), made, n // 2)
     b.flush_volume()
     rest, err = [], 0
     while True:
@@ -214,7 +226,7 @@ def held_listing(b, v, d, n):
     ls.close()
     b.free_lock(lock)
     check("%s: listing ends with %d" % (d, ERROR_NO_MORE_ENTRIES), err, ERROR_NO_MORE_ENTRIES)
-    check("%s: listed after the deletes are kept files" % d, [f for f in rest if f not in keep], [])
+    check("%s: listed after the deletes are kept or new files" % d, [f for f in rest if f not in keep and f[0] != "N"], [])
     allseen = seen + rest
     check("%s: no file listed twice" % d, len(allseen), len(set(allseen)))
     check("%s: every kept file listed" % d, sorted(keep - set(allseen)), [])
@@ -278,6 +290,17 @@ def loop(b, n):
     b.free_lock(lock)
     check("loop: lock a missing name in %s" % LOOPDIR, "ok" if lock else err(res2), err(ERROR_DISK_NOT_VALIDATED))
     check("loop: create a file in %s" % LOOPDIR, v.put("/%s/NEW" % LOOPDIR, b"x"), "open: " + err(ERROR_DISK_NOT_VALIDATED))
+    ls, seen, e = Lister(b, LOOPDIR), [], 0
+    while len(seen) < 3 * n:
+        if len(seen) == n // 2:
+            ls.switch(LOOPDIR)
+        name, e = ls.next()
+        if name is None:
+            break
+        seen.append(name)
+    ls.close()
+    check("loop: listing %s ends with %d" % (LOOPDIR, ERROR_DISK_NOT_VALIDATED), e, ERROR_DISK_NOT_VALIDATED)
+    check("loop: every file of %s listed" % LOOPDIR, sorted(set(seen)), names(n)[KEEP:])
     lock, res2 = b.locate(0, "D2")
     b.free_lock(lock)
     check("loop: lock D2", "ok" if lock else err(res2), "ok")

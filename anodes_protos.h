@@ -9,12 +9,6 @@ BOOL CorrectAnodeAC (struct anodechainnode **acnode, ULONG *anodeoffset, globald
 
 struct cindexblock *GetSuperBlock (UWORD nr, globaldata *g);
 BOOL GetAnode(struct canode * , ULONG , globaldata * );
-/* state of a walk along an anode chain, see GetNextAnode */
-struct anodewalk
-{
-	ULONG mark;		/* anode number to compare with, set to the first anode of the chain */
-	ULONG steps;	/* set to 0 */
-};
 BOOL GetNextAnode(struct canode *anode, ULONG anodenr, struct anodewalk *walk, globaldata *g);
 BOOL NextBlock(struct canode * , ULONG * , struct anodewalk * , globaldata * );
 BOOL CorrectAnode(struct canode * , ULONG * , struct anodewalk * , globaldata * );

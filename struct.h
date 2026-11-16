@@ -1023,11 +1023,19 @@ typedef struct
 	BOOL    checknotify;        // set if a notify is necessary at ACTION_END time > ALSO touch flag <
 } fileentry_t;
 
+/* state of a walk along an anode chain, see GetNextAnode */
+struct anodewalk
+{
+	ULONG mark;		/* anode number to compare with, set to the first anode of the chain */
+	ULONG steps;	/* set to 0 */
+};
+
 typedef struct lockentry
 {
 	listentry_t le;
 
 	ULONG               nextanode;          // anodenr of next entry (dir/vollock only)
+	struct anodewalk    nextwalk;           // walk of the examine position along the chain
 	struct fileinfo     nextentry;          // for examine
 	ULONG               nextdirblocknr;     // for flushed block only.. (dir/vollock only)
 	ULONG               nextdirblockoffset;
