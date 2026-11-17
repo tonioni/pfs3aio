@@ -1,0 +1,13 @@
+
+OBJECTS = lib:c.o console.o access.o device.o fullscan.o standardscan.o stats.o
+LIB = lib:sc.lib lib:amiga.lib
+
+pfsdoctor: $(OBJECTS)
+	slink lib $(LIB) from $(OBJECTS) to $@
+
+console.o: console.c
+access.o: access.c doctor.h
+device.o: device.c doctor.h
+fullscan.o: fullscan.c doctor.h
+standardscan.o: standardscan.c doctor.h
+stats.o: stats.c doctor.h

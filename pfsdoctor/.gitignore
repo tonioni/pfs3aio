@@ -1,0 +1,8 @@
+*.o
+*.map
+*.out
+*.info
+*.json
+*.sqlite
+pfsdoctor*
+
