@@ -9,6 +9,10 @@ This is improved all-in-one 100% OS 1.x/2.x/3.x/68000+ compatible
 port of open source version of Professional File System III (PFS3).
 Sources: https://github.com/tonioni/pfs3aio
 
+pfsdoctor checks and repairs PFS3 volumes. Template:
+DEVICE/A,INFO/S,CHECK/S,REPAIR/S,SEARCH/S,UNFORMAT/S,VERBOSE/S,
+NONINTERACTIVE/S,LOGFILE/K,DIRECTSCSI/S
+
 This product includes software developed by Michiel Pelt.
 
 Distribution build: @VERSION@

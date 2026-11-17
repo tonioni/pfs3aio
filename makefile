@@ -54,7 +54,7 @@ MISSING_DEPS = $(foreach obj,$(C_OBJS),$(if $(wildcard $(obj:.o=.d)),,$(obj)))
 
 -include $(C_OBJS:.o=.d)
 
-.PHONY: all largefile all-variants floppy lha archive check clean force-deps
+.PHONY: all largefile all-variants pfsdoctor floppy lha archive check clean force-deps
 $(MISSING_DEPS): force-deps
 force-deps:
 
@@ -78,11 +78,16 @@ largefile:
 all-variants:
 	$(MAKE) LARGE_FILE_SIZE=0 all
 	$(MAKE) LARGE_FILE_SIZE=1 all
+	$(MAKE) pfsdoctor
+
+# The disk check and repair tool, pfsdoctor/pfsdoctor.
+pfsdoctor:
+	$(MAKE) -C pfsdoctor CC=$(CC)
 
 $(OBJS): makefile
 
 # 880K AmigaDOS floppy holding the handlers.
-FLOPPY_FILES = pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom LICENSE versionhistory.doc
+FLOPPY_FILES = pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfsdoctor/pfsdoctor LICENSE versionhistory.doc
 floppy: all-variants
 	$(PYTHON) tools/mkadf.py pfs3aio.adf PFS3AIO $(FLOPPY_FILES)
 
@@ -109,7 +114,7 @@ archive: dist.readme.in
 	package="pfs3aio_$$version"; \
 	mkdir "$$stage/$$package"; \
 	cp -p pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom \
-	  LICENSE versionhistory.doc "$$stage/$$package/"; \
+	  pfsdoctor/pfsdoctor LICENSE versionhistory.doc "$$stage/$$package/"; \
 	sed "s/@VERSION@/$$version/g" dist.readme.in > "$$stage/$$package.readme"; \
 	cp "$$stage/$$package.readme" "$$stage/$$package/pfs3aio.readme"; \
 	{ printf 'pfs3aio build %s\n' "$$version"; \
@@ -117,6 +122,7 @@ archive: dist.readme.in
 	  $(CC) --version | head -n 1; \
 	  printf 'pfs3aio[-custom]: LARGE_FILE_SIZE=0\n'; \
 	  printf 'pfs3aio-largefile[-custom]: LARGE_FILE_SIZE=1\n'; \
+	  printf 'pfsdoctor: disk check and repair tool\n'; \
 	} > "$$stage/$$package/Build.txt"; \
 	(cd "$$stage" && $(LHA) co5 "$$package.lha" "$$package"); \
 	$(LHA) t "$$stage/$$package.lha"; \
@@ -126,6 +132,7 @@ archive: dist.readme.in
 clean:
 	$(RM) build/normal/*.o build/normal/*.d build/largefile/*.o build/largefile/*.d
 	$(RM) pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfs3aio.adf
+	$(MAKE) -C pfsdoctor clean
 
 $(BUILD_DIR):
 	mkdir -p $@

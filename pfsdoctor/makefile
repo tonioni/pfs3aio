@@ -7,8 +7,15 @@ CFLAGS=-Os -m68000 -noixemul -fomit-frame-pointer
 
 OBJS = console.o access.o device.o fullscan.o standardscan.o stats.o
 
+.PHONY: all clean
+
 all: $(OBJS)
 	$(CC) -o pfsdoctor $^ $(CFLAGS) $(LIBS)
+
+$(OBJS): doctor.h pfs3.h ../pfs3disk.h makefile
+
+clean:
+	$(RM) $(OBJS) pfsdoctor
 
 console.o: console.c
 	$(CC) $(CFLAGS) -I. -c -o $@ console.c
