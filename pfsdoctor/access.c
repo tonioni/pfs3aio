@@ -308,7 +308,7 @@ ULONG GetDDFileSize(struct deldirentry *dde, ULONG *high)
 {
 	*high = 0;
 	if ((rbl->options & MODE_LARGEFILE) && dde->filename[0] <= DELENTRYFNSIZE) {
-		*high = dde->fsizex;
+		*high = *(UWORD *)&dde->filename[16];
 		return dde->fsize;
 	}
 	return dde->fsize;

@@ -1071,19 +1071,19 @@ static error_t GetRext(void)
 	}
 
 	/* tbd fields */
-	if (rext.data->postponed_op[0] ||
-		rext.data->postponed_op[1] ||
-		rext.data->postponed_op[2] ||
-		rext.data->postponed_op[3])
+	if (rext.data->tobedone.operation_id ||
+		rext.data->tobedone.argument1 ||
+		rext.data->tobedone.argument2 ||
+		rext.data->tobedone.argument3)
 	{
 		if (mode == check || mode == info)
 			adderror("Rootblock extension TBD not empty");
 		else
 		{
-			rext.data->postponed_op[0] =
-			rext.data->postponed_op[1] =
-			rext.data->postponed_op[2] =
-			rext.data->postponed_op[3] = 0;
+			rext.data->tobedone.operation_id =
+			rext.data->tobedone.argument1 =
+			rext.data->tobedone.argument2 =
+			rext.data->tobedone.argument3 = 0;
 			volume.writeblock((cachedblock_t *)&rext);
 			fixederror("Rootblock extension TBD not empty");
 		}

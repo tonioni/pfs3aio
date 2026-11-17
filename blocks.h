@@ -183,41 +183,6 @@ struct lru_cdirblock
 #define MAXDELDIR 31
 #define MAXDELDIR_BLOCKS (MAXDELDIR + 1)
 
-#if defined(__GNUC__) || defined(__VBCC__)
-#pragma pack(2)
-#endif
-
-struct deldirentry
-{
-	ULONG anodenr;			/* anodenr							*/
-	ULONG fsize;			/* size of file						*/
-	UWORD creationday;		/* datestamp						*/
-	UWORD creationminute;
-	UWORD creationtick;
-	UBYTE filename[18];		/* last two bytes hold fsizex on large-file volumes */
-};
-
-struct deldirblock
-{
-	UWORD id;				/* 'DD'								*/
-	UWORD not_used;
-	ULONG datestamp;
-	ULONG seqnr;
-	UWORD not_used_2[2];
-	UWORD not_used_3;		/* roving in older versions	(<17.9)	*/	
-	UWORD uid;				/* user id							*/
-	UWORD gid;				/* group id							*/
-	ULONG protection;
-	UWORD creationday;
-	UWORD creationminute;
-	UWORD creationtick;
-	struct deldirentry entries[0];	/* DELENTRIES_PER_BLOCK entries	*/
-};
-
-#if defined(__GNUC__) || defined(__VBCC__)
-#pragma pack()
-#endif
-
 struct cdeldirblock
 {
 	struct cdeldirblock *next;	/* currently not used 			*/
@@ -234,52 +199,6 @@ struct cdeldirblock
 #endif
 
 #if VERSION23
-
-#if defined(__GNUC__) || defined(__VBCC__)
-#pragma pack(2)
-#endif
-
-struct postponed_op
-{
-	ULONG operation_id;		/* which operation is postponed */
-	ULONG argument1;		/* operation arguments, e.g. number of blocks */
-	ULONG argument2;
-	ULONG argument3;
-};
-
-struct rootblockextension
-{
-	UWORD id;					/* id ('EX') */
-	UWORD not_used_1;
-	ULONG ext_options;
-	ULONG datestamp;
-	ULONG pfs2version;			/* pfs2 revision under which the disk was formatted */
-	UWORD root_date[3];			/* root directory datestamp */
-	UWORD volume_date[3];		/* volume datestamp */
-	struct postponed_op tobedone;	/* postponed operation (curr. only delete) */
-	ULONG reserved_roving;		/* reserved roving pointer */
-	UWORD rovingbit;			/* bitnr in rootblock->roving_ptr bitmap field */
-	UWORD curranseqnr;			/* anodeallocation roving pointer */
-	UWORD deldirroving;			/* deldir roving pointer */
-	UWORD deldirsize;			/* size of deldir */
-	UWORD fnsize;				/* filename size (18.1) */
-	UWORD not_used_2[3];
-	ULONG superindex[MAXSUPER + 1];		/* MODE_SUPERINDEX only. offset=64 $40 */
-	UWORD dd_uid;				/* deldir user id (17.9)			*/
-	UWORD dd_gid;				/* deldir group id					*/
-	ULONG dd_protection;		/* deldir protection				*/
-	UWORD dd_creationday;		/* deldir datestamp					*/
-	UWORD dd_creationminute;
-	UWORD dd_creationtick;
-	UWORD not_used_3;
-	ULONG deldir[32];			/* 32 deldir blocks					*/
-	ULONG dosenvec[17];			/* DosEnvec when formatted          */
-};
-
-#if defined(__GNUC__) || defined(__VBCC__)
-#pragma pack()
-#endif
-
 struct crootblockextension
 {
 	struct crootblockextension *next;	/* currently not used */
