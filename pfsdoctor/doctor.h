@@ -52,7 +52,7 @@ typedef UBYTE uint8;
 typedef LONG int32;
 typedef WORD int16;
 typedef BYTE int8;
-typedef enum {false, true} bool;
+#include <stdbool.h>
 
 typedef LONG SIPTR;
 typedef ULONG IPTR;
