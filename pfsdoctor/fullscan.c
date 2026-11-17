@@ -674,6 +674,8 @@ error_t BuildRext(c_extensionblock_t *rext)
 	 * every entry whose name is longer than it.
 	 */
 	r->fnsize = FNSIZE - 1;
+	/* the DosEnvec stored at format time went with the old block */
+	rbl->options &= ~MODE_STORED_GEOM;
 	r->root_date[0] = time.ds_Days;
 	r->root_date[1] = time.ds_Minute;
 	r->root_date[2] = time.ds_Tick;
