@@ -13,6 +13,7 @@ all: $(OBJS)
 	$(CC) -o pfsdoctor $^ $(CFLAGS) $(LIBS)
 
 $(OBJS): doctor.h pfs3.h ../pfs3disk.h makefile
+console.o: ../versionhistory.doc
 
 clean:
 	$(RM) $(OBJS) pfsdoctor

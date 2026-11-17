@@ -14,6 +14,9 @@
 
 #include "pfs3.h"
 #include "doctor.h"
+#include "../versionhistory.doc"
+
+const char version[] = "$VER: pfsdoctor " REVISION;
 
 enum mode mode = repair;	/* check, repair, unformat or search */
 
