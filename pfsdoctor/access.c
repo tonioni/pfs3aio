@@ -307,8 +307,11 @@ ULONG GetDEFileSize(struct direntry *direntry, struct extrafields *extra, ULONG 
 ULONG GetDDFileSize(struct deldirentry *dde, ULONG *high)
 {
 	*high = 0;
-	if ((rbl->options & MODE_LARGEFILE) && dde->filename[0] <= DELENTRYFNSIZE) {
-		*high = *(UWORD *)&dde->filename[16];
+	if ((rbl->options & MODE_LARGEFILE) && dde->filename[0] < DELENTRYFNSIZE) {
+		UWORD fsizex;
+
+		memcpy(&fsizex, &dde->filename[16], sizeof(fsizex));
+		*high = fsizex;
 		return dde->fsize;
 	}
 	return dde->fsize;
