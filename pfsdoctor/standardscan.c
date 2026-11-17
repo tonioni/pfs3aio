@@ -114,6 +114,7 @@ static error_t SetExtraFields(struct extrafields *extrafields, struct direntry *
 static error_t RepairLinkChain(struct direntry *de, c_dirblock_t *dirblk);
 static error_t CheckAnode(canode_t *anode, uint32 nr, bool fix);
 static uint32 MaxAnodeChain(void);
+static uint32 ChainLoopEnd(uint32 head);
 static error_t RepairAnodeTree(void);
 static error_t RepairBitmapTree(void);
 static error_t InitReservedBitmap(void);
@@ -1561,7 +1562,7 @@ static error_t RepairDirTree(void)
 
 static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 {
-	uint32 mainanodenr, anodenr, parentanodenr, guard;
+	uint32 mainanodenr, anodenr, parentanodenr, guard, loopend;
 	canode_t dirnode;
 	error_t error = e_none;
 
@@ -1582,12 +1583,25 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 
 	parentanodenr = parent ? parent->data->anodenr : 0;
 	mainanodenr = de ? de->anode : ANODE_ROOTDIR;
-	guard = MaxAnodeChain();
-	for (anodenr = mainanodenr; anodenr; anodenr=dirnode.next)
+
+	/* a chain that loops back is cut behind its last new anode, before
+	 * any block is checked twice
+	 */
+	if ((loopend = ChainLoopEnd(mainanodenr)))
 	{
-		/* AnodeUsed() below would report the revisit of a looping chain,
-		 * but its result is deliberately not acted on here
-		 */
+		if (mode == repair && GetAnode(&dirnode, loopend, true))
+		{
+			fixedfileerror("Directory anode chain loops, cut");
+			dirnode.next = 0;
+			SaveAnode(&dirnode, loopend);
+		}
+		else
+			addfileerror("Directory anode chain loops");
+	}
+
+	guard = MaxAnodeChain();
+	for (anodenr = mainanodenr; anodenr; anodenr = anodenr == loopend ? 0 : dirnode.next)
+	{
 		if (!guard--)
 		{
 			addfileerror("Directory anode chain does not end");
@@ -2044,6 +2058,65 @@ static uint32 MaxAnodeChain(void)
 		return MAX_ANODE_CHAIN;
 
 	return blocks * perblock;
+}
+
+/* Last anode of the loop that the chain from [head] runs into: the one
+ * that links back to an anode seen before. 0 if the chain ends or cannot be
+ * read. Brent's cycle detection gives the loop length, then a second walk
+ * finds where the loop starts.
+ */
+static uint32 ChainLoopEnd(uint32 head)
+{
+	canode_t node;
+	uint32 tortoise, hare, power, lam, i;
+
+	if (!GetAnode(&node, head, false))
+		return 0;
+	tortoise = head;
+	hare = node.next;
+	power = lam = 1;
+	while (hare != tortoise)
+	{
+		if (!hare)
+			return 0;
+		if (power == lam)
+		{
+			tortoise = hare;
+			power <<= 1;
+			lam = 0;
+		}
+		if (!GetAnode(&node, hare, false))
+			return 0;
+		hare = node.next;
+		lam++;
+	}
+
+	/* hare runs lam anodes ahead; they meet at the first anode of the loop */
+	tortoise = hare = head;
+	for (i = 0; i < lam; i++)
+	{
+		if (!GetAnode(&node, hare, false))
+			return 0;
+		hare = node.next;
+	}
+	while (tortoise != hare)
+	{
+		if (!GetAnode(&node, tortoise, false))
+			return 0;
+		tortoise = node.next;
+		if (!GetAnode(&node, hare, false))
+			return 0;
+		hare = node.next;
+	}
+
+	/* lam - 1 anodes on is the one that links back */
+	for (i = 1; i < lam; i++)
+	{
+		if (!GetAnode(&node, tortoise, false))
+			return 0;
+		tortoise = node.next;
+	}
+	return tortoise;
 }
 
 static error_t RemoveDirEntry(struct direntry *de, c_dirblock_t *dirblk)
