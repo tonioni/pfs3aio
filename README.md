@@ -12,6 +12,7 @@ creating archives (not the extraction-only `lhasa` utility):
 make
 make largefile
 make pfsdoctor
+make tools
 make check
 make lha
 ```
@@ -26,27 +27,30 @@ emulated-handler tests and their additional dependencies.
 - `pfs3aio_<version>.lha`
 - `pfs3aio_<version>.readme`
 
-The archive contains these four handlers, pfsdoctor and its AmigaGuide
-documentation, the Aminet readme, license, revision history and `Build.txt`
-with the Git revision and compiler version:
+The archive contains these four handlers, pfsdoctor, the tools, their
+AmigaGuide documentation, the Aminet readme, license, revision history and
+`Build.txt` with the Git revision and compiler version:
 
 - `pfs3aio`: normal build (`LARGE_FILE_SIZE=0`).
 - `pfs3aio-custom`: normal build wrapped for broken RDB filesystem loaders.
 - `pfs3aio-largefile`: large-file build (`LARGE_FILE_SIZE=1`).
 - `pfs3aio-largefile-custom`: large-file build with the same custom wrapper.
 - `pfsdoctor`: checks and repairs PFS3 volumes (`pfsdoctor/`).
+- `setdeldir`, `setfnsize`, `setlargefile`: set the deldir size, the maximum
+  file name length and large-file support of a mounted volume (`tools/`).
 
 Large-file support is
 opt-in: choose the large-file handler explicitly; the normal handler does
 not gain support for large-file volumes.
 
 `make` builds the normal pair. `make largefile` builds the large-file pair;
-`make pfsdoctor` builds `pfsdoctor/pfsdoctor`; `make all-variants` builds
-all four handlers and pfsdoctor. Objects and generated dependency files
+`make pfsdoctor` builds `pfsdoctor/pfsdoctor`; `make tools` builds the tools;
+`make all-variants` builds all four handlers, pfsdoctor and the tools. Objects and generated dependency files
 are isolated in `build/normal` and `build/largefile`, so switching variants
 cannot reuse objects compiled with the other setting. `make lha` builds
-all of them, while `make archive` packages already-built handlers and
-pfsdoctor (used by CI after downloading the matrix artifacts).
+all of them, while `make archive` packages already-built handlers,
+pfsdoctor and tools (used by CI after downloading the matrix artifacts).
+The version and date of each tool are in `tools/versions.h`.
 
 Both unwrapped handlers link to one CODE hunk using `pfs3aio.ld`, including
 libnix's ctype-table pointer. The freestanding link maps `_SysBase` to the
@@ -72,24 +76,25 @@ the uploader details and add release-specific changes before a release.
 
 ## Documentation
 
-`docs/pfsdoctor.md` describes pfsdoctor. `docs/pfsdoctor.guide` is generated
-from it with `md2guide.py` of cfd (https://github.com/pulchart/cfd,
-`tools/md2guide.py`) and committed, so regenerate it after a change of the
-Markdown. The archive and the floppy image contain the guide.
+`docs/pfsdoctor.md` and `docs/tools.md` describe pfsdoctor and the tools.
+The `.guide` files next to them are generated with `md2guide.py` of cfd
+(https://github.com/pulchart/cfd, `tools/md2guide.py`) and committed, so
+regenerate them after a change of the Markdown. The archive and the floppy
+image contain the guides.
 
 ## Floppy image
 
-`make floppy` builds all four handlers and pfsdoctor and writes
+`make floppy` builds all four handlers, pfsdoctor and the tools and writes
 `pfs3aio.adf`, an 880K AmigaDOS floppy image named `PFS3AIO` containing the
-handlers, pfsdoctor, its guide, `LICENSE` and `versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
+handlers, pfsdoctor, the tools, the guides, `LICENSE` and `versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
 removes the image.
 
 ## GitHub Actions
 
 CI builds the normal and large-file pairs in separate matrix jobs and
-pfsdoctor in its own job on branch pushes and pull requests, runs the native
-regression tests, then packages the downloaded handlers and pfsdoctor into an
-LHA without rebuilding them. Both handler
+pfsdoctor and the tools in jobs of their own on branch pushes and pull
+requests, runs the native regression tests, then packages the downloaded
+handlers, pfsdoctor and tools into an LHA without rebuilding them. Both handler
 pairs and the distribution pair are uploaded as workflow artifacts. The
 build uses Stefan Reinauer's m68k-amigaos-gcc
 13.4 container (`stefanreinauer/amiga-gcc:gcc-v13.4`).

@@ -9,13 +9,13 @@
 #include <proto/exec.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "versions.h"
 
-#define REVISION "1.0"
 #define TEMPLATE "VOLUME/A,ENABLE/S"
 #define ACTION_SET_LARGEFILE 2223
 #define ID_PFS_DISK	(0x50465302L)	/*	'PFS\2' */
 
-UBYTE *version = "$VER: Setlargefile " REVISION " (" REVDATE ") by Toni Wilen";
+UBYTE *version = "$VER: Setlargefile " SETLARGEFILE_REVISION " (" SETLARGEFILE_DATE ") by Toni Wilen";
 LONG args[2];
 
 void main(void)

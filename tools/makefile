@@ -1,24 +1,23 @@
 
-NOWDATE := "\"$(shell date "+%-d.%-m.%Y")\""
-NOWTIME := "\"$(shell date "+%T")\""
-
 CC=/opt/amiga/bin/m68k-amigaos-gcc
 
 LIBS=-lamiga -lgcc -lnix13 -lnix -s
 
-CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -mregparm=3 -msmall-code -s \
-	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME)
+CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -mregparm=3 -msmall-code -s
 
-all: setdeldir.o setfnsize.o setlargefile.o
-	$(CC) -o setdeldir setdeldir.o $(CFLAGS) $(LIBS)
-	$(CC) -o setfnsize setfnsize.o $(CFLAGS) $(LIBS)
-	$(CC) -o setlargefile setlargefile.o $(CFLAGS) $(LIBS)
+TOOLS = setdeldir setfnsize setlargefile
 
-setdeldir.o: setdeldir.c
-	$(CC) $(CFLAGS) -I. -c -o $@ setdeldir.c
+.PHONY: all clean
 
-setfnsize.o: setfnsize.c
-	$(CC) $(CFLAGS) -I. -c -o $@ setfnsize.c
+all: $(TOOLS)
 
-setlargefile.o: setlargefile.c
-	$(CC) $(CFLAGS) -I. -c -o $@ setlargefile.c
+$(TOOLS): %: %.o
+	$(CC) -o $@ $< $(CFLAGS) $(LIBS)
+
+%.o: %.c makefile versions.h
+	$(CC) $(CFLAGS) -I. -c -o $@ $<
+
+setdeldir.o: ../blocks.h
+
+clean:
+	$(RM) $(TOOLS) $(TOOLS:=.o)

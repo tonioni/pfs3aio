@@ -9,3 +9,6 @@ pfs3aio*
 boot
 /dist/
 /build/
+/tools/setdeldir
+/tools/setfnsize
+/tools/setlargefile
