@@ -9,13 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 typedef intptr_t IPTR;
 #define AFS_ERROR_DNV_WRONG_DIRID 0
 #define FNSIZE 108
 #define CMSIZE 80
 #define MAX_ENTRYSIZE (sizeof(struct direntry) + FNSIZE + CMSIZE + 34)
-#define DBLKID 0x4442
 #define HASHM_DIR 0
 #define RESCLUSTER 1
 #define DB_ENTRYSPACE (g->blocksize - sizeof(struct dirblock))
@@ -24,25 +24,9 @@ typedef intptr_t IPTR;
 #define DB(...)
 #define ReservedAreaIsLocked 0
 #define FIRSTENTRY(b) ((struct direntry *)((b)->blk.entries))
-#define NEXTENTRY(e) ((struct direntry *)((UBYTE *)(e) + (e)->next))
 #define COMMENT(e) (&(e)->startofname + (e)->nlength)
 #define MakeBlockDirty(...) (++dirty_calls)
 
-#pragma pack(push, 2)
-struct direntry {
-    UBYTE next, type;
-    ULONG anode, fsize;
-    UWORD day, minute, tick;
-    UBYTE protection, nlength, startofname, pad;
-};
-struct dirblock { UWORD id; UBYTE padding[18], entries[]; };
-struct extrafields {
-    ULONG link;
-    UWORD uid, gid;
-    ULONG prot, virtualsize, rollpointer;
-    UWORD fsizex;
-};
-#pragma pack(pop)
 union extrawords {
     struct extrafields fields;
     UWORD w[sizeof(struct extrafields) / 2];

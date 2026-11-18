@@ -18,21 +18,19 @@
 #include <stdint.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 #define PFS_ERROR_INCONSISTENT 213
 #define AFS_ERROR_CACHE_INCONSISTENCY 1
 
-struct direntry { UBYTE next; UBYTE data[15]; };
 struct cachedblock;
 struct cdirblock { ULONG blocknr; ULONG used; struct { ULONG anodenr, parent; UBYTE entries[64]; } blk; };
 struct cdeldirblock { ULONG blocknr; };
-struct deldirentry { ULONG anodenr; };
 struct canode { ULONG clustersize, blocknr, next, nr; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
 struct anodewalk { ULONG mark, steps; };
 typedef struct globaldata { ULONG locknr; } globaldata;
 
-#define NEXTENTRY(de) ((struct direntry*)((UBYTE*)(de) + (de)->next))
 #define FIRSTENTRY(blok) ((struct direntry*)((blok)->blk.entries))
 #define LOCK(blk) ((blk)->used = g->locknr)
 

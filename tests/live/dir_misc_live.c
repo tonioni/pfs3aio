@@ -30,11 +30,11 @@
 #include <stddef.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 typedef intptr_t IPTR;
 typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define DELDIR 1
-#define ANODE_ROOTDIR 5			/* pfs3disk.h */
 #define FNSIZE 108
 #define CMSIZE 80
 #define MAX_ENTRYSIZE (sizeof(struct direntry) + FNSIZE + CMSIZE + 34)
@@ -53,11 +53,6 @@ typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define SPECIAL_DELDIR 1
 
 #pragma pack(push, 2)
-struct direntry {
-	UBYTE next; BYTE type; ULONG anode; ULONG fsize;
-	UWORD creationday, creationminute, creationtick;
-	UBYTE protection; UBYTE nlength; UBYTE startofname; UBYTE pad;
-};
 #pragma pack(pop)
 struct cdirblock { ULONG blocknr, oldblocknr; UBYTE changeflag; };
 struct cachedblock;

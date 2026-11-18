@@ -34,6 +34,7 @@
 #include <stddef.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 typedef intptr_t IPTR;
 typedef char *STRPTR; typedef const char *CONST_STRPTR;
@@ -42,9 +43,7 @@ typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define PATHSIZE 256					/* blocks.h */
 #define FILENAMESIZE (g->fnsize)
 #define FNSIZE 108
-#define DELENTRIES_PER_BLOCK 31
 #define MAXDELDIR 31
-#define DELENTRY_SEP '@'
 #define SPECIAL_DELDIR 1
 #define SPECIAL_DELFILE 2
 #define ENTER(x)
@@ -61,21 +60,9 @@ typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define ST_FILE (-3)
 
 #pragma pack(push, 2)
-struct direntry {
-	UBYTE next; BYTE type; ULONG anode; ULONG fsize;
-	UWORD creationday, creationminute, creationtick;
-	UBYTE protection; UBYTE nlength; UBYTE startofname; UBYTE pad;
-};
 #pragma pack(pop)
-struct dirblock { UWORD id, not_used; ULONG datestamp; ULONG anodenr; ULONG parent; UBYTE entries[0]; };
 struct cdirblock { ULONG blocknr, oldblocknr; UWORD used; UBYTE changeflag; struct dirblock blk; };
-struct deldirentry {
-	ULONG anodenr; ULONG fsize; UWORD creationday, creationminute, creationtick;
-	UBYTE filename[18];
-};
-struct deldirblock { UWORD id, not_used; ULONG datestamp, seqnr; struct deldirentry entries[0]; };
 struct cdeldirblock { UWORD used; UBYTE changeflag; struct deldirblock blk; };
-struct extrafields { ULONG link; UWORD uid, gid; ULONG prot; ULONG virtualsize, rollpointer; };
 struct canode { ULONG clustersize, blocknr, next, nr; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
 struct deldirinfo { ULONG special; void *volume; };
@@ -104,7 +91,6 @@ struct Hook;
 struct ExAllControl { ULONG eac_Entries; IPTR eac_LastKey; STRPTR eac_MatchString; struct Hook *eac_MatchFunc; };
 
 #define DIRENTRYNAME(de) ((UBYTE *)(&(de->nlength)))
-#define NEXTENTRY(de) ((struct direntry *)((UBYTE *)(de) + (de)->next))
 #define LOCK(blk) ((blk)->used = g->locknr)
 #define IsDelDir(oi) ((oi).deldir.special == SPECIAL_DELDIR)
 

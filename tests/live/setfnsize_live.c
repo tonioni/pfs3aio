@@ -16,18 +16,14 @@
 #include <stdint.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
-#define ID_PFS_DISK (0x50465301L)	/* pfs3disk.h */
-#define ID_PFS2_DISK (0x50465302L)
-#define ID_AFS_DISK (0x41465301L)
-#define MODE_LONGFN 1024
 #define FNSIZE 108
 #define FILENAMESIZE (g->fnsize)
 
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Res1, dp_Res2; };
 struct crootblockextension { struct { UWORD fnsize; } blk; };
 struct volumedata { struct crootblockextension *rblkextension; };
-struct rootblock { ULONG options; };
 typedef struct globaldata {
 	struct volumedata *currentvolume;
 	struct rootblock *rootblock;

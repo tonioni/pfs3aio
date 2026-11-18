@@ -13,6 +13,7 @@ typedef int16_t WORD;
 typedef uint8_t UBYTE;
 typedef int8_t BYTE;
 typedef intptr_t SIPTR;
+#define EXEC_TYPES_H 1		/* pfs3disk.h builds with these types */
 #ifndef LIVE_OWN_BOOL
 typedef int BOOL;
 #endif

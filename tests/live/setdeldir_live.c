@@ -17,10 +17,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 #define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 #define MAXDELDIR_BLOCKS 32
-#define DELENTRIES_PER_BLOCK 31
 
 struct minnode { struct minnode *mln_Succ, *mln_Pred; };
 struct minlist { void *mlh_Head; };
@@ -33,7 +33,6 @@ union objectinfo { struct { int special; } deldir; };
 #define IsDelFile(oi) ((oi).deldir.special==SPECIAL_DELFILE)
 typedef struct listentry { struct listentry *next; union objectinfo info; } listentry_t;
 
-struct deldirentry { ULONG anodenr; };
 struct cdeldirblock {
 	struct cdeldirblock *next;
 	struct minnode lru;

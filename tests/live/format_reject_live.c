@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 typedef UBYTE *DSTR;
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -27,33 +28,8 @@ typedef UBYTE *DSTR;
 #define DE_SECSPERBLK 4
 #define DE_LOWCYL 9
 
-#define DNSIZE 32
 #define BOOTBLOCK1 0
 #define ROOTBLOCK 2
-#define ANODE_ROOTDIR 5
-#define MAXNUMRESERVED (4096 + 255*1024*8)
-#define BITMAP_PAYLOAD_1K ((1024/4)-3)
-#define BITMAP_PAYLOAD_2K ((2048/4)-3)
-#define BITMAP_PAYLOAD_4K ((4096/4)-3)
-#define MAXSMALLDISK ((4+1)*BITMAP_PAYLOAD_1K*BITMAP_PAYLOAD_1K*32)
-#define MAXDISKSIZE1K ((103+1)*BITMAP_PAYLOAD_1K*BITMAP_PAYLOAD_1K*32)
-#define MAXDISKSIZE2K ((103+1)*BITMAP_PAYLOAD_2K*BITMAP_PAYLOAD_2K*32)
-#define MAXDISKSIZE ((ULONG)(103+1)*BITMAP_PAYLOAD_4K*BITMAP_PAYLOAD_4K*32)
-
-#define ID_PFS_DISK  0x50465301
-#define ID_PFS2_DISK 0x50465302
-#define MODE_HARDDISK 1
-#define MODE_SPLITTED_ANODES 2
-#define MODE_DIR_EXTENSION 4
-#define MODE_DELDIR 8
-#define MODE_EXTENSION 32
-#define MODE_DATESTAMP 64
-#define MODE_SUPERINDEX 128
-#define MODE_SUPERDELDIR 256
-#define MODE_EXTROVING 512
-#define MODE_LONGFN 1024
-#define MODE_LARGEFILE 2048
-#define MODE_STORED_GEOM 4096
 
 /* the build configuration under test */
 #define DELDIR 1
@@ -63,15 +39,7 @@ typedef UBYTE *DSTR;
 
 struct DriveGeometry { ULONG dg_SectorSize, dg_TotalSectors; };
 struct DateStamp { LONG ds_Days, ds_Minute, ds_Tick; };
-struct rootblock {
-	ULONG disktype, options, datestamp, protection;
-	UWORD creationday, creationminute, creationtick;
-	ULONG firstreserved, lastreserved, reserved_free, blocksfree, alwaysfree;
-	ULONG reserved_blksize, extension;
-	UBYTE diskname[DNSIZE];
-};
 typedef struct rootblock rootblock_t;
-struct bootblock { ULONG disktype; UBYTE rest[1020]; };
 struct crootblockextension;
 typedef struct crootblockextension crootblockextension_t;
 struct volumedata {

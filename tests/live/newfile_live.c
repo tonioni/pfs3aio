@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 typedef uint32_t FSIZE;
 typedef char *STRPTR;
 #define VERSION23 1
@@ -31,16 +32,10 @@ typedef char *STRPTR;
 #define ST_FILE (-3)
 #define ST_LINKFILE (-4)
 #define ST_LINKDIR 4
-#define ST_ROLLOVERFILE (-16)
 #define FIBF_DELETE 1
 #define SPECIAL_DELDIR 1
 #define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 
-struct direntry {
-	UBYTE next; BYTE type; ULONG anode; ULONG fsize;
-	UWORD creationday, creationminute, creationtick;
-	UBYTE protection; UBYTE nlength; UBYTE startofname; UBYTE pad;
-};
 struct cdirblock { int dummy; };
 struct cachedblock { int dummy; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
@@ -50,7 +45,6 @@ union objectinfo { struct fileinfo file; struct volumeinfo volume; struct deldir
 typedef struct canode { ULONG clustersize, blocknr, next, nr; } canode_t;
 struct anodechainnode { struct anodechainnode *next; struct canode an; };
 struct anodechain { struct anodechain *next, *prev; ULONG refcount; struct anodechainnode head; };
-struct extrafields { ULONG link, virtualsize, rollpointer; };
 struct volumedata { int fileentries; };
 typedef struct globaldata {
 	struct volumedata *currentvolume; int fnsize; UBYTE dirextension, deldirenabled;

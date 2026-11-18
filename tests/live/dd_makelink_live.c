@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stddef.h>
 #include "live.h"
+#include "pfs3disk.h"
 typedef intptr_t BPTR; typedef uintptr_t IPTR;
 typedef UBYTE *DSTR; typedef char *STRPTR;
 #define MULTIUSER 0
@@ -28,8 +29,6 @@ typedef UBYTE *DSTR; typedef char *STRPTR;
 #define SPECIAL_DELFILE 2
 #define SPECIAL_FLUSHED 3
 #define PATHSIZE 256
-#define ID_AFS_DISK (0x41465301L)
-#define ID_PFS2_DISK (0x50465302L)
 #define PFS_ERROR_INCONSISTENT 213      /* ERROR_DISK_NOT_VALIDATED */
 
 #define BADDR(x) ((void *)((intptr_t)(x) << 2))
@@ -53,7 +52,6 @@ typedef union listtype listtype;
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Arg3, dp_Arg4, dp_Arg5, dp_Res2; };
 struct FileLock { BPTR fl_Link; LONG fl_Key; LONG fl_Access; void *fl_Task; BPTR fl_Volume; };
 struct DeviceList { ULONG dummy; };
-struct direntry { UBYTE next; BYTE type; ULONG anode; };
 struct cdirblock { struct { ULONG anodenr; } blk; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
 struct volumedata;

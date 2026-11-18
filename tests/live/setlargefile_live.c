@@ -15,16 +15,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "live.h"
-
-#define ID_PFS_DISK (0x50465301L)	/* pfs3disk.h */
-#define ID_PFS2_DISK (0x50465302L)
-#define ID_AFS_DISK (0x41465301L)
-#define ID_MUPFS_DISK (0x6d755046L)
-#define MODE_LARGEFILE 2048
+#include "pfs3disk.h"
 
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Res1, dp_Res2; };
 struct crootblockextension { int dummy; };
-struct rootblock { ULONG disktype; ULONG options; };
 struct volumedata { struct rootblock *rootblk; struct crootblockextension *rblkextension; };
 typedef struct globaldata {
 	struct volumedata *currentvolume;

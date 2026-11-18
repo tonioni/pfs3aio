@@ -15,8 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "live.h"
-#define ID_AFS_DISK (0x41465301L)
-#define ID_PFS2_DISK (0x50465302L)
+#include "pfs3disk.h"
 
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Arg3, dp_Arg4, dp_Res2; };
 struct Task { int dummy; };

@@ -21,10 +21,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 
 #define PFS_ERROR_INCONSISTENT 213
 
-struct direntry { UBYTE next; };
 struct cdirblock { ULONG blocknr; ULONG used; struct { UBYTE entries[16]; } blk; };
 struct canode { ULONG clustersize, blocknr, next, nr; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
@@ -41,7 +41,6 @@ typedef struct lockentry {
 } lockentry_t;
 typedef struct globaldata { ULONG locknr; } globaldata;
 
-#define NEXTENTRY(de) ((struct direntry*)((UBYTE*)(de) + (de)->next))
 #define FIRSTENTRY(blok) ((struct direntry*)((blok)->blk.entries))
 #define LOCK(blk) ((blk)->used = g->locknr)
 

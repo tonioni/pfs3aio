@@ -12,8 +12,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "live.h"
+#include "pfs3disk.h"
 
-#define ANODE_USERFIRST 6
 struct canode { ULONG clustersize, blocknr, next, nr; };
 typedef struct globaldata { UBYTE anodesplitmode; } globaldata;
 struct { ULONG *anblkbitmap; ULONG anodesperblock; ULONG anblkbitmapsize; } andata;

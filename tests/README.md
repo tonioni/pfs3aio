@@ -26,7 +26,8 @@ of the source, as a definition of exactly that name; if a name is defined more t
 once, such as a `DEBUGMODE` stub, the last definition is used). Each test is written to FAIL on a tree that still
 has the bug it covers and to PASS once it is fixed. `live/live.h` holds what the tests share: the Amiga integer
 types, `TRUE`/`FALSE`/`DOSTRUE`/`DOSFALSE`, the DOS error values of `dos/dos.h` and the `CHECK` macro with its
-`fails` counter. Covered:
+`fails` counter. A test takes on-disk constants and blocks from `pfs3disk.h` of the source under test unless
+its mock needs other fields or a different layout. Covered:
 
 | test | fix it proves |
 |------|---------------|

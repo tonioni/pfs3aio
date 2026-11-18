@@ -18,8 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "live.h"
+#include "pfs3disk.h"
 typedef intptr_t BPTR; typedef UBYTE *DSTR; typedef char *STRPTR;
-#define DNSIZE 32
 #define MULTIUSER 0
 #define MEMF_PUBLIC 1
 #define MEMF_CLEAR  2
