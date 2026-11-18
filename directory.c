@@ -5385,7 +5385,7 @@ ULONG SetDeldir(int nbr, globaldata *g)
 			return ERROR_OBJECT_IN_USE;
 	}
 
-	if (!UpdateDisk(g))
+	if (!UpdateDisk(g) && g->dirty)
 		return PFS_ERROR_INCONSISTENT;
 
 	for (i = nbr; i < rext->blk.deldirsize; i++)
