@@ -15,9 +15,8 @@
 #include <proto/exec.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "versions.h"
 
-#define REVISION "1.1"
-#define DATE "13.5.99"
 #define TEMPLATE "VOLUME/A,FILENAMESIZE/N"
 #define ACTION_SLEEP 2200
 #define ACTION_UPDATE_ANODE 2201
@@ -28,7 +27,7 @@
 #define ACTION_SET_FNSIZE 2222
 #define ID_PFS_DISK	(0x50465302L)	/*	'PFS\2' */
 
-UBYTE *version = "$VER: Setfnsize " REVISION " (" DATE ") by Michiel Pelt";
+UBYTE *version = "$VER: Setfnsize " SETFNSIZE_REVISION " (" SETFNSIZE_DATE ") by Michiel Pelt";
 LONG args[2];
 
 void main(void)

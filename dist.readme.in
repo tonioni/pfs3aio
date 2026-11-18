@@ -14,6 +14,11 @@ DEVICE/A,INFO/S,CHECK/S,REPAIR/S,SEARCH/S,UNFORMAT/S,VERBOSE/S,
 NONINTERACTIVE/S,LOGFILE/K,DIRECTSCSI/S
 pfsdoctor.guide describes it.
 
+Tools for a mounted volume:
+setdeldir DEVICE/A,DELDIRSIZE/N: number of deldir blocks
+setfnsize VOLUME/A,FILENAMESIZE/N: maximum file name length
+setlargefile VOLUME/A,ENABLE/S: large-file support (large-file handler)
+
 This product includes software developed by Michiel Pelt.
 
 Distribution build: @VERSION@

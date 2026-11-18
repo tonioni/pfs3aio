@@ -82,9 +82,31 @@ jobs:
           path: pfsdoctor/pfsdoctor
           if-no-files-found: error
 
+  tools:
+    name: Build tools
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build tools
+        run: make tools
+
+      - name: Upload tools
+        uses: actions/upload-artifact@v7
+        with:
+          name: pfs3aio-tools
+          path: |
+            tools/setdeldir
+            tools/setfnsize
+            tools/setlargefile
+          if-no-files-found: error
+
   package:
     name: Package both build variants
-    needs: [test, build, pfsdoctor]
+    needs: [test, build, pfsdoctor, tools]
     runs-on: ubuntu-latest
     container: stefanreinauer/amiga-gcc:gcc-v13.4
     steps:
@@ -109,8 +131,18 @@ jobs:
           name: pfs3aio-pfsdoctor
           path: pfsdoctor
 
+      - name: Download tools
+        uses: actions/download-artifact@v8
+        with:
+          name: pfs3aio-tools
+          path: tools
+
       - name: Restore executable permissions
-        run: chmod +x pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfsdoctor/pfsdoctor
+        run: |
+          chmod +x \
+            pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom \
+            pfsdoctor/pfsdoctor \
+            tools/setdeldir tools/setfnsize tools/setlargefile
 
       - name: Build distribution
         env:

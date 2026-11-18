@@ -18,9 +18,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../blocks.h"
+#include "versions.h"
 
-#define REVISION "1.2"
-#define DATE "11.3.1999"
 #define TEMPLATE "DEVICE/A,DELDIRSIZE/N"
 #define ACTION_SLEEP 2200
 #define ACTION_UPDATE_ANODE 2201
@@ -31,7 +30,7 @@
 #define ACTION_SET_DELDIR 2221
 #define ID_PFS2_DISK (0x50465302L)	/*	'PFS\2'	*/
 
-UBYTE *version = "$VER: SetDeldir " REVISION " (" DATE ") by Michiel Pelt";
+UBYTE *version = "$VER: SetDeldir " SETDELDIR_REVISION " (" SETDELDIR_DATE ") by Michiel Pelt";
 LONG args[2];
 
 void main(void)

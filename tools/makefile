@@ -1,13 +1,9 @@
 
-NOWDATE := "\"$(shell date "+%-d.%-m.%Y")\""
-NOWTIME := "\"$(shell date "+%T")\""
-
 CC=/opt/amiga/bin/m68k-amigaos-gcc
 
 LIBS=-lamiga -lgcc -lnix13 -lnix -s
 
-CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -mregparm=3 -msmall-code -s \
-	-DREVDATE=$(NOWDATE) -DREVTIME=$(NOWTIME)
+CFLAGS=-Os -fbbb=+ -m68000 -noixemul -fomit-frame-pointer -mregparm=3 -msmall-code -s
 
 TOOLS = setdeldir setfnsize setlargefile
 
@@ -18,7 +14,7 @@ all: $(TOOLS)
 $(TOOLS): %: %.o
 	$(CC) -o $@ $< $(CFLAGS) $(LIBS)
 
-%.o: %.c makefile
+%.o: %.c makefile versions.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
 setdeldir.o: ../blocks.h
