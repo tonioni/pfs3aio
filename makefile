@@ -84,10 +84,13 @@ all-variants:
 pfsdoctor:
 	$(MAKE) -C pfsdoctor CC=$(CC)
 
+# AmigaGuide documentation, generated from docs/*.md (see README.md).
+GUIDES = docs/pfsdoctor.guide
+
 $(OBJS): makefile
 
 # 880K AmigaDOS floppy holding the handlers.
-FLOPPY_FILES = pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfsdoctor/pfsdoctor LICENSE versionhistory.doc
+FLOPPY_FILES = pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfsdoctor/pfsdoctor $(GUIDES) LICENSE versionhistory.doc
 floppy: all-variants
 	$(PYTHON) tools/mkadf.py pfs3aio.adf PFS3AIO $(FLOPPY_FILES)
 
@@ -114,7 +117,7 @@ archive: dist.readme.in
 	package="pfs3aio_$$version"; \
 	mkdir "$$stage/$$package"; \
 	cp -p pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom \
-	  pfsdoctor/pfsdoctor LICENSE versionhistory.doc "$$stage/$$package/"; \
+	  pfsdoctor/pfsdoctor $(GUIDES) LICENSE versionhistory.doc "$$stage/$$package/"; \
 	sed "s/@VERSION@/$$version/g" dist.readme.in > "$$stage/$$package.readme"; \
 	cp "$$stage/$$package.readme" "$$stage/$$package/pfs3aio.readme"; \
 	{ printf 'pfs3aio build %s\n' "$$version"; \
