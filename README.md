@@ -11,6 +11,7 @@ creating archives (not the extraction-only `lhasa` utility):
 ```
 make
 make largefile
+make pfsdoctor
 make check
 make lha
 ```
@@ -25,24 +26,27 @@ emulated-handler tests and their additional dependencies.
 - `pfs3aio_<version>.lha`
 - `pfs3aio_<version>.readme`
 
-The archive contains these four handlers, the Aminet readme, license,
-revision history and `Build.txt` with the Git revision and compiler version:
+The archive contains these four handlers, pfsdoctor and its AmigaGuide
+documentation, the Aminet readme, license, revision history and `Build.txt`
+with the Git revision and compiler version:
 
 - `pfs3aio`: normal build (`LARGE_FILE_SIZE=0`).
 - `pfs3aio-custom`: normal build wrapped for broken RDB filesystem loaders.
 - `pfs3aio-largefile`: large-file build (`LARGE_FILE_SIZE=1`).
 - `pfs3aio-largefile-custom`: large-file build with the same custom wrapper.
+- `pfsdoctor`: checks and repairs PFS3 volumes (`pfsdoctor/`).
 
-The archive does not contain utilities or pfsdoctor. Large-file support is
+Large-file support is
 opt-in: choose the large-file handler explicitly; the normal handler does
 not gain support for large-file volumes.
 
 `make` builds the normal pair. `make largefile` builds the large-file pair;
-`make all-variants` builds all four. Objects and generated dependency files
+`make pfsdoctor` builds `pfsdoctor/pfsdoctor`; `make all-variants` builds
+all four handlers and pfsdoctor. Objects and generated dependency files
 are isolated in `build/normal` and `build/largefile`, so switching variants
 cannot reuse objects compiled with the other setting. `make lha` builds
-all four, while `make archive` packages four already-built handlers (used
-by CI after downloading the matrix artifacts).
+all of them, while `make archive` packages already-built handlers and
+pfsdoctor (used by CI after downloading the matrix artifacts).
 
 Both unwrapped handlers link to one CODE hunk using `pfs3aio.ld`, including
 libnix's ctype-table pointer. The freestanding link maps `_SysBase` to the
@@ -66,18 +70,26 @@ https://aminet.net/disk/misc/pfs3aio.readme
 Its version and archive contents have been adapted for these builds. Review
 the uploader details and add release-specific changes before a release.
 
+## Documentation
+
+`docs/pfsdoctor.md` describes pfsdoctor. `docs/pfsdoctor.guide` is generated
+from it with `md2guide.py` of cfd (https://github.com/pulchart/cfd,
+`tools/md2guide.py`) and committed, so regenerate it after a change of the
+Markdown. The archive and the floppy image contain the guide.
+
 ## Floppy image
 
-`make floppy` builds all four handlers and writes `pfs3aio.adf`, an 880K
-AmigaDOS floppy image named `PFS3AIO` containing the handlers, `LICENSE` and
-`versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
+`make floppy` builds all four handlers and pfsdoctor and writes
+`pfs3aio.adf`, an 880K AmigaDOS floppy image named `PFS3AIO` containing the
+handlers, pfsdoctor, its guide, `LICENSE` and `versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
 removes the image.
 
 ## GitHub Actions
 
-CI builds the normal and large-file pairs in separate matrix jobs on branch
-pushes and pull requests, runs the native regression tests, then packages
-the downloaded handlers into an LHA without rebuilding them. Both handler
+CI builds the normal and large-file pairs in separate matrix jobs and
+pfsdoctor in its own job on branch pushes and pull requests, runs the native
+regression tests, then packages the downloaded handlers and pfsdoctor into an
+LHA without rebuilding them. Both handler
 pairs and the distribution pair are uploaded as workflow artifacts. The
 build uses Stefan Reinauer's m68k-amigaos-gcc
 13.4 container (`stefanreinauer/amiga-gcc:gcc-v13.4`).

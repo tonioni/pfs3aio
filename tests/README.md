@@ -1,6 +1,6 @@
 # pfs3aio test rig
 
-Two layers of tests for the pfs3aio driver.
+Two layers of tests for the pfs3aio driver; `live/` also covers pfsdoctor.
 
 ## `live/` — proofs that the fixes changed behaviour (fail on broken, pass on fixed)
 
@@ -76,6 +76,7 @@ has the bug it covers and to PASS once it is fixed. Covered:
 | `initialize_live.c` | `Initialize` rejects a DosEnvec too short to locate the partition and a `de_SizeBlock` outside 1..1024 before allocating anything; defaults `de_MaxTransfer` 0 to 0x20000 and keeps other values; assigns the allocator pointers before every failure return (`Quit` uses them after a failed init); works on `envcopy` for a table without a DosType and in place for one that has it; calls `AddToFSResource` only when `de_TableSize >= DE_DOSTYPE` |
 | `fsresource_live.c` | `AddToFSResource` ignores a zero DosType or a NULL seglist; a valid pair is registered, a duplicate DosType keeps the old entry, and failed allocations leave nothing half-built |
 | `datacache_live.c` | `InitDataCache` frees both blocks and resets the size after a failed allocation; `FreeDataCache` resets the size, so a later loop over the slots cannot touch freed memory |
+| `pfsdoctor_chainloop_live.c` | pfsdoctor: `ChainLoopEnd` finds the anode where a looping directory anode chain links back (0 for a chain that ends or cannot be read) with fewer than six reads per anode |
 
 Not covered by a live test: code that cannot run without AmigaOS or the m68k
 assembler: the startup path (`startup.s`, `FailStartup`), `Quit`, the stack

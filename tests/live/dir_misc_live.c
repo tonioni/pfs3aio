@@ -38,7 +38,7 @@ typedef int BOOL; typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define DOSTRUE (-1)
 #define DOSFALSE 0
 #define DELDIR 1
-#define ANODE_ROOTDIR 5			/* blocks.h */
+#define ANODE_ROOTDIR 5			/* pfs3disk.h */
 #define FNSIZE 108
 #define CMSIZE 80
 #define MAX_ENTRYSIZE (sizeof(struct direntry) + FNSIZE + CMSIZE + 34)

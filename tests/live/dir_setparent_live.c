@@ -37,7 +37,7 @@ typedef int BOOL; typedef char *STRPTR;
 #define DOSFALSE 0
 #define DELDIR 1
 #define CALLCAP 100	/* a cycle must be found in far fewer GetParent calls than this */
-#define ANODE_ROOTDIR 5			/* as in blocks.h */
+#define ANODE_ROOTDIR 5			/* as in pfs3disk.h */
 #define FNSIZE 108
 #define CMSIZE 80
 #define MAX_ENTRYSIZE (sizeof(struct direntry) + FNSIZE + CMSIZE + 34)
@@ -60,7 +60,7 @@ typedef int BOOL; typedef char *STRPTR;
 #define SPECIAL_FLUSHED 3
 #define SPECIAL_DELDIR 1
 
-/* on-disk layouts, as in blocks.h */
+/* on-disk layouts, as in pfs3disk.h */
 #pragma pack(push, 2)
 struct direntry {
 	UBYTE next; BYTE type; ULONG anode; ULONG fsize;

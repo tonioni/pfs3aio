@@ -63,9 +63,28 @@ jobs:
             ${{ matrix.target }}-custom
           if-no-files-found: error
 
+  pfsdoctor:
+    name: Build pfsdoctor
+    runs-on: ubuntu-latest
+    container: stefanreinauer/amiga-gcc:gcc-v13.4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build pfsdoctor
+        run: make pfsdoctor
+
+      - name: Upload pfsdoctor
+        uses: actions/upload-artifact@v7
+        with:
+          name: pfs3aio-pfsdoctor
+          path: pfsdoctor/pfsdoctor
+          if-no-files-found: error
+
   package:
     name: Package both build variants
-    needs: [test, build]
+    needs: [test, build, pfsdoctor]
     runs-on: ubuntu-latest
     container: stefanreinauer/amiga-gcc:gcc-v13.4
     steps:
@@ -84,8 +103,14 @@ jobs:
           merge-multiple: true
           path: .
 
+      - name: Download pfsdoctor
+        uses: actions/download-artifact@v8
+        with:
+          name: pfs3aio-pfsdoctor
+          path: pfsdoctor
+
       - name: Restore executable permissions
-        run: chmod +x pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom
+        run: chmod +x pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfsdoctor/pfsdoctor
 
       - name: Build distribution
         env:

@@ -40,7 +40,7 @@ typedef const char *CONST_STRPTR;
 #define MAXSMALLBITMAPINDEX 4
 #define MAXSMALLINDEXNR 98
 
-/* real values from dos/dos.h, devices/trackdisk.h and blocks.h */
+/* real values from dos/dos.h, devices/trackdisk.h and pfs3disk.h */
 #define ID_WRITE_PROTECTED 80
 #define ID_VALIDATING 81
 #define ID_VALIDATED 82
@@ -63,7 +63,7 @@ typedef const char *CONST_STRPTR;
 #define MODE_EXTENSION 32
 #define MODE_LARGEFILE 2048
 
-/* the real rootblock (blocks.h), exactly 512 bytes */
+/* the real rootblock (pfs3disk.h), exactly 512 bytes */
 typedef struct rootblock
 {
 	LONG disktype;

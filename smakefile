@@ -10,7 +10,7 @@ FRENCH_OBJECTS = $(OD)assroutines.o $(OD)french_messages.o $(OD)boot.o $(OBJECTS
 ITALIAN_OBJECTS = $(OD)assroutines.o $(OD)italian_messages.o $(OD)boot.o $(OBJECTS)
 TEST_OBJECTS = $(OD)test.o $(OD)mount.o $(OD)messages.o $(OD)assroutines.o $(OBJECTS)
 TESTF_OBJECTS = $(OD)test.o $(OD)mountf.o $(OD)messages.o $(OD)assroutines.o $(OBJECTS)
-EFFECTALL = struct.h blocks.h scoptions
+EFFECTALL = struct.h blocks.h pfs3disk.h scoptions
 
 all: $(OD)boot$(DS) $(OD)german$(DS) $(OD)french$(DS) $(OD)italian$(DS)
 clean:
