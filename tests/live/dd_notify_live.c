@@ -21,7 +21,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-typedef intptr_t SIPTR; typedef uint32_t ULONG; typedef uint8_t UBYTE; typedef int BOOL;
+#include "live.h"
 
 #define NRF_SEND_MESSAGE 1
 #define NRF_MAGIC        (1UL << 31)

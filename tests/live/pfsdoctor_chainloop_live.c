@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include "live.h"
 
 typedef uint32_t uint32;
 typedef struct { uint32 clustersize, blocknr, next, nr; } canode_t;
@@ -37,8 +38,6 @@ static bool GetAnode(canode_t *anode, uint32 anodenr, bool fix)
 
 #include "gen/ChainLoopEnd.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 /* anodes 1..n linked in order, n links to [last] */
 static void chain(uint32 n, uint32 last)

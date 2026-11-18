@@ -8,13 +8,9 @@
  */
 #include <stdio.h>
 #include <stdint.h>
+#include "live.h"
 
-typedef uint32_t ULONG;
-typedef uint8_t UBYTE;
-typedef int BOOL;
 
-#define TRUE 1
-#define FALSE 0
 #define ROOTBLOCK 2
 
 struct rootblock {

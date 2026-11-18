@@ -12,7 +12,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef int16_t WORD; typedef uint16_t UWORD;
+#include "live.h"
 #define ACCESS_DETECT 1                      /* compile out the #if ACCESS_DETECT==0 block */
 
 struct dosenvec { ULONG de_SizeBlock; ULONG de_SectorPerBlock; };

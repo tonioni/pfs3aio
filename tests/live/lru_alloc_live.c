@@ -22,9 +22,7 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
+#include "live.h"
 #define MAXB 600
 #define NEW_LRU_ENTRIES 5
 

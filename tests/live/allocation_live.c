@@ -13,11 +13,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define VOID void
 #define ROOTBLOCK 2
 #define MODE_EXTROVING 0x200
@@ -112,8 +109,6 @@ static void FreeMem(void *p, ULONG size) { (void)p; (void)size; }
 #define alloc_data (G.glob_allocdata)
 #define andata (G.glob_anodedata)
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 static struct volumedata V;

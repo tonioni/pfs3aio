@@ -36,10 +36,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef int16_t WORD; typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define DB(x)
 #define HASHM_DIR 0x1f
 #define AFS_ERROR_CACHE_INCONSISTENCY "cache inconsistency"
@@ -175,8 +173,6 @@ static void mock_remove(struct MN *n) { n->prev->next = n->next; n->next->prev =
 #include "gen/RemoveEmptyDBlocks.c"
 #undef updateok				/* only the lifted code needs the macro */
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 static struct volumedata VOL;

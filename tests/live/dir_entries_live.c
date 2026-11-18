@@ -33,14 +33,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR; typedef intptr_t IPTR;
-typedef int BOOL; typedef char *STRPTR; typedef const char *CONST_STRPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
+typedef intptr_t IPTR;
+typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define DELDIR 1
 #define UCOUNT WORD						/* struct.h */
 #define PATHSIZE 256					/* blocks.h */
@@ -60,10 +56,6 @@ typedef int BOOL; typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define ED_DATE 5
 #define ED_COMMENT 6
 #define ED_OWNER 7
-#define ERROR_BAD_NUMBER 115			/* dos/dos.h */
-#define ERROR_OBJECT_WRONG_TYPE 212
-#define ERROR_DISK_NOT_VALIDATED 213
-#define ERROR_NO_MORE_ENTRIES 232
 #define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED		/* struct.h */
 #define ST_USERDIR 2
 #define ST_FILE (-3)
@@ -270,8 +262,6 @@ static BOOL MatchPatternNoCase(STRPTR p, STRPTR s) { (void)p; (void)s; return TR
 #include "gen/FillInData.c"
 #include "gen/ExamineAll.c"
 
-static int failures;
-#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static struct volumedata vol;
 static struct crootblockextension rext;
@@ -691,7 +681,7 @@ int main(void)
 	test_examineall();
 	test_searchindir();
 	test_searchindeldir();
-	if (failures) { printf("FAIL: %d checks failed\n", failures); return 1; }
+	if (fails) { printf("FAIL: %d checks failed\n", fails); return 1; }
 	printf("PASS: FillInData error vs does-not-fit; ExamineAll ends on a corrupt entry; SearchInDir/SearchInDeldir name buffers hold the longest name\n");
 	return 0;
 }

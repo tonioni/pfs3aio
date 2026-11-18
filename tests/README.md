@@ -24,7 +24,9 @@ finds the tests with `live/*_live.c`, so a new test needs no registration; the
 `@src`/`@func` tags in its header name the functions it lifts (a later `@src` switches the file; matched at column 0
 of the source, as a definition of exactly that name; if a name is defined more than
 once, such as a `DEBUGMODE` stub, the last definition is used). Each test is written to FAIL on a tree that still
-has the bug it covers and to PASS once it is fixed. Covered:
+has the bug it covers and to PASS once it is fixed. `live/live.h` holds what the tests share: the Amiga integer
+types, `TRUE`/`FALSE`/`DOSTRUE`/`DOSFALSE`, the DOS error values of `dos/dos.h` and the `CHECK` macro with its
+`fails` counter. Covered:
 
 | test | fix it proves |
 |------|---------------|

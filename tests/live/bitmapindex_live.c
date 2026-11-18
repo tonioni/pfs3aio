@@ -11,10 +11,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-typedef uint32_t ULONG; typedef uint16_t UWORD;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
+#include "live.h"
 #define MAXBITMAPINDEX 103
 #define MODE_SPLITTED_ANODES 2
 
@@ -25,8 +22,6 @@ typedef struct rootblock {
 } rootblock_t;
 
 #include "gen/CheckBitmapIndex.c"           /* the REAL function from ../../volume.c */
-
-static int fails;
 
 static void base(struct rootblock *r)
 {

@@ -27,22 +27,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
-typedef intptr_t SIPTR; typedef int32_t LONG; typedef uint32_t ULONG; typedef uint16_t UWORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL; typedef intptr_t BPTR; typedef uintptr_t IPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
+#include "live.h"
+typedef intptr_t BPTR; typedef uintptr_t IPTR;
 #define SHARED_LOCK (-2)
 #define EXCLUSIVE_LOCK (-1)
 #define ST_USERDIR 2
 #define ST_FILE (-3)
 #define SPECIAL_FLUSHED 3
-#define ERROR_NO_FREE_STORE 103
-#define ERROR_OBJECT_IN_USE 202
-#define ERROR_OBJECT_WRONG_TYPE 212
 #define PFS_ERROR_INCONSISTENT 213      /* ERROR_DISK_NOT_VALIDATED */
-#define ERROR_DEVICE_NOT_MOUNTED 218
 
 #define BADDR(x) ((void *)((intptr_t)(x) << 2))
 #define MKBADDR(x) ((BPTR)((intptr_t)(x) >> 2))

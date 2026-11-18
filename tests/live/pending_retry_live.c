@@ -13,11 +13,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
+#define LIVE_OWN_BOOL
+typedef int16_t BOOL;
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int16_t BOOL;
-#define TRUE 1
-#define FALSE 0
 #define VERSION23 1
 #define DELDIR 1
 #define HASHM_DIR 3
@@ -72,8 +71,6 @@ BOOL MakeBlockDirty(struct cachedblock *blk, globaldata *g);
 #include "gen/RetryPendingLists.c"
 #include "gen/RetryPendingBlocks.c"
 
-static int failures;
-#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static void newlist(struct MinList *l)
 {
@@ -166,7 +163,7 @@ int main(void)
 	CHECK(RetryPendingBlocks(&vol, &gd) && rext.changeflag == TRUE && !vol.pendingblocks,
 		"extension: relocated, mark cleared");
 
-	if (failures) { printf("pending_retry_live: %d FAILED\n", failures); return 1; }
+	if (fails) { printf("pending_retry_live: %d FAILED\n", fails); return 1; }
 	printf("  PASS: pending blocks are retried, and only scanned for when one exists\n");
 	return 0;
 }

@@ -35,10 +35,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define CBLK_DIRTY_PENDING 2
 #define DBERR(x)
 
@@ -112,8 +110,9 @@ static BOOL MakeBlockDirty(struct cachedblock *blk, globaldata *g)
 #include "gen/GetAnode.c"                  /* the REAL functions from ../../anodes.c */
 #include "gen/SaveAnodeInternal.c"
 
-static int fails;
+/* counts every check and prints only the first 25 failures */
 static unsigned long nchecks;
+#undef CHECK
 #define CHECK(cond, ...) do { nchecks++; if (!(cond)) { if (fails++ < 25) { printf("  FAIL: " __VA_ARGS__); printf("\n"); } } } while (0)
 
 static globaldata G;

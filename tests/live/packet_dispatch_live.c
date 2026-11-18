@@ -24,17 +24,13 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
-typedef intptr_t SIPTR; typedef int32_t LONG; typedef uint32_t ULONG; typedef uint16_t UWORD;
-typedef uint8_t UBYTE; typedef int16_t BOOL; typedef intptr_t BPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
+#define LIVE_OWN_BOOL
+typedef int16_t BOOL;
+#include "live.h"
+typedef intptr_t BPTR;
 #define BADDR(x) ((void *)((intptr_t)(x) << 2))
 #define MKBADDR(x) ((BPTR)((intptr_t)(x) >> 2))
 
-#define ERROR_OBJECT_IN_USE 202
-#define ERROR_DISK_NOT_VALIDATED 213
 #define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED
 
 /* the build of the standard (not large file) handler */

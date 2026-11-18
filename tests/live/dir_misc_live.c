@@ -29,14 +29,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR; typedef intptr_t IPTR;
-typedef int BOOL; typedef char *STRPTR; typedef const char *CONST_STRPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
+typedef intptr_t IPTR;
+typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define DELDIR 1
 #define ANODE_ROOTDIR 5			/* pfs3disk.h */
 #define FNSIZE 108
@@ -52,13 +48,6 @@ typedef int BOOL; typedef char *STRPTR; typedef const char *CONST_STRPTR;
 #define ST_SOFTLINK 3
 #define ST_LINKDIR 4
 #define ST_FILE (-3)
-#define ERROR_NO_FREE_STORE 103		/* dos/dos.h */
-#define ERROR_OBJECT_IN_USE 202
-#define ERROR_OBJECT_EXISTS 203
-#define ERROR_INVALID_COMPONENT_NAME 210
-#define ERROR_DISK_NOT_VALIDATED 213
-#define ERROR_DISK_FULL 221
-#define ERROR_WRITE_PROTECTED 223
 #define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED		/* struct.h */
 #define SPECIAL_FLUSHED 3
 #define SPECIAL_DELDIR 1
@@ -216,8 +205,6 @@ struct anodewalk { ULONG mark; ULONG steps; };
 #include "gen/KillEmpty.c"
 #include "gen/NewDir.c"
 
-static int failures;
-#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static struct volumedata vol;
 static globaldata gd = { &vol, FNSIZE };
@@ -440,7 +427,7 @@ int main(void)
 	test_killempty();
 	test_deletedir();
 	test_newdir();
-	if (failures) { printf("dir_misc_live: %d FAILED\n", failures); return 1; }
+	if (fails) { printf("dir_misc_live: %d FAILED\n", fails); return 1; }
 	printf("  PASS: KillEmpty only deletes real directories; DeleteDir deletes chains of any length, stops on cyclic chains; NewDir cleanup\n");
 	return 0;
 }

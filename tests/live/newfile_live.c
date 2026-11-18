@@ -21,11 +21,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef intptr_t SIPTR; typedef uint8_t UBYTE;
-typedef int8_t BYTE; typedef uint16_t UWORD; typedef int BOOL; typedef uint32_t FSIZE;
+#include "live.h"
+typedef uint32_t FSIZE;
 typedef char *STRPTR;
-#define TRUE 1
-#define FALSE 0
 #define VERSION23 1
 #define DELDIR 1
 #define ULONG_MAX 0xffffffffu
@@ -36,13 +34,6 @@ typedef char *STRPTR;
 #define ST_ROLLOVERFILE (-16)
 #define FIBF_DELETE 1
 #define SPECIAL_DELDIR 1
-#define ERROR_WRITE_PROTECTED 223
-#define ERROR_DISK_FULL 221
-#define ERROR_INVALID_COMPONENT_NAME 210
-#define ERROR_DELETE_PROTECTED 222
-#define ERROR_OBJECT_IN_USE 202
-#define ERROR_OBJECT_NOT_FOUND 205
-#define ERROR_NO_FREE_STORE 103
 #define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 
 struct direntry {

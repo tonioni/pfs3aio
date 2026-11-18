@@ -14,16 +14,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
-#define ERROR_NO_DISK 226			/* dos/dos.h */
-#define ERROR_BAD_NUMBER 115
 #define ID_PFS_DISK (0x50465301L)	/* pfs3disk.h */
 #define ID_PFS2_DISK (0x50465302L)
 #define ID_AFS_DISK (0x41465301L)
@@ -57,8 +49,6 @@ static struct rootblock rbl;
 static struct volumedata vol;
 static globaldata gd;
 static struct DosPacket pkt;
-static int fails;
-#define CHECK(c, msg) do { if (!(c)) { printf("  FAIL: %s\n", msg); fails++; } } while (0)
 
 static void setup(ULONG disktype, BOOL on)
 {

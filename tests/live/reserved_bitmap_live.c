@@ -7,13 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG;
-typedef int32_t LONG;
-typedef uint16_t UWORD;
-typedef int BOOL;
 #define VOID void
-#define TRUE 1
 #define ROOTBLOCK 2
 #define MODE_EXTROVING 1
 #define LONGS_PER_BMB 253

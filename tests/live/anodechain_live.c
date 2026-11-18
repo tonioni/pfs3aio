@@ -10,10 +10,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define NULL_ANODE 0
 #define ENTER(x)
 
@@ -79,8 +77,6 @@ static BOOL GetAnode(struct canode *anode, ULONG anodenr, globaldata *g)
 #include "gen/GetNextAnode.c"
 #include "gen/MakeAnodeChain.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G = { mock_alloc, mock_free, NULL };
 

@@ -9,10 +9,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int8_t BYTE;
-typedef int BOOL; typedef void *APTR;
-#define TRUE  1
-#define FALSE 0
+#include "live.h"
+typedef void *APTR;
 
 #define HD_SCSICMD      28
 #define SCSIF_WRITE     0

@@ -11,10 +11,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-typedef uint32_t ULONG; typedef uint8_t UBYTE;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
+#include "live.h"
 
 #define ANODE_USERFIRST 6
 struct canode { ULONG clustersize, blocknr, next, nr; };

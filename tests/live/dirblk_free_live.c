@@ -21,12 +21,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 
 #pragma pack(push, 2)
 struct direntry {
@@ -89,8 +85,6 @@ static BOOL UpdateChangedRef(struct fileinfo from, struct fileinfo *to, int diff
 #include "gen/CutDirEntry.c"
 #include "gen/UpdateChangedRef.c"
 
-static int failures;
-#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata gd;
 static struct rootblock rb = { BLKSIZE };
@@ -203,7 +197,7 @@ int main(void)
 	RemoveDirEntry(from, &gd);
 	CHECK(!strcmp(trace, "D") && FIRSTENTRY(&src)->next == 0, "RemoveDirEntry: dirtied, not freed (trace %s)", trace);
 
-	if (failures) { printf("dirblk_free_live: %d FAILED\n", failures); return 1; }
+	if (fails) { printf("dirblk_free_live: %d FAILED\n", fails); return 1; }
 	printf("  PASS: an emptied dirblock is freed once nothing points into it, else marked dirty\n");
 	return 0;
 }

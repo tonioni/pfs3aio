@@ -15,23 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include "live.h"
 
-typedef unsigned int ULONG; typedef int LONG; typedef unsigned short UWORD;
-typedef unsigned char UBYTE; typedef int BOOL; typedef intptr_t SIPTR;
 typedef UBYTE *DSTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define ENTER(x)
 
-#define ERROR_NO_FREE_STORE 103
-#define ERROR_BAD_NUMBER 115
-#define ERROR_INVALID_COMPONENT_NAME 210
-#define ERROR_OBJECT_TOO_LARGE 207
-#define ERROR_DISK_WRITE_PROTECTED 214
-#define ERROR_DISK_FULL 221
 #define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 
 #define DE_SIZEBLOCK 1

@@ -8,18 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG;
-typedef uint16_t UWORD;
-typedef uint8_t UBYTE;
-typedef intptr_t SIPTR;
 typedef intptr_t IPTR;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSFALSE 0
-#define DOSTRUE 1
-#define ERROR_DISK_FULL 221
 #define AFS_ERROR_DNV_WRONG_DIRID 0
 #define FNSIZE 108
 #define CMSIZE 80

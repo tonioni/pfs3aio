@@ -17,11 +17,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE;
-typedef intptr_t SIPTR; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define PFS_ERROR_INCONSISTENT 213
 #define AFS_ERROR_CACHE_INCONSISTENCY 1
 
@@ -90,8 +87,6 @@ static struct cdirblock *MakeDirBlock(ULONG b, ULONG a, ULONG r, ULONG p, global
 #include "gen/IsDelfileValid.c"
 #include "gen/MoveToPrevious.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 

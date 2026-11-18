@@ -16,15 +16,11 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef uintptr_t IPTR;
-typedef long SIPTR;
+#define LIVE_OWN_BOOL
 typedef short BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
-#define ERROR_OBJECT_IN_USE 202
-#define ERROR_DISK_NOT_VALIDATED 213
+#include "live.h"
+typedef uintptr_t IPTR;
+
 #define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED
 #define SPECIAL_FLUSHED 3
 
@@ -62,8 +58,6 @@ static BOOL GetParent(union objectinfo *c, union objectinfo *up, SIPTR *error, g
 
 #include "gen/IsChildOf.c"			/* the REAL function from ../../directory.c */
 
-static int failures;
-#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static BOOL ischild(ULONG c, ULONG p, SIPTR *error)
 {
@@ -113,7 +107,7 @@ int main(void)
 	CHECK(ischild(6999, 4, &e) && e == PFS_ERROR_INCONSISTENT && !runaway,
 		  "a long tail ending in a cycle must stop with an error (err %ld, runaway %d)", (long)e, runaway);
 
-	if (failures) { printf("dir_integrity_live: %d FAILED\n", failures); return 1; }
+	if (fails) { printf("dir_integrity_live: %d FAILED\n", fails); return 1; }
 	printf("dir_integrity_live: all checks passed\n");
 	return 0;
 }

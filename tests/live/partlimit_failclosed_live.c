@@ -13,7 +13,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef int16_t WORD; typedef uint16_t UWORD;
+#include "live.h"
 
 struct dosenvec { ULONG de_LowCyl, de_HighCyl; };
 struct drivegeom { ULONG dg_CylSectors; };
@@ -25,8 +25,6 @@ typedef struct globaldata {
 } globaldata;
 
 #include "gen/SetPartitionLimits.c"          /* the REAL function from ../../volume.c */
-
-static int fails;
 
 static void run(const char *what, ULONG lo, ULONG hi, ULONG cs, int shift,
                 int valid, ULONG efirst, ULONG elast, ULONG efirstn, ULONG elastn)
