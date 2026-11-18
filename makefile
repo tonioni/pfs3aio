@@ -91,7 +91,7 @@ tools:
 	$(MAKE) -C tools CC=$(CC)
 
 # AmigaGuide documentation, generated from docs/*.md (see README.md).
-GUIDES = docs/pfsdoctor.guide
+GUIDES = docs/pfsdoctor.guide docs/tools.guide
 
 $(OBJS): makefile
 

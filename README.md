@@ -27,8 +27,8 @@ emulated-handler tests and their additional dependencies.
 - `pfs3aio_<version>.lha`
 - `pfs3aio_<version>.readme`
 
-The archive contains these four handlers, pfsdoctor and its AmigaGuide
-documentation, the tools, the Aminet readme, license, revision history and
+The archive contains these four handlers, pfsdoctor, the tools, their
+AmigaGuide documentation, the Aminet readme, license, revision history and
 `Build.txt` with the Git revision and compiler version:
 
 - `pfs3aio`: normal build (`LARGE_FILE_SIZE=0`).
@@ -76,16 +76,17 @@ the uploader details and add release-specific changes before a release.
 
 ## Documentation
 
-`docs/pfsdoctor.md` describes pfsdoctor. `docs/pfsdoctor.guide` is generated
-from it with `md2guide.py` of cfd (https://github.com/pulchart/cfd,
-`tools/md2guide.py`) and committed, so regenerate it after a change of the
-Markdown. The archive and the floppy image contain the guide.
+`docs/pfsdoctor.md` and `docs/tools.md` describe pfsdoctor and the tools.
+The `.guide` files next to them are generated with `md2guide.py` of cfd
+(https://github.com/pulchart/cfd, `tools/md2guide.py`) and committed, so
+regenerate them after a change of the Markdown. The archive and the floppy
+image contain the guides.
 
 ## Floppy image
 
 `make floppy` builds all four handlers, pfsdoctor and the tools and writes
 `pfs3aio.adf`, an 880K AmigaDOS floppy image named `PFS3AIO` containing the
-handlers, pfsdoctor, its guide, the tools, `LICENSE` and `versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
+handlers, pfsdoctor, the tools, the guides, `LICENSE` and `versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
 removes the image.
 
 ## GitHub Actions
