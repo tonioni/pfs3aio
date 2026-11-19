@@ -6,7 +6,7 @@
 Finds the first partition of the RDB, reads the rootblock, the reserved
 bitmap and the anodes, and lists the dirblock chain of PATH (default the root
 directory): for each block its anode, its location and its number of entries.
-Only the layouts the tests format are read: no supermode (MODE_SUPERINDEX).
+Anodes are read only without supermode (MODE_SUPERINDEX).
 """
 import struct
 import sys
@@ -39,8 +39,6 @@ class Image:
         self.reserved_free = u32(rb, 60)
         self.resblksize = u16(rb, 64)
         self.indexblocks = [u32(rb, 116 + 4 * i) for i in range(99)]
-        if self.options & MODE_SUPERINDEX:
-            raise ValueError("supermode is not supported")
         self.split = bool(self.options & MODE_SPLITTED_ANODES)
         self.rescluster = self.resblksize // self.secsize
         self.anodesperblock = (self.resblksize - 16) // 12
@@ -77,6 +75,8 @@ class Image:
 
     def _anode_pos(self, nr):
         """File offset of anode nr."""
+        if self.options & MODE_SUPERINDEX:
+            raise ValueError("supermode is not supported")
         if self.split:
             seqnr, offset = nr >> 16, nr & 0xffff
         else:

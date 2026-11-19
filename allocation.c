@@ -1121,31 +1121,74 @@ ULONG AllocReservedBlockSave (globaldata *g)
 }
 #endif
 
-/*
- * frees reserved block, or does nothing if blocknr = 0
+/* Bitmap word and bit (*mask) of reserved block blocknr, NULL if none
  */
-VOID FreeReservedBlock (ULONG blocknr, globaldata *g)
+static ULONG *ReservedBit (ULONG blocknr, ULONG *mask, globaldata *g)
 {
-  ULONG *bitmap, t, mask;
+  ULONG t;
 
 	if (g->currentvolume->metadata_error || !alloc_data.res_bitmap)
-		return;
+		return NULL;
 
-	if (blocknr >= g->rootblock->firstreserved &&
-		blocknr <= g->rootblock->lastreserved && blocknr &&
-		g->currentvolume->rescluster &&
-		(blocknr - g->rootblock->firstreserved) % g->currentvolume->rescluster == 0)
+	if (!blocknr || blocknr < g->rootblock->firstreserved ||
+		blocknr > g->rootblock->lastreserved ||
+		!g->currentvolume->rescluster ||
+		(blocknr - g->rootblock->firstreserved) % g->currentvolume->rescluster)
+		return NULL;
+
+	t = (blocknr - g->rootblock->firstreserved)/g->currentvolume->rescluster;
+	if (t >= alloc_data.numreserved)
+		return NULL;
+	*mask = 0x80000000UL >> (t%32);
+	return &alloc_data.res_bitmap->bitmap[t/32];
+}
+
+/*
+ * frees reserved block, or does nothing if blocknr = 0
+ * result: TRUE if the block was allocated
+ */
+BOOL FreeReservedBlock (ULONG blocknr, globaldata *g)
+{
+  ULONG *word, mask;
+
+	word = ReservedBit(blocknr, &mask, g);
+	if (!word)
+		return FALSE;
+	if (*word & mask)
+		return FALSE;
+
+	*word |= mask;
+	g->rootblock->reserved_free++;
+	g->currentvolume->rootblockchangeflag = TRUE;
+	return TRUE;
+}
+
+/* Frees the queued old locations of reallocated reserved blocks, in the
+ * bitmap the next root write carries. Drops entries that free nothing.
+ */
+void ApplyReservedToBeFreed (globaldata *g)
+{
+  ULONG i;
+
+	for (i=0; i<alloc_data.rtbf_index; i++)
+		if (!FreeReservedBlock(alloc_data.reservedtobefreed[i], g))
+			alloc_data.reservedtobefreed[i] = 0;
+}
+
+/* Root write failed: allocates the applied blocks again, the queue stays
+ */
+void UndoReservedToBeFreed (globaldata *g)
+{
+  ULONG i, *word, mask;
+
+	for (i=0; i<alloc_data.rtbf_index; i++)
 	{
-		bitmap = alloc_data.res_bitmap->bitmap;
-		t = (blocknr - g->rootblock->firstreserved)/g->currentvolume->rescluster;
-		if (t >= alloc_data.numreserved)
-			return;
-		mask = 0x80000000UL >> (t%32);
-		if (bitmap[t/32] & mask)
-			return;
-		bitmap[t/32] |= mask;
-		g->rootblock->reserved_free++;
-		g->currentvolume->rootblockchangeflag = TRUE;
+		word = ReservedBit(alloc_data.reservedtobefreed[i], &mask, g);
+		if (word && (*word & mask))
+		{
+			*word &= ~mask;
+			g->rootblock->reserved_free--;
+		}
 	}
 }
 

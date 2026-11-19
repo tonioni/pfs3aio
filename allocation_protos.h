@@ -14,7 +14,9 @@ void UndoFreeList(globaldata * );
 
 ULONG AllocReservedBlock(globaldata * );
 ULONG AllocReservedBlockSave(globaldata * );
-void FreeReservedBlock(ULONG , globaldata * );
+BOOL FreeReservedBlock(ULONG , globaldata * );
+void ApplyReservedToBeFreed(globaldata * );
+void UndoReservedToBeFreed(globaldata * );
 
 cindexblock_t * GetBitmapIndex(UWORD , globaldata * );
 struct cbitmapblock * NewBitmapBlock(ULONG seqnr , globaldata * );

@@ -1,10 +1,11 @@
-/* LIVE @src update.c @func CommitPostRootChanges
+/* LIVE @src update.c @func CommitRoot
  *
- * Proof that a successful primary root commit persists its deferred reserved
- * frees. The real helper is lifted from update.c and driven with a mock root
- * writer. It must apply reserved and user-space free-list commits first, then
- * issue a root-only cleanup write; without that write pfsdoctor reports the old
- * copy-on-write metadata locations as "not used but allocated".
+ * Proof that the root write, the commit point, carries the frees of the old
+ * reserved locations it stops referencing. The real helper is lifted from
+ * update.c and driven with a mock root writer. A second write for them could
+ * be lost at a power cut, and pfsdoctor then reports those locations as
+ * "not used but allocated". A failed write must take the frees back and keep
+ * the queue for the next attempt.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -30,21 +31,20 @@ struct {
     ULONG rtbf_index;
 } alloc_data;
 
-static int sequence, reserved_commit_at, free_commit_at, root_write_at;
+static int sequence, apply_at, undo_at, root_write_at;
 static int root_writes, fail_root_write;
 static ULONG free_seen_by_write;
 
-static void CommitReservedToBeFreed(globaldata *g)
+static void ApplyReservedToBeFreed(globaldata *g)
 {
-    reserved_commit_at = ++sequence;
+    apply_at = ++sequence;
     g->currentvolume->rootblk->reserved_free += alloc_data.rtbf_index;
-    alloc_data.rtbf_index = 0;
 }
 
-static void CommitFreeList(globaldata *g)
+static void UndoReservedToBeFreed(globaldata *g)
 {
-    (void)g;
-    free_commit_at = ++sequence;
+    undo_at = ++sequence;
+    g->currentvolume->rootblk->reserved_free -= alloc_data.rtbf_index;
 }
 
 static ULONG RawWrite(UBYTE *data, ULONG blocks, ULONG blocknr, globaldata *g)
@@ -58,11 +58,11 @@ static ULONG RawWrite(UBYTE *data, ULONG blocks, ULONG blocknr, globaldata *g)
     return fail_root_write ? 1 : 0;
 }
 
-#include "gen/CommitPostRootChanges.c"       /* the REAL helper from ../../update.c */
+#include "gen/CommitRoot.c"  /* the REAL helper from ../../update.c */
 
 static void Reset(void)
 {
-    sequence = reserved_commit_at = free_commit_at = root_write_at = 0;
+    sequence = apply_at = undo_at = root_write_at = 0;
     root_writes = fail_root_write = 0;
     free_seen_by_write = 0;
 }
@@ -75,29 +75,31 @@ int main(void)
 
     Reset();
     alloc_data.rtbf_index = 0;
-    if (!CommitPostRootChanges(&g) || root_writes != 0) {
-        printf("  FAIL: cleanup root written with no deferred reserved frees\n");
+    if (!CommitRoot(&g) || root_writes != 1 || undo_at) {
+        printf("  FAIL: root not written once with no queued reserved frees\n");
         return 1;
     }
 
     Reset();
     alloc_data.rtbf_index = 3;
-    if (!CommitPostRootChanges(&g) || root_writes != 1 ||
-        !(reserved_commit_at < free_commit_at && free_commit_at < root_write_at) ||
-        free_seen_by_write != 103 || alloc_data.rtbf_index != 0) {
-        printf("  FAIL: deferred frees were not committed before one cleanup root write\n");
+    if (!CommitRoot(&g) || root_writes != 1 || undo_at ||
+        !(apply_at && apply_at < root_write_at) ||
+        free_seen_by_write != 103 || root.reserved_free != 103 ||
+        alloc_data.rtbf_index != 0) {
+        printf("  FAIL: queued reserved frees were not carried by the one root write\n");
         return 1;
     }
 
     Reset();
     alloc_data.rtbf_index = 2;
     fail_root_write = 1;
-    if (CommitPostRootChanges(&g) || root_writes != 1 ||
-        free_seen_by_write != 105 || alloc_data.rtbf_index != 0) {
-        printf("  FAIL: cleanup write failure was not reported after applying safe frees\n");
+    if (CommitRoot(&g) || root_writes != 1 || free_seen_by_write != 105 ||
+        !(root_write_at < undo_at) || root.reserved_free != 103 ||
+        alloc_data.rtbf_index != 2) {
+        printf("  FAIL: failed root write did not take the frees back and keep the queue\n");
         return 1;
     }
 
-    printf("  PASS: deferred reserved frees are persisted by one post-commit root write\n");
+    printf("  PASS: the root write carries the queued reserved frees, a failed one takes them back\n");
     return 0;
 }

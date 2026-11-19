@@ -1,6 +1,9 @@
-/* LIVE @src allocation.c @func InitAllocation @func AllocReservedBlock @func FreeReservedBlock
+/* LIVE @src allocation.c @func InitAllocation @func AllocReservedBlock @func ReservedBit @func FreeReservedBlock
+ * @func ApplyReservedToBeFreed @func UndoReservedToBeFreed
  * Exercise the real initializer and bitmap allocator with Amiga-width types.
  * Invalid metadata must leave allocation disabled, not merely report an error.
+ * The queued reserved frees go into the bitmap before the root write and come
+ * back out when it fails.
  */
 #include <assert.h>
 #include <stdint.h>
@@ -46,7 +49,10 @@ static unsigned errors;
 
 #include "gen/InitAllocation.c"
 #include "gen/AllocReservedBlock.c"
+#include "gen/ReservedBit.c"
 #include "gen/FreeReservedBlock.c"
+#include "gen/ApplyReservedToBeFreed.c"
+#include "gen/UndoReservedToBeFreed.c"
 
 static void setup(globaldata *g, struct volumedata *v, ULONG blocksize,
     ULONG clusters, ULONG reserved)
@@ -155,6 +161,42 @@ int main(void)
         assert(!AllocReservedBlock(&g)); /* ignore padding bit */
         free(v.rootblk);
     }
-    puts("  PASS: reserved bitmap capacity, geometry, allocation and rover bounds");
+    /* Queued frees: applied for the root write, undone when it fails. */
+    {
+        setup(&g, &v, 512, 2, 4000);
+        InitAllocation(&v, &g);
+        memset(alloc_data.res_bitmap->bitmap, 0xff, 4000 / 8);
+        ULONG a = AllocReservedBlock(&g), b = AllocReservedBlock(&g);
+        ULONG c = AllocReservedBlock(&g), d = AllocReservedBlock(&g);
+        assert(a && b && c && d && a != b && b != c && c != d);
+        FreeReservedBlock(c, &g); /* queued, but already free */
+        ULONG queue[] = { a, b, a, 0, a + 1, c, d };
+        ULONG nfree = v.rootblk->reserved_free, mask, *word;
+        alloc_data.reservedtobefreed = queue;
+        alloc_data.rtbf_index = 6;
+        ApplyReservedToBeFreed(&g);
+        assert(v.rootblk->reserved_free == nfree + 2);
+        assert(queue[0] == a && queue[1] == b);
+        assert(!queue[2] && !queue[3] && !queue[4] && !queue[5]);
+        UndoReservedToBeFreed(&g);
+        assert(v.rootblk->reserved_free == nfree && alloc_data.rtbf_index == 6);
+        word = ReservedBit(a, &mask, &g);
+        assert(word && !(*word & mask));
+        word = ReservedBit(b, &mask, &g);
+        assert(word && !(*word & mask));
+        word = ReservedBit(c, &mask, &g);
+        assert(word && (*word & mask)); /* stays free */
+        alloc_data.rtbf_index = 7; /* d queued before the retry */
+        ApplyReservedToBeFreed(&g);
+        assert(v.rootblk->reserved_free == nfree + 3);
+        ULONG freed[] = { a, b, d };
+        for (int i = 0; i < 3; i++) {
+            word = ReservedBit(freed[i], &mask, &g);
+            assert(word && (*word & mask));
+        }
+        alloc_data.reservedtobefreed = NULL;
+        free(v.rootblk);
+    }
+    puts("  PASS: reserved bitmap capacity, geometry, allocation, rover bounds and queued frees");
     return 0;
 }
