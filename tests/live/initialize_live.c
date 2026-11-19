@@ -36,12 +36,10 @@
 #include <signal.h>
 #include <setjmp.h>
 #include <sys/mman.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE;
-typedef int8_t BYTE; typedef int BOOL; typedef intptr_t BPTR; typedef intptr_t BSTR;
+typedef intptr_t BPTR; typedef intptr_t BSTR;
 typedef void *APTR; typedef const char *CONST_STRPTR; typedef UBYTE *DSTR;
-#define TRUE 1
-#define FALSE 0
 #define MEMF_PUBLIC (1UL << 0)
 #define MEMF_CLEAR (1UL << 16)
 #define BADDR(x) ((void *)(x))
@@ -199,7 +197,6 @@ static struct DosEnvec *PadDosEnvec(struct DosEnvec *, struct DosEnvec *);
 #include "gen/Initialize.c"
 
 /* ---- harness -------------------------------------------------------- */
-static int fails;
 static void check(int ok, const char *what)
 {
     if (!ok) { printf("  BAD   %s\n", what); fails++; }

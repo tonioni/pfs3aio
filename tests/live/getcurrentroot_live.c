@@ -26,12 +26,10 @@
 #include <stdint.h>
 #include <signal.h>
 #include <unistd.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL; typedef void *APTR;
+typedef void *APTR;
 typedef const char *CONST_STRPTR;
-#define TRUE 1
-#define FALSE 0
 #define ACCESS_DETECT 1             /* keeps the access-mode block of CalculateBlockSize out */
 #define ENTER(x)
 

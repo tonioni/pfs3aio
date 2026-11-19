@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/mman.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD;
+#include "live.h"
 #define MEMF_PUBLIC 1
 
 struct DosEnvec {
@@ -38,8 +38,6 @@ struct DosEnvec {
 #define DE_DOSTYPE     16
 
 #include "gen/PadDosEnvec.c"                 /* the REAL function from ../../init.c */
-
-static int fails;
 
 static void check(int ok, const char *what)
 {

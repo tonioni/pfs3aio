@@ -37,13 +37,11 @@
 #include <string.h>
 #include <signal.h>
 #include <setjmp.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE;
-typedef int8_t BYTE; typedef intptr_t SIPTR; typedef uintptr_t IPTR; typedef int16_t BOOL;
+#define LIVE_OWN_BOOL
+typedef int16_t BOOL;
+#include "live.h"
+typedef uintptr_t IPTR;
 typedef char *STRPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
 #define DELDIR 1
 #define MULTIUSER 1
 #define ST_USERDIR 2
@@ -57,14 +55,6 @@ typedef char *STRPTR;
 #define SPECIAL_FLUSHED 3
 #define ANODE_ROOTDIR 5
 #define MAX_ENTRYSIZE 128
-#define ERROR_BAD_NUMBER 115
-#define ERROR_OBJECT_EXISTS 203
-#define ERROR_ACTION_NOT_KNOWN 209
-#define ERROR_INVALID_COMPONENT_NAME 210
-#define ERROR_OBJECT_WRONG_TYPE 212
-#define ERROR_DISK_NOT_VALIDATED 213
-#define ERROR_DISK_FULL 221
-#define ERROR_WRITE_PROTECTED 223
 #define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED		/* struct.h */
 
 struct direntry {

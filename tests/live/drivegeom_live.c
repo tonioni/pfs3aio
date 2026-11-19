@@ -18,10 +18,9 @@
 #include <signal.h>
 #include <unistd.h>
 #include <stdint.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef uint32_t IPTR; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
+typedef uint32_t IPTR;
 #define DB(x)
 
 /* dos/filehandler.h */

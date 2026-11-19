@@ -7,19 +7,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
+#include "pfs3disk.h"
 
-typedef uint32_t ULONG;
-typedef int32_t LONG;
-typedef uint16_t UWORD;
-typedef int BOOL;
 #define VOID void
-#define TRUE 1
 #define ROOTBLOCK 2
-#define MODE_EXTROVING 1
 #define LONGS_PER_BMB 253
 #define TBF_CACHE_SIZE 8
-#define MAXBITMAPINDEX 103
-#define MAXSMALLBITMAPINDEX 4
 #define AFS_ERROR_ANODE_INIT 1
 #define AFS_ERROR_DNV_ALLOC_INFO 2
 #define ErrorMsg(...) (++errors)
@@ -28,16 +22,6 @@ typedef int BOOL;
 #define EXIT(...)
 #define DB(...)
 
-typedef struct rootblock {
-    ULONG firstreserved, lastreserved, reserved_free;
-    ULONG blocksfree, alwaysfree, options;
-    UWORD rblkcluster, reserved_blksize;
-    unsigned char padding[484];
-} rootblock_t;
-typedef struct bitmapblock {
-    UWORD id, unused;
-    ULONG date, seqnr, bitmap[];
-} bitmapblock_t;
 struct extension { struct { ULONG reserved_roving, rovingbit; } blk; };
 struct volumedata {
     rootblock_t *rootblk;

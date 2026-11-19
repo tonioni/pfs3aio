@@ -16,18 +16,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
+#include "pfs3disk.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
-#define ERROR_BAD_NUMBER 115		/* dos/dos.h */
-#define ERROR_OBJECT_IN_USE 202
-#define ERROR_DISK_FULL 221
 #define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 #define MAXDELDIR_BLOCKS 32
-#define DELENTRIES_PER_BLOCK 31
 
 struct minnode { struct minnode *mln_Succ, *mln_Pred; };
 struct minlist { void *mlh_Head; };
@@ -40,7 +33,6 @@ union objectinfo { struct { int special; } deldir; };
 #define IsDelFile(oi) ((oi).deldir.special==SPECIAL_DELFILE)
 typedef struct listentry { struct listentry *next; union objectinfo info; } listentry_t;
 
-struct deldirentry { ULONG anodenr; };
 struct cdeldirblock {
 	struct cdeldirblock *next;
 	struct minnode lru;
@@ -96,8 +88,6 @@ static BOOL NewDeldirBlock(UWORD seqnr, globaldata *g)
 
 #include "gen/SetDeldir.c"
 
-static int fails;
-#define CHECK(c, msg) do { if (!(c)) { printf("  FAIL: %s\n", msg); fails++; } } while (0)
 
 static void setup(int size, int dirty)
 {

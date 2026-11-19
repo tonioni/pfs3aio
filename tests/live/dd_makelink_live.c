@@ -12,13 +12,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
-typedef intptr_t SIPTR; typedef int32_t LONG; typedef uint32_t ULONG; typedef uint16_t UWORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL; typedef intptr_t BPTR; typedef uintptr_t IPTR;
+#include "live.h"
+#include "pfs3disk.h"
+typedef intptr_t BPTR; typedef uintptr_t IPTR;
 typedef UBYTE *DSTR; typedef char *STRPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
 #define MULTIUSER 0
 #define DELDIR 1
 #define DB(x)
@@ -32,13 +29,7 @@ typedef UBYTE *DSTR; typedef char *STRPTR;
 #define SPECIAL_DELFILE 2
 #define SPECIAL_FLUSHED 3
 #define PATHSIZE 256
-#define ID_AFS_DISK (0x41465301L)
-#define ID_PFS2_DISK (0x50465302L)
-#define ERROR_NO_FREE_STORE 103
-#define ERROR_OBJECT_NOT_FOUND 205
-#define ERROR_OBJECT_WRONG_TYPE 212
 #define PFS_ERROR_INCONSISTENT 213      /* ERROR_DISK_NOT_VALIDATED */
-#define ERROR_NO_DISK 226
 
 #define BADDR(x) ((void *)((intptr_t)(x) << 2))
 #define MKBADDR(x) ((BPTR)((intptr_t)(x) >> 2))
@@ -61,7 +52,6 @@ typedef union listtype listtype;
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Arg3, dp_Arg4, dp_Arg5, dp_Res2; };
 struct FileLock { BPTR fl_Link; LONG fl_Key; LONG fl_Access; void *fl_Task; BPTR fl_Volume; };
 struct DeviceList { ULONG dummy; };
-struct direntry { UBYTE next; BYTE type; ULONG anode; };
 struct cdirblock { struct { ULONG anodenr; } blk; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
 struct volumedata;

@@ -14,13 +14,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-typedef intptr_t SIPTR; typedef int32_t LONG; typedef uint32_t ULONG; typedef uint16_t UWORD;
-typedef uint8_t UBYTE; typedef int BOOL;
-#define DOSTRUE (-1)
-#define DOSFALSE 0
-#define ID_AFS_DISK (0x41465301L)
-#define ID_PFS2_DISK (0x50465302L)
-#define ERROR_NO_FREE_STORE 103
+#include "live.h"
+#include "pfs3disk.h"
 
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Arg3, dp_Arg4, dp_Res2; };
 struct Task { int dummy; };

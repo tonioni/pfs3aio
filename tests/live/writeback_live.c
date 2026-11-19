@@ -9,11 +9,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define TR_ADDREQUEST 9
 
 struct Message { int unused; };

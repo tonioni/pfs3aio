@@ -11,12 +11,8 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int BOOL;
+#include "live.h"
 
-#define ERROR_DISK_WRITE_PROTECTED 28
-#define ERROR_SEEK_ERROR           24
-#define ERROR_BAD_NUMBER           1
-#define ERROR_NOT_A_DOS_DISK       225
 #define SCSIF_WRITE 0
 #define SCSIF_READ  1
 #define PROFILE_OFF()

@@ -26,11 +26,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int BOOL;
 typedef uintptr_t IPTR; typedef void *APTR;
-#define TRUE 1
-#define FALSE 0
 #define MEMF_PUBLIC (1UL << 0)
 #define MEMF_CHIP (1UL << 1)
 #define MEMF_CLEAR (1UL << 16)
@@ -86,7 +84,6 @@ static long ErrorMsg(const UBYTE *msg, void *arg, globaldata *g)
 #include "gen/FreeDataCache.c"               /* the REAL functions from ../../disk.c */
 #include "gen/InitDataCache.c"
 
-static int fails;
 static void check(int ok, const char *what)
 {
     if (!ok) { printf("  BAD   %s\n", what); fails++; }

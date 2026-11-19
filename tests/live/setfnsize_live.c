@@ -15,28 +15,15 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
+#include "pfs3disk.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
-#define ERROR_NO_DISK 226			/* dos/dos.h */
-#define ERROR_OBJECT_TOO_LARGE 207
-#define ERROR_BAD_NUMBER 115
-#define ID_PFS_DISK (0x50465301L)	/* pfs3disk.h */
-#define ID_PFS2_DISK (0x50465302L)
-#define ID_AFS_DISK (0x41465301L)
-#define MODE_LONGFN 1024
 #define FNSIZE 108
 #define FILENAMESIZE (g->fnsize)
 
 struct DosPacket { SIPTR dp_Arg1, dp_Arg2, dp_Res1, dp_Res2; };
 struct crootblockextension { struct { UWORD fnsize; } blk; };
 struct volumedata { struct crootblockextension *rblkextension; };
-struct rootblock { ULONG options; };
 typedef struct globaldata {
 	struct volumedata *currentvolume;
 	struct rootblock *rootblock;
@@ -61,8 +48,6 @@ static struct volumedata vol;
 static struct rootblock rbl;
 static globaldata gd;
 static struct DosPacket pkt;
-static int fails;
-#define CHECK(c, msg) do { if (!(c)) { printf("  FAIL: %s\n", msg); fails++; } } while (0)
 
 static SIPTR call(ULONG id, SIPTR size, int fnsize)
 {

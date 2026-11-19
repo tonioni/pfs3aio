@@ -27,12 +27,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1L)
-#define DOSFALSE (0L)
 
 struct canode { ULONG clustersize, blocknr, next, nr; };
 struct anodewalk { ULONG mark, steps; };
@@ -73,8 +69,6 @@ failed:
 #include "gen/CorrectAnode.c"
 #include "gen/NextBlock.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 

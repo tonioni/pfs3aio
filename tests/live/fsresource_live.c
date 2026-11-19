@@ -24,8 +24,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint8_t UBYTE; typedef int8_t BYTE;
 typedef intptr_t BPTR; typedef intptr_t BSTR; typedef void *CPTR; typedef void *APTR;
 #define CONST const
 #define MKBADDR(x) ((BPTR)(x))
@@ -106,7 +106,6 @@ static void AddTail(struct List *l, struct Node *n)
 
 #include "gen/AddToFSResource.c"             /* the REAL function from ../../fsresource.c */
 
-static int fails;
 static void check(int ok, const char *what)
 {
     if (!ok) { printf("  BAD   %s\n", what); fails++; }

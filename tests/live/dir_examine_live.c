@@ -20,13 +20,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
+#include "pfs3disk.h"
 
-typedef uint32_t ULONG; typedef uint8_t UBYTE; typedef intptr_t SIPTR; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define PFS_ERROR_INCONSISTENT 213
 
-struct direntry { UBYTE next; };
 struct cdirblock { ULONG blocknr; ULONG used; struct { UBYTE entries[16]; } blk; };
 struct canode { ULONG clustersize, blocknr, next, nr; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
@@ -43,7 +41,6 @@ typedef struct lockentry {
 } lockentry_t;
 typedef struct globaldata { ULONG locknr; } globaldata;
 
-#define NEXTENTRY(de) ((struct direntry*)((UBYTE*)(de) + (de)->next))
 #define FIRSTENTRY(blok) ((struct direntry*)((blok)->blk.entries))
 #define LOCK(blk) ((blk)->used = g->locknr)
 
@@ -86,8 +83,6 @@ static struct cdirblock *LoadDirBlock(ULONG blocknr, globaldata *g)
 #include "gen/GetNextEntryBlock.c"
 #include "gen/GetNextEntry.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 static lockentry_t le;

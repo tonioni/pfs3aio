@@ -17,25 +17,20 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
+#include "pfs3disk.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE;
-typedef intptr_t SIPTR; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 #define PFS_ERROR_INCONSISTENT 213
 #define AFS_ERROR_CACHE_INCONSISTENCY 1
 
-struct direntry { UBYTE next; UBYTE data[15]; };
 struct cachedblock;
 struct cdirblock { ULONG blocknr; ULONG used; struct { ULONG anodenr, parent; UBYTE entries[64]; } blk; };
 struct cdeldirblock { ULONG blocknr; };
-struct deldirentry { ULONG anodenr; };
 struct canode { ULONG clustersize, blocknr, next, nr; };
 struct fileinfo { struct direntry *direntry; struct cdirblock *dirblock; };
 struct anodewalk { ULONG mark, steps; };
 typedef struct globaldata { ULONG locknr; } globaldata;
 
-#define NEXTENTRY(de) ((struct direntry*)((UBYTE*)(de) + (de)->next))
 #define FIRSTENTRY(blok) ((struct direntry*)((blok)->blk.entries))
 #define LOCK(blk) ((blk)->used = g->locknr)
 
@@ -90,8 +85,6 @@ static struct cdirblock *MakeDirBlock(ULONG b, ULONG a, ULONG r, ULONG p, global
 #include "gen/IsDelfileValid.c"
 #include "gen/MoveToPrevious.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 

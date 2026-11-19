@@ -26,10 +26,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef uint8_t UBYTE; typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
 
 #define PP_FREEBLOCKS_FREE 1
 #define PP_FREEBLOCKS_KEEP 2
@@ -81,7 +79,6 @@ static BOOL FreeAnodesInChain(ULONG anodenr, globaldata *g)
 
 #include "gen/DoPostponed.c"                 /* the REAL function from ../../init.c */
 
-static int fails;
 static void check(int ok, const char *what)
 {
     if (!ok) { printf("  BAD   %s\n", what); fails++; }

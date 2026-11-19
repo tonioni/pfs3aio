@@ -17,19 +17,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-typedef intptr_t SIPTR; typedef uint32_t ULONG; typedef uint8_t UBYTE; typedef uint16_t UWORD;
-typedef int BOOL; typedef intptr_t BPTR; typedef UBYTE *DSTR; typedef char *STRPTR;
-#define DOSTRUE (-1)
-#define DOSFALSE 0
-#define DNSIZE 32
+#include "live.h"
+#include "pfs3disk.h"
+typedef intptr_t BPTR; typedef UBYTE *DSTR; typedef char *STRPTR;
 #define MULTIUSER 0
 #define MEMF_PUBLIC 1
 #define MEMF_CLEAR  2
-#define ERROR_NO_FREE_STORE 103
-#define ERROR_REQUIRED_ARG_MISSING 116
-#define ERROR_INVALID_COMPONENT_NAME 210
-#define ERROR_DEVICE_NOT_MOUNTED 218
-#define ERROR_DISK_WRITE_PROTECTED 214
 
 #define BADDR(x) ((void *)((intptr_t)(x) << 2))
 #define MKBADDR(x) ((BPTR)((intptr_t)(x) >> 2))

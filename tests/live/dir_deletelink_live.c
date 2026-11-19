@@ -30,22 +30,16 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE;
-typedef int8_t BYTE; typedef intptr_t SIPTR; typedef uintptr_t IPTR; typedef int16_t BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
+#define LIVE_OWN_BOOL
+typedef int16_t BOOL;
+#include "live.h"
+typedef uintptr_t IPTR;
 #define ST_USERDIR 2
 #define ST_LINKDIR 4
 #define ST_FILE (-3)
 #define ST_LINKFILE (-4)
 #define ST_ROLLOVERFILE (-16)
 #define MAX_ENTRYSIZE 128
-#define ERROR_NO_FREE_STORE 103
-#define ERROR_OBJECT_NOT_FOUND 205
-#define ERROR_DISK_NOT_VALIDATED 213
-#define ERROR_DISK_FULL 221
 #define PFS_ERROR_INCONSISTENT ERROR_DISK_NOT_VALIDATED		/* struct.h */
 #define ENTER(x)
 

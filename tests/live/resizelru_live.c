@@ -31,11 +31,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef uint8_t UBYTE; typedef int BOOL;
 typedef void *APTR;
-#define TRUE 1
-#define FALSE 0
 #define MEMF_CLEAR (1UL << 16)
 #define MIN_BUFFERS 10
 #define MAX_BUFFERS 600
@@ -148,8 +146,6 @@ static long ErrorMsg(const char *m, void *a, globaldata *g)
 #include "gen/SetLRUSize.c"
 #include "gen/ResizeLRU.c"
 
-static int fails;
-#define CHECK(cond, ...) do { if (!(cond)) { fails++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata G;
 static struct DosEnvec ENV;

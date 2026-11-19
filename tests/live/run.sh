@@ -53,8 +53,9 @@ for t in *_live.c; do
     [ -s $OUT/gen/$fn.c ] || { echo "  MISS  $t: could not extract $fn from $src"; ok=0; break; }
   done
   [ $ok = 1 ] || { fail=$((fail+1)); continue; }
-  # -I$OUT: the tests #include "gen/<func>.c" from the build directory
-  if ! $CC -w -I. -I$OUT -o $OUT/${t%.c} $t 2>$OUT/gen/${t%.c}.build.log; then
+  # -I$OUT: the tests #include "gen/<func>.c" from the build directory;
+  # -I$SRCROOT: pfs3disk.h of the source under test
+  if ! $CC -w -I. -I$OUT -I$SRCROOT -o $OUT/${t%.c} $t 2>$OUT/gen/${t%.c}.build.log; then
     echo "  BUILD $t (see $OUT/gen/${t%.c}.build.log)"; fail=$((fail+1)); continue
   fi
   if $OUT/${t%.c}; then pass=$((pass+1)); else fail=$((fail+1)); fi

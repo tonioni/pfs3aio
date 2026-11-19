@@ -22,25 +22,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include "live.h"
+#include "pfs3disk.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef int BOOL; typedef void *APTR;
+typedef void *APTR;
 typedef const char *CONST_STRPTR;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
 #define ENTER(x)
 #define DB(x)
 #define EXIT(x)
 #define ACCESS_DETECT 1             /* keeps the access-mode block of CalculateBlockSize out */
 #define LARGE_FILE_SIZE 1
-#define DNSIZE 32
-#define MAXBITMAPINDEX 103
-#define MAXSMALLBITMAPINDEX 4
-#define MAXSMALLINDEXNR 98
 
-/* real values from dos/dos.h, devices/trackdisk.h and pfs3disk.h */
+/* real values from dos/dos.h, devices/trackdisk.h and blocks.h */
 #define ID_WRITE_PROTECTED 80
 #define ID_VALIDATING 81
 #define ID_VALIDATED 82
@@ -51,38 +44,8 @@ typedef const char *CONST_STRPTR;
 #define CMD_NONSTD 9
 #define TD_CHANGESTATE (CMD_NONSTD + 5)
 #define TD_PROTSTATUS (CMD_NONSTD + 6)
-#define ID_PFS_DISK  0x50465301L
-#define ID_PFS2_DISK 0x50465302L
 #define BOOTBLOCK1 0
 #define ROOTBLOCK 2
-#define MODE_HARDDISK 1
-#define MODE_SPLITTED_ANODES 2
-#define MODE_DIR_EXTENSION 4
-#define MODE_DELDIR 8
-#define MODE_SIZEFIELD 16
-#define MODE_EXTENSION 32
-#define MODE_LARGEFILE 2048
-
-/* the real rootblock (pfs3disk.h), exactly 512 bytes */
-typedef struct rootblock
-{
-	LONG disktype;
-	ULONG options;
-	ULONG datestamp;
-	UWORD creationday, creationminute, creationtick, protection;
-	UBYTE diskname[DNSIZE];
-	ULONG lastreserved;
-	ULONG firstreserved;
-	ULONG reserved_free;
-	UWORD reserved_blksize;
-	UWORD rblkcluster;
-	ULONG blocksfree, alwaysfree, roving_ptr, deldir, disksize, extension, not_used;
-	union
-	{
-		struct { ULONG bitmapindex[MAXSMALLBITMAPINDEX + 1]; ULONG indexblocks[MAXSMALLINDEXNR + 1]; } small;
-		struct { ULONG bitmapindex[MAXBITMAPINDEX + 1]; } large;
-	} idx;
-} rootblock_t;
 
 struct dosenvec { ULONG de_SizeBlock, de_SectorPerBlock; };
 struct DriveGeometry { ULONG dg_TotalSectors; };

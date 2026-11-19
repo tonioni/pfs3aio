@@ -13,15 +13,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "live.h"
 
-typedef uint32_t ULONG; typedef int32_t LONG; typedef uint16_t UWORD; typedef int16_t WORD;
-typedef uint8_t UBYTE; typedef int8_t BYTE; typedef intptr_t SIPTR;
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
-#define DOSTRUE (-1)
-#define DOSFALSE 0
-#define ERROR_DIRECTORY_NOT_EMPTY 216	/* dos/dos.h */
 #define PFS_ERROR_INCONSISTENT 213		/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
 
 struct direntry { UBYTE next; BYTE type; };
@@ -65,8 +58,6 @@ struct anodewalk { ULONG mark; ULONG steps; };
 #include "gen/GetNextAnode.c"			/* the REAL function from ../../anodes.c */
 #include "gen/DirIsEmpty.c"			/* the REAL function from ../../directory.c */
 
-static int failures;
-#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
 
 static globaldata gd;
 
@@ -135,7 +126,7 @@ int main(void)
 	r = run(&e);
 	CHECK(r == DOSFALSE && e == PFS_ERROR_INCONSISTENT, "unreadable block: INCONSISTENT");
 
-	if (failures) { printf("dir_isempty_live: %d FAILED\n", failures); return 1; }
+	if (fails) { printf("dir_isempty_live: %d FAILED\n", fails); return 1; }
 	printf("  PASS: DirIsEmpty walks empty chains of any length, stops on cyclic chains\n");
 	return 0;
 }
