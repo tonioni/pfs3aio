@@ -72,6 +72,9 @@ put(){ local img=$1 name=$2 src=$3; shift 3
   PUT_RC=$?; }
 # field $1 of the last FI-SUMMARY line of the last put (empty if the harness died before printing it)
 sumf(){ sed -n "s/.*FI-SUMMARY.* $1=\([0-9][0-9]*\).*/\1/p" $WD/put.err | tail -1; }
+# "reserved_free bitmap_free" of the rootblock in image $1
+resfree(){ python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pfs3img
+i = pfs3img.Image(sys.argv[2]); print(i.reserved_free, i.bitmap_free())' $SCRIPT_DIR $1; }
 # classify IMG NAME SRC: remount IMG and decide what an interrupted `put NAME SRC` left behind.
 # STATE=rolledback|committed (return 0) or bad (return 1, WHY says what was found).
 classify(){ local img=$1 name=$2 src=$3 v size
@@ -191,11 +194,13 @@ for IMG in $IMAGES; do
   #     (N=1..W, plus W+1 which is never reached and must commit). Every cut must
   #     really happen, and every remount must be clean: rolled back or fully
   #     committed, never anything in between. PFS3 commits a write atomically with
-  #     one of its last writes (a root block write; a cleanup write may follow), so
-  #     the cuts before that write are expected to roll back.
+  #     its last write, the root block write, so the cuts before it are expected
+  #     to roll back. A committed cut must leave the reserved blocks as free as
+  #     the control run does, or the commit's old locations stay allocated.
   t4=1
   if control T4FILE $TMP/multi.bin; then
-    W4=$CW; rb=0; cm=""
+    W4=$CW; rb=0; cm=""; RF4=$(resfree $WD/ctl.hdf)
+    [ -n "$RF4" ] || { t4=0; print "      reserved free of the control run not readable"; }
     typeset -a pts; pts=()
     addpt(){ [ $1 -ge 1 ] && pts+=$1 }
     if [ $QUICK = 1 ]; then
@@ -219,6 +224,9 @@ for IMG in $IMAGES; do
           t4=0; print "      uninterrupted write (cut@$n > $W4 writes) did not commit: $STATE"
         fi
         [ $STATE = rolledback ] && rb=$((rb+1)) || cm="$cm $n"
+        if [ $STATE = committed ] && [ "$(resfree $WD/t4.hdf)" != "$RF4" ]; then
+          t4=0; print "      power cut before write #$n committed with reserved free $(resfree $WD/t4.hdf), control run $RF4"
+        fi
       else
         t4=0; print "      power cut before write #$n: $WHY"
       fi
@@ -236,7 +244,7 @@ for IMG in $IMAGES; do
   #     kill must really land (SIGKILL exit status, no FI-SUMMARY printed), except
   #     at 100% where the writer may legitimately have finished first.
   #     Kills at 25-75% roll back, and so does anything short of the commit: the
-  #     final burst of ~10 writes (commit + cleanup) takes well under a millisecond,
+  #     final burst of ~10 writes up to the root write takes well under a millisecond,
   #     so an external kill can only land before it (rolled back) or after it
   #     (committed, the 100% point). Cuts inside the burst are T4's job: it cuts
   #     before each individual write.

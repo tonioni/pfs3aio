@@ -31,13 +31,13 @@ its mock needs other fields or a different layout. Covered:
 
 | test | fix it proves |
 |------|---------------|
-| `reserved_bitmap_live.c` | Reject inconsistent reserved ranges and undersized root bitmaps before allocation; preserve exact-capacity and partial-word bitmaps |
+| `reserved_bitmap_live.c` | Reject inconsistent reserved ranges and undersized root bitmaps before allocation; preserve exact-capacity and partial-word bitmaps; queued reserved frees are applied once and undone exactly |
 | `blocksize_live.c`      | logical block size normalized to a power of two (blockshift/blocklogshift agree) |
 | `partlimit_live.c`      | partition end saturates instead of wrapping past 2^32 sectors (no inverted partition) |
 | `ds_retry_live.c`       | DirectSCSI retry restarts in range instead of re-applying blocklogshift and writing outside the partition |
 | `ds_maxtransfer_live.c` | DirectSCSI maxtransfer in native sectors (a 16 KiB MaxTransfer with 4 KB blocks no longer rounds to 0) |
 | `freeanode_live.c`      | FreeAnode marks the correct anodeblock (non-split and split mode, reserved anodes), reports a failed SaveAnode as FALSE without marking, ignores out-of-range seqnrs |
-| `update_cleanup_live.c` | Deferred reserved frees are persisted by a root-only write after the primary commit |
+| `update_cleanup_live.c` | The root write carries the queued reserved frees; a failed one takes them back and keeps the queue |
 | `pending_retry_live.c` | A block whose relocation fails marks its volume; `RetryPendingBlocks` relocates it and clears the mark, keeps the mark when the retry fails, and reads no cache list while nothing is marked |
 | `writeback_live.c` | Relative writeback deadline survives one-second reads and continuous packet traffic; idle flushing, retries and inhibit remain safe |
 | `directory_bounds_live.c` | Reject oversized directory entries and out-of-entry names/comments before caching; safely rewrite valid entries with maximum-length strings |
@@ -135,7 +135,8 @@ cannot be satisfied by leftovers of another one.
   at different points of a write.
 - **T4** power cut just before the Nth write of the write sequence (W writes;
   a full run samples about 40 points including the last three, `--quick` four),
-  plus a cut point past the end that must commit.
+  plus a cut point past the end that must commit. A committed cut must leave
+  as many reserved blocks free as the control run.
 - **T5** `kill -9` of the emulator once the driver has issued 25/50/75/100% of
   the control run's writes (counted through `FI_PROGRESS`, no sleep timing).
   The final commit is a burst of about ten writes that takes under a millisecond,

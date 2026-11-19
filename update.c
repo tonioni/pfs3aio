@@ -141,8 +141,7 @@ static BOOL GetAnodeOfDBlk(ULONG anodenr, ULONG blocknr, struct canode *anode, U
 static BOOL IsEmptyABlk(struct canodeblock *ablk, globaldata *g);
 static BOOL IsEmptyIBlk(struct cindexblock *blk, globaldata *g);
 static BOOL UpdateList (struct cachedblock *blk, globaldata *g);
-static void CommitReservedToBeFreed (globaldata *g);
-static BOOL CommitPostRootChanges (globaldata *g);
+static BOOL CommitRoot (globaldata *g);
 static BOOL UpdateDirtyBlock (struct cachedblock *blk, globaldata *g);
 
 static BOOL RetryPendingBlocks(struct volumedata *volume, globaldata *g);
@@ -291,47 +290,17 @@ BOOL UpdateDisk (globaldata *g)
 		if (volume->metadata_error)
 			updateok = FALSE;
 		if (updateok)
-			updateok = RawWrite((UBYTE *)volume->rootblk,
-				volume->rootblk->rblkcluster, ROOTBLOCK, g) == 0;
+			updateok = CommitRoot(g);
 
 		if (updateok)
 		{
-			/* Now that the new rootblock is on disk, the old locations
-			 * of all reallocated reserved blocks are unreferenced and
-			 * may become allocatable. Committing the frees only after a
-			 * successful root write means the just-written reserved
-			 * bitmap is one commit conservative: a crash merely leaks
-			 * those blocks until the next successful update, instead of
-			 * risking reuse of blocks the on-disk root still references.
-			 */
-			updateok = CommitPostRootChanges(g);
-
-			/* The primary commit succeeded even if its cleanup write did
-			 * not. Advance the in-memory datestamp and flush the device in
-			 * either case; on cleanup failure g->dirty and the rootblock
-			 * change flag remain set so a later update retries it. The user
-			 * free list must not be undone after this point because it was
-			 * already part of the successful primary commit.
-			 */
+			CommitFreeList(g);
 			volume->rootblk->datestamp++;
+			volume->rootblockchangeflag = FALSE;
 			UpdateAndMotorOff(g);
-
-			if (updateok)
-			{
-				volume->rootblockchangeflag = FALSE;
-				success = TRUE;
-				g->dirty = FALSE;
-				g->updatefailshown = FALSE;
-			}
-			else
-			{
-				if (!g->updatefailshown)
-				{
-					ErrorMsg (AFS_ERROR_UPDATE_FAIL, NULL, g);
-					g->updatefailshown = TRUE;
-				}
-				success = FALSE;
-			}
+			success = TRUE;
+			g->dirty = FALSE;
+			g->updatefailshown = FALSE;
 		}
 		else
 		{
@@ -679,8 +648,8 @@ static BOOL UpdateList (struct cachedblock *blk, globaldata *g)
 		{
 			/* Queue the old location instead of freeing it directly:
 			 * it is still referenced by the on-disk rootblock and must
-			 * not become allocatable until the commit (root write) has
-			 * actually succeeded. CommitReservedToBeFreed runs after it.
+			 * not become allocatable before the root write that stops
+			 * referencing it.
 			 */
 			ResToBeFreed (blk->oldblocknr, g);
 			blk2 = (struct cbitmapblock *)blk;
@@ -718,8 +687,7 @@ static BOOL UpdateDirtyBlock (struct cachedblock *blk, globaldata *g)
 		return FALSE;
 	if (blk->changeflag)
 	{
-		/* see UpdateList: keep the old location reserved until the
-		 * commit has succeeded */
+		/* see UpdateList: the old location is freed with the root write */
 		ResToBeFreed (blk->oldblocknr, g);
 		blk->oldblocknr = 0;
 		error = RawWrite ((UBYTE *)&blk->data, RESCLUSTER, blk->blocknr, g);
@@ -738,39 +706,23 @@ static BOOL UpdateDirtyBlock (struct cachedblock *blk, globaldata *g)
 	return TRUE;
 }
 
-static void CommitReservedToBeFreed (globaldata *g)
+/* Writes the root cluster, the commit point. It carries the frees of the old
+ * reserved locations it stops referencing; a failed write takes them back.
+ */
+static BOOL CommitRoot (globaldata *g)
 {
-	int i;
-	for (i=0;i<alloc_data.rtbf_index;i++)
+	struct volumedata *volume = g->currentvolume;
+
+	ApplyReservedToBeFreed(g);
+	if (RawWrite((UBYTE *)volume->rootblk,
+		volume->rootblk->rblkcluster, ROOTBLOCK, g))
 	{
-		if (alloc_data.reservedtobefreed[i])
-		{
-			FreeReservedBlock (alloc_data.reservedtobefreed[i], g);
-			alloc_data.reservedtobefreed[i] = 0;
-		}
+		UndoReservedToBeFreed(g);
+		return FALSE;
 	}
 
 	alloc_data.rtbf_index = 0;
-}
-
-/* Finish a successful primary root commit. The metadata locations queued in
- * reservedtobefreed are no longer referenced, so release them and persist the
- * resulting reserved bitmap with a root-only write. If there were no reserved
- * frees, the primary root write already contains the complete state.
- */
-static BOOL CommitPostRootChanges (globaldata *g)
-{
-	struct volumedata *volume = g->currentvolume;
-	BOOL cleanup_needed = alloc_data.rtbf_index != 0;
-
-	CommitReservedToBeFreed(g);
-	CommitFreeList(g);
-
-	if (!cleanup_needed)
-		return TRUE;
-
-	return RawWrite((UBYTE *)volume->rootblk,
-		volume->rootblk->rblkcluster, ROOTBLOCK, g) == 0;
+	return TRUE;
 }
 
 /* Check if an update is needed (see atomic.fw)
