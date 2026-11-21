@@ -248,7 +248,7 @@ static BOOL OpenVolume(void)
 		return FALSE;
 	}
 
-	InitCache(64, 32, volume.blocksize);		/* make this configurable ? */
+	InitCache(CACHELINESIZE(volume.blocksize), 32, volume.blocksize);
 
 	detectbuf = AllocVec(MAXRESBLOCKSIZE, MEMF_PUBLIC);
 	if (!detectbuf) {

@@ -604,7 +604,7 @@ static error_t GetRootBlock(void)
 	if (!IsRootBlock(rbl) && volume.blocklogshift)
 	{
 		// Check if we have pre-20.0 pfs3 that has ignored >512 block size
-		InitCache(0, 0, volume.blocksize >> volume.blocklogshift);
+		InitCache(CACHELINESIZE(volume.blocksize >> volume.blocklogshift), 0, volume.blocksize >> volume.blocklogshift);
 		volume.blocksize >>= volume.blocklogshift;
 		volume.blockshift -= volume.blocklogshift;
 		if (!(c_GetBlock ((uint8 *)rbl, ROOTBLOCK + volume.firstblocknative, volume.blocksize)))
@@ -637,6 +637,7 @@ static error_t GetRootBlock(void)
 		}
 		volume.blocksize <<= volume.blocklogshift;
 		volume.blockshift += volume.blocklogshift;
+		InitCache(CACHELINESIZE(volume.blocksize), 0, volume.blocksize);
 	}
 rootfound:;
 
