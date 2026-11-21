@@ -1678,15 +1678,22 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 				
 			case e_remove:
 
-				if (error != e_empty)
+				/* only the block goes, the directory with it only when it
+				 * was its last block
+				 */
+				if (mode == repair)
 				{
-					if (mode == repair)
-						fixedfileerror("Removing corrupt directory block");
-					else
-						addfileerror("Corrupt directory block");
+					fixedfileerror("Removing corrupt directory block");
+					if (DeleteAnode(mainanodenr, anodenr) != e_none)
+						return e_remove;
+					/* the head anode now holds the next block */
+					if (anodenr == mainanodenr)
+						dirnode.next = anodenr;
 				}
-				
-				DeleteAnode(mainanodenr, anodenr);
+				else
+					addfileerror("Corrupt directory block");
+
+				error = e_none;
 				break;
 
 			case e_none:
