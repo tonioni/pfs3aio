@@ -96,6 +96,7 @@ static error_t vol_CheckBlockNr(ULONG *blocknr);
 static error_t GetRootBlock(void);
 static error_t CheckRootBlock(void);
 static error_t GetRext(void);
+static void NewestSuperIndex(void);
 static error_t RepairBootBlock(void);
 static error_t RepairDeldir(void);
 static bool dd_CheckBlock(uint32 bloknr, int seqnr);
@@ -977,6 +978,79 @@ static error_t CheckRootBlock(void)
  * GetRootBlockExtension
  **************************************/
 
+/* block of the reserved area free in a reserved bitmap of nbits bits */
+static bool ResBitFree(bitmapblock_t *bm, uint32 nbits, uint32 blocknr)
+{
+	uint32 pos = (blocknr - rbl->firstreserved) / volume.rescluster;
+
+	return pos >= nbits || (bm->bitmap[pos / 32] & (0x80000000 >> (pos % 32)));
+}
+
+/* point slots of a backup rext to the newest committed blocks of type id:
+ * allocated in the reserved bitmap of the rootblock, not newer than the
+ * rootblock, and newer than the block the backup names, which is replaced
+ * anyway when that bitmap has it free. Superblocks and deldir blocks share
+ * the header with datestamp and seqnr.
+ */
+static void NewestBlocks(uint16 id, uint32 *slots, uint32 n, const char *what)
+{
+	cachedblock_t blk;
+	rootblock_t *lrb = NULL;
+	bitmapblock_t *bm = NULL;
+	uint32 newest[MAXDELDIRSEQNR + 1] = {0}, newestds[MAXDELDIRSEQNR + 1] = {0};
+	uint32 i, seqnr, ds, nbits = 0;
+	uint32 bytes = volume.blocksize * rbl->rblkcluster;
+	uint8 *t;
+	int changed = 0;
+
+	if (!(blk.data = pfscalloc(1, SIZEOF_RESBLOCK)))
+		return;
+	/* a block of an update that never committed is free there */
+	if (bytes > sizeof(*lrb) + sizeof(*bm) && (lrb = AllocBufMem(bytes)))
+	{
+		t = (uint8 *)lrb;
+		for (i = 0; i < rbl->rblkcluster; i++, t += volume.blocksize)
+			if (c_GetBlock(t, ROOTBLOCK + volume.firstblock + i, volume.blocksize))
+				break;
+		bm = (bitmapblock_t *)(lrb + 1);
+		if (i == rbl->rblkcluster && bm->id == BMBLKID)
+			nbits = (bytes - sizeof(*lrb) - sizeof(*bm)) * 8;
+	}
+	for (i = rbl->firstreserved; i <= rbl->lastreserved; i += volume.rescluster)
+	{
+		if (nbits && ResBitFree(bm, nbits, i))
+			continue;
+		if (volume.getblock(&blk, i) || blk.data->id != id)
+			continue;
+		seqnr = blk.data->indexblock.seqnr;
+		ds = blk.data->indexblock.datestamp;
+		if (seqnr < n && ds <= rbl->datestamp && ds >= newestds[seqnr])
+		{
+			newest[seqnr] = i;
+			newestds[seqnr] = ds;
+		}
+	}
+	for (i = 0; i < n; i++)
+	{
+		if (!newest[i] || newest[i] == slots[i])
+			continue;
+		if (slots[i] && !(nbits && ResBitFree(bm, nbits, slots[i])) &&
+			!volume.getblock(&blk, slots[i]) &&
+			blk.data->id == id && blk.data->indexblock.seqnr == i &&
+			blk.data->indexblock.datestamp >= newestds[i])
+			continue;
+		sprintf(bericht, "%s %ld replaced with newer block %lu", what, (long)i, (unsigned long)newest[i]);
+		fixederror(bericht);
+		slots[i] = newest[i];
+		changed = 1;
+	}
+	if (lrb)
+		FreeBufMem(lrb);
+	if (changed)
+		volume.writeblock((cachedblock_t *)&rext);
+	pfsfree(blk.data);
+}
+
 /* check rootblock extension. Do 'easy fix'. Returns
  * false if failure
  */
@@ -1008,7 +1082,14 @@ static error_t GetRext(void)
 				sprintf(bericht, "Replaced block %lu with backup %lu", oldbloknr, bloknr);
 				fixederror(bericht);
 				rbl->extension = bloknr;
-				return GetRext();
+				if ((error = GetRext()))
+					return error;
+				if (rbl->options & MODE_SUPERINDEX)
+					NewestBlocks(SBLKID, rext.data->superindex, MAXSUPER + 1, "Superindex");
+				if (rbl->options & MODE_SUPERDELDIR)
+					NewestBlocks(DELDIRID, rext.data->deldir,
+						min(rext.data->deldirsize, MAXDELDIRSEQNR + 1), "Deldir block");
+				return e_none;
 			}
 			else
 			{
