@@ -33,8 +33,9 @@
 UBYTE *version = "$VER: SetDeldir " SETDELDIR_REVISION " (" SETDELDIR_DATE ") by Michiel Pelt";
 LONG args[2];
 
-void main(void)
+int main(void)
 { 
+  LONG rc = RETURN_OK;
   struct RDArgs *result;
   struct MsgPort *msgport;
   LONG error, nbr;
@@ -65,6 +66,7 @@ void main(void)
 			   NULL, NULL, NULL))
 		{
 			error = IoErr();
+			rc = RETURN_ERROR;
 
 			switch (error) {
 
@@ -115,6 +117,12 @@ void main(void)
 		printf("The delete directory has a maximum capacity of %ld deleted files\n",
 			nbr * DELENTRIES_PER_BLOCK);
 	}
+	else if (rc == RETURN_OK)
+	{
+		PrintFault(IoErr(), "SetDeldir");
+		rc = RETURN_ERROR;
+	}
 
 	FreeArgs(result);
+	return rc;
 }
