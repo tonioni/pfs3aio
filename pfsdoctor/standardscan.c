@@ -3260,6 +3260,19 @@ static error_t RepairMainBitmap(void)
 	return error;
 }
 
+/* the index has no anode block seqnr, unlike a block that cannot be read */
+static bool AnodeBlockMissing(uint32 seqnr)
+{
+	cachedblock_t blk;
+	error_t error;
+
+	if (!(blk.data = pfscalloc(1, SIZEOF_RESBLOCK)))
+		return false;
+	error = GetResBlock(&blk, ABLKID, seqnr, false);
+	pfsfree(blk.data);
+	return error == e_not_found;
+}
+
 /* Compare anodes with generated anode bitmap. Fix found
  * differences. Pre conditions:
  * - syntax disk correct
@@ -3268,7 +3281,7 @@ static error_t RepairMainBitmap(void)
  */
 static error_t RepairAnodeBitmap(void)
 {
-	uint32 i, anodenr;
+	uint32 i, anodenr, missingseq = ~0UL;
 	int anodeused;
 	canode_t anode;
 	bitmap_t *gbm = volume.anodebitmap;
@@ -3292,7 +3305,17 @@ static error_t RepairAnodeBitmap(void)
 		anodeused = !(gbm->map[i/32] & (0x80000000UL >> i%32));
 		anodenr = (i/ANODES_PER_BLOCK << 16) + i%ANODES_PER_BLOCK;
 
-		error = CheckAnode(&anode, anodenr, false);
+		/* a missing anode block holds only empty anodes, look it up once */
+		if (i/ANODES_PER_BLOCK == missingseq)
+			error = e_empty;
+		else if (!GetAnode(&anode, anodenr, false))
+		{
+			if (AnodeBlockMissing(i/ANODES_PER_BLOCK))
+				missingseq = i/ANODES_PER_BLOCK;
+			error = e_empty;
+		}
+		else
+			error = (anode.clustersize == 0 && anode.blocknr == 0 && anode.next == 0) ? e_empty : e_none;
 
 		if ((error == e_empty) == anodeused)
 		{
