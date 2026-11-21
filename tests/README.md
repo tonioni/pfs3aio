@@ -263,6 +263,66 @@ uv run tests/hardlink.py --pds
 
 `largefile64.py`, `hardlink.py`, `manylinks.py`, `directorychains.py` and `deldirloss.py` take `--pds`: the partition gets the dostype `PDS\3` and the handler reads and writes it with `HD_SCSICMD` (Direct SCSI). `PDS\3` falls back to the trackdisk commands when Direct SCSI fails, so the device of the test answers every other block transfer with `IOERR_NOCMD` and the test fails instead. `.github/workflows/blackbox-test.yml` runs `largefile64.py`, `hardlink.py`, `directorychains.py` and `deldirloss.py` with `--pds` as jobs of their own.
 
+## pfsdoctor on damaged volumes
+
+```sh
+make all-variants pfsdoctor tools
+podman run --rm -v "$PWD:/src" -w /src docker.io/pulchart/amiga-fsuae-aros:latest \
+    python3 tests/pfsdoctor_damage.py --handler pfs3aio --doctor pfsdoctor/pfsdoctor [--scenario NAME]
+podman run --rm -v "$PWD:/src" -w /src docker.io/pulchart/amiga-fsuae-aros:latest \
+    python3 tests/pfsdoctor_damage.py --handler pfs3aio-largefile --doctor pfsdoctor/pfsdoctor \
+    --largefile tools/setlargefile
+```
+
+### Environment
+
+An amiga-fsuae OS image boots in FS-UAE the system in `AMIGA_SYSTEM` with the ROM in `AMIGA_KICKSTART` and `AMIGA_KICKSTART_EXT`. The handler is in the RDB of the test disk. With `--largefile` the partition has 4096 byte blocks, so the volume is PFS\2 in supermode, and `setlargefile` turns on its large file mode.
+
+The AROS runs depend on the ata.device fix in [AROS#2350](https://github.com/aros-development-team/AROS/pull/2350), which `amiga-fsuae-aros` carries.
+
+### Run
+
+1. The first boot formats the volume, copies `C:` and a directory of long names to it, deletes a file into the deldir and checks it with pfsdoctor.
+2. Each scenario damages a copy of that volume on the host.
+3. One boot per scenario runs pfsdoctor `CHECK`, `REPAIR` and `CHECK` again and lists the files.
+
+A scenario passes when:
+
+- the first `CHECK` reports the damage and `REPAIR` its fix,
+- the second `CHECK` finds nothing,
+- no run of pfsdoctor reports a `DOCTOR ERROR`,
+- no file is gone but those of a damaged dirblock or entry,
+- the deldir slots and the roving pointer of the rootblock extension match the deldir size.
+
+### Scenarios
+
+| scenario | damage | also checked |
+|---|---|---|
+| `clean` | none | neither `CHECK` nor `REPAIR` reports anything |
+| `powercut` | FS-UAE killed after a copy and its update, so the writes it holds are lost | nothing needs repair; a handler that writes the root twice per update leaves reserved blocks allocated (#47) |
+| `reserved-leak`, `reserved-unallocated` | a free reserved block marked used, a dirblock marked free | |
+| `data-leak`, `data-unallocated` | a free data block marked used, a block of a file marked free | |
+| `bootblock-id`, `volume-name` | disk type of the bootblock cleared, volume name emptied | |
+| `extension-id` | id of the rootblock extension cleared | `REPAIR` takes the backup copy with the newest deldir blocks, on a supermode volume also with the newest superblocks; deldir as on the undamaged volume |
+| `extension-id-uncommitted` | as `extension-id`, and a free reserved block holds a superblock newer than the rootblock with an empty index, as left by an update that never committed; large file only | superindex as on the undamaged volume |
+| `extension-id-lost-rext` | as `extension-id`, and the newest backup is the extension of an update that never committed, in a free block with the datestamp of the rootblock and an empty deldir block in another | deldir as on the undamaged volume |
+| `extension-id-lost-update` | as `extension-id-uncommitted`, but the superblock has the datestamp of the rootblock, as when the first commit after a remount reuses the datestamp of the lost update; large file only | superindex as on the undamaged volume |
+| `deldir-block` | id of the first deldir block cleared | |
+| `deldir-size` | deldir size in the rootblock extension too large, roving pointer behind the real deldir blocks | deldir size as on the undamaged volume |
+| `deldir-roving` | roving pointer behind the deldir blocks, size intact | |
+| `dir-loop` | last anode of a directory linked back to its first | |
+| `dirblock-id`, `dirblock-head` | id of the second or the first dirblock of a directory cleared | only the files of that block are gone |
+| `filesize-high`, `deldir-filesize-high` | bits 32 to 47 of a file size, in its directory entry or its deldir entry, no longer match its blocks; large file only | only that file is gone |
+
+A damaged rootblock extension makes the handler show requesters at mount. The runner answers them with left Amiga V through `xdotool` when the output stops.
+
+### Output and options
+
+- `build/tests/pfsdoctor/<system>-<normal or largefile>` holds the files of a run, `out/` of each scenario its AmigaDOS output, and `screen.png` when its boot did not finish.
+- `--jobs` sets how many scenarios run side by side, default the physical cores, since an emulator keeps more than one hardware thread busy. Each has its own copy of the system directory and its own X display.
+- `--reuse` keeps the volume of an earlier run made with the same handler.
+- The `damage` job of `.github/workflows/ci-build.yml` runs both variants with the handlers, pfsdoctor and tools it built.
+
 ## everything
 
 ```sh
