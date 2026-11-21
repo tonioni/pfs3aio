@@ -65,9 +65,7 @@ struct cache cache;
  * area which is located at the start of the partition.
  **************************************/
 
-/* create cache
- * cacheline size: 4-8-16
- * cachelines: 8-16-32-64-128
+/* create cache, 0 keeps a setting
  * size = linesize * nolines * blocksize
  */
 error_t InitCache(uint32 linesize, uint32 nolines, uint32 blocksize)
@@ -75,10 +73,10 @@ error_t InitCache(uint32 linesize, uint32 nolines, uint32 blocksize)
 	int i;
 
 	FreeCache();
-	if (linesize && nolines) {
+	if (linesize)
 		cache.linesize = linesize;
+	if (nolines)
 		cache.nolines = nolines;
-	}
 	if (blocksize) {
 		cache.blocksize = blocksize;
 	}

@@ -96,6 +96,7 @@ static error_t vol_CheckBlockNr(ULONG *blocknr);
 static error_t GetRootBlock(void);
 static error_t CheckRootBlock(void);
 static error_t GetRext(void);
+static void NewestSuperIndex(void);
 static error_t RepairBootBlock(void);
 static error_t RepairDeldir(void);
 static bool dd_CheckBlock(uint32 bloknr, int seqnr);
@@ -603,7 +604,7 @@ static error_t GetRootBlock(void)
 	if (!IsRootBlock(rbl) && volume.blocklogshift)
 	{
 		// Check if we have pre-20.0 pfs3 that has ignored >512 block size
-		InitCache(0, 0, volume.blocksize >> volume.blocklogshift);
+		InitCache(CACHELINESIZE(volume.blocksize >> volume.blocklogshift), 0, volume.blocksize >> volume.blocklogshift);
 		volume.blocksize >>= volume.blocklogshift;
 		volume.blockshift -= volume.blocklogshift;
 		if (!(c_GetBlock ((uint8 *)rbl, ROOTBLOCK + volume.firstblocknative, volume.blocksize)))
@@ -636,6 +637,7 @@ static error_t GetRootBlock(void)
 		}
 		volume.blocksize <<= volume.blocklogshift;
 		volume.blockshift += volume.blocklogshift;
+		InitCache(CACHELINESIZE(volume.blocksize), 0, volume.blocksize);
 	}
 rootfound:;
 
@@ -977,6 +979,79 @@ static error_t CheckRootBlock(void)
  * GetRootBlockExtension
  **************************************/
 
+/* block of the reserved area free in a reserved bitmap of nbits bits */
+static bool ResBitFree(bitmapblock_t *bm, uint32 nbits, uint32 blocknr)
+{
+	uint32 pos = (blocknr - rbl->firstreserved) / volume.rescluster;
+
+	return pos >= nbits || (bm->bitmap[pos / 32] & (0x80000000 >> (pos % 32)));
+}
+
+/* point slots of a backup rext to the newest committed blocks of type id:
+ * allocated in the reserved bitmap of the rootblock, not newer than the
+ * rootblock, and newer than the block the backup names, which is replaced
+ * anyway when that bitmap has it free. Superblocks and deldir blocks share
+ * the header with datestamp and seqnr.
+ */
+static void NewestBlocks(uint16 id, uint32 *slots, uint32 n, const char *what)
+{
+	cachedblock_t blk;
+	rootblock_t *lrb = NULL;
+	bitmapblock_t *bm = NULL;
+	uint32 newest[MAXDELDIRSEQNR + 1] = {0}, newestds[MAXDELDIRSEQNR + 1] = {0};
+	uint32 i, seqnr, ds, nbits = 0;
+	uint32 bytes = volume.blocksize * rbl->rblkcluster;
+	uint8 *t;
+	int changed = 0;
+
+	if (!(blk.data = pfscalloc(1, SIZEOF_RESBLOCK)))
+		return;
+	/* a block of an update that never committed is free there */
+	if (bytes > sizeof(*lrb) + sizeof(*bm) && (lrb = AllocBufMem(bytes)))
+	{
+		t = (uint8 *)lrb;
+		for (i = 0; i < rbl->rblkcluster; i++, t += volume.blocksize)
+			if (c_GetBlock(t, ROOTBLOCK + volume.firstblock + i, volume.blocksize))
+				break;
+		bm = (bitmapblock_t *)(lrb + 1);
+		if (i == rbl->rblkcluster && bm->id == BMBLKID)
+			nbits = (bytes - sizeof(*lrb) - sizeof(*bm)) * 8;
+	}
+	for (i = rbl->firstreserved; i <= rbl->lastreserved; i += volume.rescluster)
+	{
+		if (nbits && ResBitFree(bm, nbits, i))
+			continue;
+		if (volume.getblock(&blk, i) || blk.data->id != id)
+			continue;
+		seqnr = blk.data->indexblock.seqnr;
+		ds = blk.data->indexblock.datestamp;
+		if (seqnr < n && ds <= rbl->datestamp && ds >= newestds[seqnr])
+		{
+			newest[seqnr] = i;
+			newestds[seqnr] = ds;
+		}
+	}
+	for (i = 0; i < n; i++)
+	{
+		if (!newest[i] || newest[i] == slots[i])
+			continue;
+		if (slots[i] && !(nbits && ResBitFree(bm, nbits, slots[i])) &&
+			!volume.getblock(&blk, slots[i]) &&
+			blk.data->id == id && blk.data->indexblock.seqnr == i &&
+			blk.data->indexblock.datestamp >= newestds[i])
+			continue;
+		sprintf(bericht, "%s %ld replaced with newer block %lu", what, (long)i, (unsigned long)newest[i]);
+		fixederror(bericht);
+		slots[i] = newest[i];
+		changed = 1;
+	}
+	if (lrb)
+		FreeBufMem(lrb);
+	if (changed)
+		volume.writeblock((cachedblock_t *)&rext);
+	pfsfree(blk.data);
+}
+
 /* check rootblock extension. Do 'easy fix'. Returns
  * false if failure
  */
@@ -1008,7 +1083,14 @@ static error_t GetRext(void)
 				sprintf(bericht, "Replaced block %lu with backup %lu", oldbloknr, bloknr);
 				fixederror(bericht);
 				rbl->extension = bloknr;
-				return GetRext();
+				if ((error = GetRext()))
+					return error;
+				if (rbl->options & MODE_SUPERINDEX)
+					NewestBlocks(SBLKID, rext.data->superindex, MAXSUPER + 1, "Superindex");
+				if (rbl->options & MODE_SUPERDELDIR)
+					NewestBlocks(DELDIRID, rext.data->deldir,
+						min(rext.data->deldirsize, MAXDELDIRSEQNR + 1), "Deldir block");
+				return e_none;
 			}
 			else
 			{
@@ -1198,7 +1280,7 @@ static error_t RepairDeldir(void)
 	{
 		if (rbl->options & MODE_SUPERDELDIR)
 		{
-			ddsize = rext.data->deldirsize;
+			ddsize = min(rext.data->deldirsize, MAXDELDIRSEQNR + 1);
 			volume.status(0, "Deldir", ddsize);
 
 			for (i=0; i<32; i++)
@@ -1213,7 +1295,7 @@ static error_t RepairDeldir(void)
 					}
 
 					remove = false;
-					if (i <= ddsize)
+					if (i < ddsize)
 					{
 						remove = true;
 						if (dd_CheckBlock(rext.data->deldir[i], i))
@@ -1230,21 +1312,57 @@ static error_t RepairDeldir(void)
 						sprintf(bericht, "Deldir block %d removed\n", i);
 						fixederror(bericht);
 						rext.data->deldir[i] = 0;
-						ddsize = min(ddsize, i+1);
+						ddsize = min(ddsize, i);
 						rextdirty = true;
 					}
 					exitblock();
 				}
 				else
 				{
-					ddsize = min(ddsize, i+1);
+					ddsize = min(ddsize, i);
 				}
 			}
 
 			if (ddsize != rext.data->deldirsize)
 			{
-				rext.data->deldirsize = ddsize;
-				rextdirty = true;
+				if (mode == check || mode == info)
+					adderror("Deldir size incorrect");
+				else
+				{
+					fixederror("Deldir size incorrect");
+					rext.data->deldirsize = ddsize;
+					rextdirty = true;
+				}
+			}
+
+			/* the handler stops using the deldir while roving is outside it */
+			if (rext.data->deldirroving && rext.data->deldirroving >= ddsize * DELENTRIES_PER_BLOCK)
+			{
+				if (mode == check || mode == info)
+					adderror("Deldir roving pointer outside the deldir");
+				else
+				{
+					fixederror("Deldir roving pointer outside the deldir");
+					rext.data->deldirroving = 0;
+					rextdirty = true;
+				}
+			}
+
+			/* slots behind the deldir are empty, as SetDeldir leaves them */
+			for (i=ddsize; i<32; i++)
+			{
+				if (rext.data->deldir[i])
+				{
+					sprintf(bericht, "Deldir block %d outside the deldir", i);
+					if (mode == check || mode == info)
+						adderror(bericht);
+					else
+					{
+						fixederror(bericht);
+						rext.data->deldir[i] = 0;
+						rextdirty = true;
+					}
+				}
 			}
 
 			if (rbl->deldir)
@@ -1642,15 +1760,22 @@ static error_t RepairDir(struct direntry *de, c_dirblock_t *parent)
 				
 			case e_remove:
 
-				if (error != e_empty)
+				/* only the block goes, the directory with it only when it
+				 * was its last block
+				 */
+				if (mode == repair)
 				{
-					if (mode == repair)
-						fixedfileerror("Removing corrupt directory block");
-					else
-						addfileerror("Corrupt directory block");
+					fixedfileerror("Removing corrupt directory block");
+					if (DeleteAnode(mainanodenr, anodenr) != e_none)
+						return e_remove;
+					/* the head anode now holds the next block */
+					if (anodenr == mainanodenr)
+						dirnode.next = anodenr;
 				}
-				
-				DeleteAnode(mainanodenr, anodenr);
+				else
+					addfileerror("Corrupt directory block");
+
+				error = e_none;
 				break;
 
 			case e_none:
@@ -2990,24 +3115,20 @@ static error_t RepairReservedBitmap(void)
 	if (nuba > 0)
 	{
 		sprintf(bericht, "%lu reserved blocks not used but allocated", nuba);
-		if (mode == check || mode == info)
-			fixederror(bericht);
+		fixederror(bericht);
 	}
 
 	if (ubna > 0)
 	{
 		sprintf(bericht, "%lu reserved blocks used but not allocated", ubna);
-		if (mode == check || mode == info)
-			fixederror(bericht);
+		fixederror(bericht);
 	}
 
 	// check blocks free
 	if (lrb->reserved_free != blocksfree && !aborting)
 	{
-		if (mode == check || mode == info) {
-			sprintf(bericht, "Wrong number of reserved blocks free (%lu <> %lu)", lrb->reserved_free, blocksfree);
-			fixederror(bericht);
-		}
+		sprintf(bericht, "Wrong number of reserved blocks free (%lu <> %lu)", lrb->reserved_free, blocksfree);
+		fixederror(bericht);
 		lrb->reserved_free = blocksfree;
 		dirty = true;
 	}
@@ -3139,6 +3260,19 @@ static error_t RepairMainBitmap(void)
 	return error;
 }
 
+/* the index has no anode block seqnr, unlike a block that cannot be read */
+static bool AnodeBlockMissing(uint32 seqnr)
+{
+	cachedblock_t blk;
+	error_t error;
+
+	if (!(blk.data = pfscalloc(1, SIZEOF_RESBLOCK)))
+		return false;
+	error = GetResBlock(&blk, ABLKID, seqnr, false);
+	pfsfree(blk.data);
+	return error == e_not_found;
+}
+
 /* Compare anodes with generated anode bitmap. Fix found
  * differences. Pre conditions:
  * - syntax disk correct
@@ -3147,7 +3281,7 @@ static error_t RepairMainBitmap(void)
  */
 static error_t RepairAnodeBitmap(void)
 {
-	uint32 i, anodenr;
+	uint32 i, anodenr, missingseq = ~0UL;
 	int anodeused;
 	canode_t anode;
 	bitmap_t *gbm = volume.anodebitmap;
@@ -3171,7 +3305,17 @@ static error_t RepairAnodeBitmap(void)
 		anodeused = !(gbm->map[i/32] & (0x80000000UL >> i%32));
 		anodenr = (i/ANODES_PER_BLOCK << 16) + i%ANODES_PER_BLOCK;
 
-		error = CheckAnode(&anode, anodenr, false);
+		/* a missing anode block holds only empty anodes, look it up once */
+		if (i/ANODES_PER_BLOCK == missingseq)
+			error = e_empty;
+		else if (!GetAnode(&anode, anodenr, false))
+		{
+			if (AnodeBlockMissing(i/ANODES_PER_BLOCK))
+				missingseq = i/ANODES_PER_BLOCK;
+			error = e_empty;
+		}
+		else
+			error = (anode.clustersize == 0 && anode.blocknr == 0 && anode.next == 0) ? e_empty : e_none;
 
 		if ((error == e_empty) == anodeused)
 		{

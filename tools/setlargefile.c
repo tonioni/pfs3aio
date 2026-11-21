@@ -18,8 +18,9 @@
 UBYTE *version = "$VER: Setlargefile " SETLARGEFILE_REVISION " (" SETLARGEFILE_DATE ") by Toni Wilen";
 LONG args[2];
 
-void main(void)
+int main(void)
 { 
+  LONG rc = RETURN_OK;
   struct RDArgs *result;
   struct MsgPort *msgport;
   ULONG enable = 0;
@@ -51,6 +52,7 @@ void main(void)
 			   NULL, NULL, NULL))
 	{
 		error = IoErr();
+		rc = RETURN_ERROR;
 		if (error == ERROR_BAD_NUMBER)
 			printf("Volume is not large file capable.\n");
 		else if (error == ERROR_ACTION_NOT_KNOWN)
@@ -64,8 +66,12 @@ void main(void)
 		if (error)
 			printf("Large file support enabled.\n");
 		else
+		{
 			printf("Large file support not enabled.\n");
+			rc = RETURN_WARN;
+		}
 	}
 
 	FreeArgs(result);
+	return rc;
 }

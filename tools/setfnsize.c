@@ -30,8 +30,9 @@
 UBYTE *version = "$VER: Setfnsize " SETFNSIZE_REVISION " (" SETFNSIZE_DATE ") by Michiel Pelt";
 LONG args[2];
 
-void main(void)
+int main(void)
 { 
+  LONG rc = RETURN_OK;
   struct RDArgs *result;
   struct MsgPort *msgport;
   ULONG fnsize;
@@ -65,6 +66,7 @@ void main(void)
 			   NULL, NULL, NULL))
 	{
 		error = IoErr();
+		rc = RETURN_ERROR;
 		if (error == ERROR_BAD_NUMBER)
 			printf("Filenamesize must be larger than current size\n");
 		else if (error == ERROR_OBJECT_TOO_LARGE)
@@ -80,4 +82,5 @@ void main(void)
 	}
 
 	FreeArgs(result);
+	return rc;
 }
