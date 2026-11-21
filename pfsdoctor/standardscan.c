@@ -2990,24 +2990,20 @@ static error_t RepairReservedBitmap(void)
 	if (nuba > 0)
 	{
 		sprintf(bericht, "%lu reserved blocks not used but allocated", nuba);
-		if (mode == check || mode == info)
-			fixederror(bericht);
+		fixederror(bericht);
 	}
 
 	if (ubna > 0)
 	{
 		sprintf(bericht, "%lu reserved blocks used but not allocated", ubna);
-		if (mode == check || mode == info)
-			fixederror(bericht);
+		fixederror(bericht);
 	}
 
 	// check blocks free
 	if (lrb->reserved_free != blocksfree && !aborting)
 	{
-		if (mode == check || mode == info) {
-			sprintf(bericht, "Wrong number of reserved blocks free (%lu <> %lu)", lrb->reserved_free, blocksfree);
-			fixederror(bericht);
-		}
+		sprintf(bericht, "Wrong number of reserved blocks free (%lu <> %lu)", lrb->reserved_free, blocksfree);
+		fixederror(bericht);
 		lrb->reserved_free = blocksfree;
 		dirty = true;
 	}
