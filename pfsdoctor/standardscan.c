@@ -1198,7 +1198,7 @@ static error_t RepairDeldir(void)
 	{
 		if (rbl->options & MODE_SUPERDELDIR)
 		{
-			ddsize = rext.data->deldirsize;
+			ddsize = min(rext.data->deldirsize, MAXDELDIRSEQNR + 1);
 			volume.status(0, "Deldir", ddsize);
 
 			for (i=0; i<32; i++)
@@ -1213,7 +1213,7 @@ static error_t RepairDeldir(void)
 					}
 
 					remove = false;
-					if (i <= ddsize)
+					if (i < ddsize)
 					{
 						remove = true;
 						if (dd_CheckBlock(rext.data->deldir[i], i))
@@ -1230,21 +1230,57 @@ static error_t RepairDeldir(void)
 						sprintf(bericht, "Deldir block %d removed\n", i);
 						fixederror(bericht);
 						rext.data->deldir[i] = 0;
-						ddsize = min(ddsize, i+1);
+						ddsize = min(ddsize, i);
 						rextdirty = true;
 					}
 					exitblock();
 				}
 				else
 				{
-					ddsize = min(ddsize, i+1);
+					ddsize = min(ddsize, i);
 				}
 			}
 
 			if (ddsize != rext.data->deldirsize)
 			{
-				rext.data->deldirsize = ddsize;
-				rextdirty = true;
+				if (mode == check || mode == info)
+					adderror("Deldir size incorrect");
+				else
+				{
+					fixederror("Deldir size incorrect");
+					rext.data->deldirsize = ddsize;
+					rextdirty = true;
+				}
+			}
+
+			/* the handler stops using the deldir while roving is outside it */
+			if (rext.data->deldirroving && rext.data->deldirroving >= ddsize * DELENTRIES_PER_BLOCK)
+			{
+				if (mode == check || mode == info)
+					adderror("Deldir roving pointer outside the deldir");
+				else
+				{
+					fixederror("Deldir roving pointer outside the deldir");
+					rext.data->deldirroving = 0;
+					rextdirty = true;
+				}
+			}
+
+			/* slots behind the deldir are empty, as SetDeldir leaves them */
+			for (i=ddsize; i<32; i++)
+			{
+				if (rext.data->deldir[i])
+				{
+					sprintf(bericht, "Deldir block %d outside the deldir", i);
+					if (mode == check || mode == info)
+						adderror(bericht);
+					else
+					{
+						fixederror(bericht);
+						rext.data->deldir[i] = 0;
+						rextdirty = true;
+					}
+				}
 			}
 
 			if (rbl->deldir)
