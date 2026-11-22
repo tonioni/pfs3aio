@@ -471,6 +471,10 @@ void enterblock(uint32 blocknr);
 void exitblock(void);
 
 /* device.c */
+/* bytes per cache line, whatever the block size */
+#define CACHELINEBYTES 32768
+/* blocks per cache line */
+#define CACHELINESIZE(blocksize) max(1, CACHELINEBYTES / (blocksize))
 error_t InitCache(uint32 linesize, uint32 nolines, uint32 blocksize);
 error_t c_GetBlock(uint8 *data, uint32 bloknr, uint32 bytes);
 error_t c_WriteBlock(uint8 *data, uint32 bloknr, uint32 bytes);

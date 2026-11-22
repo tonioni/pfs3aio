@@ -104,6 +104,61 @@ jobs:
             tools/setlargefile
           if-no-files-found: error
 
+  damage:
+    name: pfsdoctor on damaged ${{ matrix.variant }} volumes under ${{ matrix.os }}
+    needs: [build, pfsdoctor, tools]
+    runs-on: ubuntu-latest
+    container: docker.io/pulchart/amiga-fsuae-${{ matrix.os }}:latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [aros]
+        variant: [normal, largefile]
+        include:
+          - variant: normal
+            handler: pfs3aio
+          - variant: largefile
+            handler: pfs3aio-largefile
+            setlargefile: tools/setlargefile
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the handler
+        uses: actions/download-artifact@v8
+        with:
+          name: pfs3aio-handlers-${{ matrix.variant }}
+
+      - name: Download pfsdoctor
+        uses: actions/download-artifact@v8
+        with:
+          name: pfs3aio-pfsdoctor
+          path: pfsdoctor
+
+      - name: Download tools
+        uses: actions/download-artifact@v8
+        with:
+          name: pfs3aio-tools
+          path: tools
+
+      - name: pfsdoctor CHECK, REPAIR and CHECK on each damage
+        env:
+          HANDLER: ${{ matrix.handler }}
+          SETLARGEFILE: ${{ matrix.setlargefile }}
+        run: python3 tests/pfsdoctor_damage.py --handler "$HANDLER" --doctor pfsdoctor/pfsdoctor --limit 180 ${SETLARGEFILE:+--largefile "$SETLARGEFILE"}
+
+      - name: Upload the AmigaDOS output
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pfsdoctor-${{ matrix.os }}-${{ matrix.variant }}
+          path: |
+            build/tests/pfsdoctor/*/*/out/*.txt
+            build/tests/pfsdoctor/*/*/out/screen.png
+            build/tests/pfsdoctor/*/*/fsuae.log
+
   package:
     name: Package both build variants
     needs: [test, build, pfsdoctor, tools]
