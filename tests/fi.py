@@ -36,22 +36,8 @@ An amifuse error message (SystemExit with a string) is echoed to stderr.
 """
 import os
 import sys
-from contextlib import ExitStack
 
-from timer_device import DeferredTimers
 import amifuse_fixes  # noqa: F401
-
-# Immediate timer replies are not valid hardware behaviour: servicing them
-# between packets would expire a five-second deadline on the next packet.
-# Pump deferred replies at GetMsg boundaries using a monotonic host clock.
-# AmiFUSE releases that ship their own deferred timer.device (amifuse.timer_device)
-# already do this, and the shim would patch methods that device overrides.
-try:
-    import amifuse.timer_device  # noqa: F401
-except ImportError:
-    _timer_patches = ExitStack()
-    _timers = DeferredTimers()
-    _timers.install(_timer_patches, real_time=True)
 
 FI_CMD    = os.environ.get("FI_CMD", "none")
 FI_LO     = int(os.environ.get("FI_LO", "0"))

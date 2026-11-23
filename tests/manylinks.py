@@ -35,7 +35,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
 
-import largefile64 as L  # noqa: E402  (also installs the timer shim)
+import largefile64 as L  # noqa: E402  (also applies amifuse_fixes)
 
 check = L.check
 ERRORS = {103: "Not enough memory", 202: "Object in use", 203: "Object already exists",

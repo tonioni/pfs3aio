@@ -30,7 +30,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
 
-import largefile64 as L  # noqa: E402  (also installs the timer shim)
+import largefile64 as L  # noqa: E402  (also applies amifuse_fixes)
 from manylinks import Volume  # noqa: E402
 
 check = L.check

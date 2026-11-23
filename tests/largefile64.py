@@ -32,18 +32,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
 
-from timer_device import DeferredTimers  # noqa: E402
 import amifuse_fixes  # noqa: E402,F401
-from contextlib import ExitStack  # noqa: E402
-
-# Same timer shim as fi.py and dirops.py: immediate timer replies are not valid
-# hardware behaviour.
-try:
-    import amifuse.timer_device  # noqa: F401
-except ImportError:
-    _timer_patches = ExitStack()
-    _timers = DeferredTimers()
-    _timers.install(_timer_patches, real_time=True)
 
 ACTION_CHANGE_FILE_POSITION64 = 8001
 ACTION_GET_FILE_POSITION64 = 8002

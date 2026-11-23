@@ -23,19 +23,9 @@ import argparse
 import os
 import random
 import sys
-from contextlib import ExitStack
 from pathlib import Path
 
-from timer_device import DeferredTimers
 import amifuse_fixes  # noqa: F401
-
-# Same timer shim as fi.py: immediate timer replies are not valid hardware behaviour.
-try:
-    import amifuse.timer_device  # noqa: F401
-except ImportError:
-    _timer_patches = ExitStack()
-    _timers = DeferredTimers()
-    _timers.install(_timer_patches, real_time=True)
 
 import amifuse.fuse_fs as ff
 

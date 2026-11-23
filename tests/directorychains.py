@@ -44,7 +44,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
 
-import largefile64 as L  # noqa: E402  (also installs the timer shim)
+import largefile64 as L  # noqa: E402  (also applies amifuse_fixes)
 from manylinks import Volume, err  # noqa: E402
 from pfs3img import Image  # noqa: E402
 

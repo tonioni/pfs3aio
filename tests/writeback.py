@@ -5,18 +5,13 @@
 
 Uses disposable images. A snapshot is taken while the writer is still mounted,
 without ACTION_FLUSH or unmount, then reopened to verify the committed data.
-The local vamos timer stub is given deferred completion and a virtual relative
-clock so a five-second deadline takes five simulated seconds, not five packets.
-
-AmiFUSE releases that ship their own deferred timer.device (AmiFuseTimerDevice)
-are driven through its injectable clock; older ones use the local shim in
-timer_device.py. Either way the run fails unless the handler's timer requests
-really were intercepted and replied to, so it cannot pass without exercising
-the deadline.
+AmiFUSE's AmiFuseTimerDevice is driven through its injectable clock, so a
+five-second deadline takes five simulated seconds, not five packets. The run
+fails unless the handler's timer requests really were replied at their
+deadline, so it cannot pass without exercising the deadline.
 """
 
 import argparse
-from contextlib import ExitStack
 import os
 from pathlib import Path
 import shutil
@@ -24,14 +19,7 @@ import tempfile
 import time
 
 from amifuse.fuse_fs import HandlerBridge
-from timer_device import DeferredTimers
 import amifuse_fixes  # noqa: F401
-
-try:
-    import amifuse.timer_device  # noqa: F401  (newer AmiFUSE: native deferred timer.device)
-    NATIVE_TIMER = True
-except ImportError:
-    NATIVE_TIMER = False
 
 
 def read_file(bridge, name):
@@ -59,90 +47,70 @@ def run(args):
         after = Path(work) / "after.hdf"
         shutil.copyfile(args.image, image)
 
-        timers = DeferredTimers()
-        skew = [0.0]  # virtual seconds added to the native timer's host clock
+        skew = [0.0]  # virtual seconds added to the timer's host clock
 
         def tick(bridge):
             if args.real_time:
                 time.sleep(0.1)
-            elif NATIVE_TIMER:
+            else:
                 skew[0] += 0.1
-            else:
-                timers.advance(bridge, 100_000)
-            if NATIVE_TIMER:
-                # replies only the requests whose deadline has passed;
-                # _flush_pending_signals would fast-forward every timer
-                bridge.run_due_timers()
-            else:
-                bridge._flush_pending_signals()
+            # replies only the requests whose deadline has passed;
+            # _flush_pending_signals would fast-forward every timer
+            bridge.run_due_timers()
 
-        with ExitStack() as patches:
-            if not NATIVE_TIMER:
-                timers.install(patches, real_time=args.real_time)
-            bridge = HandlerBridge(image, args.driver, read_only=False)
-            device = bridge._timer_device() if NATIVE_TIMER else None
+        bridge = HandlerBridge(image, args.driver, read_only=False)
+        device = bridge._timer_device()
+        try:
+            assert device is not None, "AmiFUSE runtime has no timer device"
+            if not args.real_time:
+                device.clock = lambda: time.monotonic() + skew[0]
+            # Commit startup housekeeping before the workload begins.
+            bridge.flush_volume()
+            assert read_file(bridge, "/" + args.read_file) is not None
+            replied_before = device.deliveries
+
+            handle = bridge.open_file(
+                "/WRITEBACK-TEST", os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            )
+            assert handle is not None
+            address, _ = handle
             try:
-                if NATIVE_TIMER:
-                    assert device is not None, "AmiFUSE runtime has no timer device"
-                    if not args.real_time:
-                        device.clock = lambda: time.monotonic() + skew[0]
-                # Commit startup housekeeping before the workload begins.
-                bridge.flush_volume()
-                assert read_file(bridge, "/" + args.read_file) is not None
-                replied_before = device.deliveries if NATIVE_TIMER else 0
-
-                handle = bridge.open_file(
-                    "/WRITEBACK-TEST", os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-                )
-                assert handle is not None
-                address, _ = handle
-                try:
-                    chunk_size = 4096 if args.continuous_writes else len(payload)
-                    for offset in range(0, len(payload), chunk_size):
-                        chunk = payload[offset:offset + chunk_size]
-                        assert bridge.write_handle(address, chunk) == len(chunk)
-                        if offset == 0:
-                            bridge.backend.sync()
-                            shutil.copyfile(image, before)
-                        if args.continuous_writes:
-                            tick(bridge)
-                            assert read_file(bridge, "/" + args.read_file) is not None
-                        assert not bridge.state.crashed
-                finally:
-                    bridge.close_file(address)
-
-                for step in range(1, 61):
-                    tick(bridge)
-                    if step % 10 == 0:
+                chunk_size = 4096 if args.continuous_writes else len(payload)
+                for offset in range(0, len(payload), chunk_size):
+                    chunk = payload[offset:offset + chunk_size]
+                    assert bridge.write_handle(address, chunk) == len(chunk)
+                    if offset == 0:
+                        bridge.backend.sync()
+                        shutil.copyfile(image, before)
+                    if args.continuous_writes:
+                        tick(bridge)
                         assert read_file(bridge, "/" + args.read_file) is not None
                     assert not bridge.state.crashed
-
-                bridge.backend.sync()
-                shutil.copyfile(image, after)
-                if NATIVE_TIMER:
-                    replied = device.deliveries - replied_before
-                    print(
-                        f"timers: {replied} replied at their deadline during "
-                        f"the workload, {len(device._pending)} pending",
-                        flush=True,
-                    )
-                else:
-                    replied = timers.completed
-                    print(
-                        f"timers: {timers.submitted} submitted, "
-                        f"{timers.completed} completed, "
-                        f"{len(timers.pending)} pending",
-                        flush=True,
-                    )
-                # A run that never delivered a deadline proves nothing: the
-                # data would have to reach the disk some other way.
-                assert replied > 0, (
-                    "no timer.device request was replied at its deadline - "
-                    "the timer shim does not match this AmiFUSE, so the "
-                    "writeback deadline was not exercised"
-                )
             finally:
-                bridge.close()
+                bridge.close_file(address)
+
+            for step in range(1, 61):
+                tick(bridge)
+                if step % 10 == 0:
+                    assert read_file(bridge, "/" + args.read_file) is not None
+                assert not bridge.state.crashed
+
+            bridge.backend.sync()
+            shutil.copyfile(image, after)
+            replied = device.deliveries - replied_before
+            print(
+                f"timers: {replied} replied at their deadline during "
+                f"the workload, {len(device._pending)} pending",
+                flush=True,
+            )
+            # A run that never delivered a deadline proves nothing: the
+            # data would have to reach the disk some other way.
+            assert replied > 0, (
+                "no timer.device request was replied at its deadline, "
+                "so the writeback deadline was not exercised"
+            )
+        finally:
+            bridge.close()
 
         # The snapshots cannot be changed by the writer's shutdown flush.
         for snapshot, expected in ((before, None), (after, payload)):

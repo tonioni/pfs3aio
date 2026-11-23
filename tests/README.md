@@ -160,9 +160,9 @@ cannot be satisfied by leftovers of another one.
 `fi.py` is the fault-injection / crash harness the suite drives; see its docstring
 for the `FI_*` knobs (`FI_SKIP` and `FI_PROGRESS` are what let faults and kills
 land mid-operation). It hooks the classic, 64-bit TD and NSD (`NSCMD_TD_*64`)
-transfer commands; supermode images use the NSD ones. `timer_device.py` gives the
-vamos timer stub deferred completion using the host's monotonic clock, for
-AmiFUSE releases that do not ship their own `amifuse.timer_device`.
+transfer commands; supermode images use the NSD ones. `amifuse_fixes.py` makes the
+handler use AmiFUSE's deferred timer.device and frees the vamos memory pools before
+the runtime shuts down (see its docstring).
 
 ## timer writeback regression
 
@@ -170,10 +170,10 @@ AmiFUSE releases that do not ship their own `amifuse.timer_device`.
 uv run tests/writeback.py --image /path/to/pfs.hdf --driver pfs3aio
 ```
 
-This uses the real compiled m68k handler with a deferred timer.device: AmiFUSE's
-own `AmiFuseTimerDevice` driven by a virtual clock, or the `timer_device.py` shim on
-AmiFUSE releases without it. The run fails unless the handler's timer requests were
-really intercepted and replied to, so it cannot pass without exercising the deadline.
+This uses the real compiled m68k handler with AmiFUSE's deferred
+`AmiFuseTimerDevice`, driven by a virtual clock. The run fails unless the handler's
+timer requests were really replied at their deadline, so it cannot pass without
+exercising the deadline.
 It creates a small file, opens/reads/closes `foo.md` once per simulated second,
 and snapshots the image after six seconds while the writer is still mounted.
 Reopening that snapshot must recover the complete new file without relying on
