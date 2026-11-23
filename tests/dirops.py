@@ -27,6 +27,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from timer_device import DeferredTimers
+import amifuse_fixes  # noqa: F401
 
 # Same timer shim as fi.py: immediate timer replies are not valid hardware behaviour.
 try:

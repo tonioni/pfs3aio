@@ -39,6 +39,7 @@ import sys
 from contextlib import ExitStack
 
 from timer_device import DeferredTimers
+import amifuse_fixes  # noqa: F401
 
 # Immediate timer replies are not valid hardware behaviour: servicing them
 # between packets would expire a five-second deadline on the next packet.

@@ -15,6 +15,8 @@ on:
       - tests/directorychains.py
       - tests/deldirloss.py
       - tests/pfs3img.py
+      - tests/amifuse_fixes.py
+      - tests/fi.py
       - tests/requirements.txt
       - .github/workflows/blackbox-test.yml
 
@@ -99,7 +101,7 @@ jobs:
       - name: Install AmiFUSE
         run: |
           uv venv
-          uv pip install --no-deps -r tests/requirements.txt
+          uv pip install -r tests/requirements.txt
 
       - name: Run the test
         run: uv run ${{ matrix.test }}

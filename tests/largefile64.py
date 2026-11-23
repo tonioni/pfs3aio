@@ -33,6 +33,7 @@ ROOT = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
 
 from timer_device import DeferredTimers  # noqa: E402
+import amifuse_fixes  # noqa: E402,F401
 from contextlib import ExitStack  # noqa: E402
 
 # Same timer shim as fi.py and dirops.py: immediate timer replies are not valid
@@ -58,6 +59,7 @@ DP64_INIT = 0xFFFFFFFD
 DOSTRUE = (1 << 64) - 1
 DOSTRUE32 = 0xFFFFFFFF
 ACTION_MAKE_LINK = 1021
+ACTION_WRITE = 87
 ACTION_SET_LARGEFILE = 2223
 ID_PFS2_DISK = 0x50465302
 LINK_HARD = 0
@@ -146,6 +148,27 @@ class Packets:
 
     def seek(self, fh, off, mode=OFFSET_BEGINNING):
         return self.call(fh, ACTION_CHANGE_FILE_POSITION64, off, mode & 0xFFFFFFFF)
+
+    def transfer(self, fh_addr, ptype, buf, n):
+        """Packet ptype on the handle with n bytes at buf: dp_Res1."""
+        b = self.b
+        fe = FileHandleStruct(b.mem, fh_addr).args.val
+        with b._lock:
+            pkt, _ = b.launcher.send_packet(b.state, ptype, [fe, buf, n])
+            if not b._run_until_replies():
+                return None
+            r = b.mem.r32(pkt + 12)
+        return r - (1 << 32) if r >> 31 else r
+
+    # AmiFUSE measures the file end with 32 bit seeks before a write, which
+    # fail behind 4G, so the write goes to the handler as a single packet
+    def write(self, fh, data):
+        buf = self.b.vh.alloc.alloc_memory(len(data), label="W64")
+        try:
+            self.b.mem.w_block(buf.addr, data)
+            return self.transfer(fh, ACTION_WRITE, buf.addr, len(data))
+        finally:
+            self.b.vh.alloc.free_memory(buf)
 
     def setsize(self, fh, size, mode=OFFSET_BEGINNING):
         # allocating gigabytes of blocks takes the handler millions of cycles
@@ -395,7 +418,7 @@ def run(b, pk):
     check("seek to 4G - 100", pk.seek(fh, cross), (DP64_INIT, DOSTRUE, 0))
     check("position", pk.pos(fh), (DP64_INIT, cross, 0))
     mid = pattern(5, 300)
-    check("write across 4G", b.write_handle(fh, mid), len(mid))
+    check("write across 4G", pk.write(fh, mid), len(mid))
     check("position after", pk.pos(fh), (DP64_INIT, cross + 300, 0))
     check("size unchanged", pk.size(fh), (DP64_INIT, big, 0))
     check("seek from end", pk.seek(fh, -1000, OFFSET_END), (DP64_INIT, DOSTRUE, 0))

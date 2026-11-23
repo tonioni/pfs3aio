@@ -25,6 +25,7 @@ import time
 
 from amifuse.fuse_fs import HandlerBridge
 from timer_device import DeferredTimers
+import amifuse_fixes  # noqa: F401
 
 try:
     import amifuse.timer_device  # noqa: F401  (newer AmiFUSE: native deferred timer.device)
