@@ -38,6 +38,8 @@ AmigaGuide documentation, the Aminet readme, license, revision history and
 - `pfsdoctor`: checks and repairs PFS3 volumes (`pfsdoctor/`).
 - `setdeldir`, `setfnsize`, `setlargefile`: set the deldir size, the maximum
   file name length and large-file support of a mounted volume (`tools/`).
+- `pfsformat`: formats a partition with a reserved area of a chosen size
+  (`tools/`).
 
 Large-file support is
 opt-in: choose the large-file handler explicitly; the normal handler does

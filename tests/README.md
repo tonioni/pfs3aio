@@ -53,7 +53,7 @@ its mock needs other fields or a different layout. Covered:
 | `dd_notify_live.c` | `RemoveNotify` (ACTION_REMOVE_NOTIFY and `Quit`) takes a pending notify request off whichever volume it is queued on (also an older, non-current one, with no current volume, or in `Quit`'s own list) and frees it; our messages still queued at the client's port are taken back and the counters follow, so nothing is left for the caller to free under it |
 | `dd_relabel_live.c` | `dd_Relabel` refuses empty names, `:` and `/` and names over 30 characters before touching the volume; the new name is an `AllocVec` block that `FreeDosEntry` can free, and a failed write frees it again |
 | `newfile_live.c` | `NewFile` on an overwrite whose `AddToDeldir` fails puts the old chain's head back in the original anode and frees the replacement, instead of leaving the old data blocks orphaned |
-| `format_reject_live.c` | `FDSFormat` writes nothing to the disk on any failure (bad DosEnvec, tiny partition, reserved area larger than the partition, a failing bitmap, root directory or deldir) and a rejected DosEnvec leaves the geometry in use alone; the boot block is written last |
+| `format_reject_live.c` | `FDSFormat` writes nothing to the disk on any failure (bad DosEnvec, tiny partition, reserved area larger than the partition, a failing bitmap, root directory or deldir) and a rejected DosEnvec leaves the geometry in use alone; the boot block is written last; a reserved area asked for in KiB is counted in reserved blocks of 1 or 4 KiB, also below the default but never below the minimum the bitmap needs, and more than a volume holds is refused |
 | `anode_range_live.c` | `GetAnode`/`SaveAnodeInternal` reject exactly the anode numbers the old divide-based test rejected (every `anodesperblock` 1..0xFFFF, brute-forced), without a 32-bit divide; split mode ignores the limit. Passes on master too: a guard that the 68000 rewrite changed nothing |
 | `anode_walk_live.c` | `CorrectAnode` stops on a looping or self-linked anode chain instead of walking forever; long valid chains still resolve and reduce the offset correctly |
 | `dblk_walk_live.c` | `GetAnodeOfDBlk` fails on a broken or looping chain and reports the previous anode; `UpdateDBLK` and `FreeEmptyDBlk` honour the failure; `RemoveEmptyDBlocks` keeps the first block and skips locked blocks |
@@ -73,7 +73,7 @@ its mock needs other fields or a different layout. Covered:
 | `dd_openfromlock_live.c` | `dd_OpenFromLock` adds the new fileentry before removing the lock (a failed open leaves the lock usable), hiding the lock from its own conflict check meanwhile |
 | `dd_makelink_live.c` | `dd_MakeLink` refuses a hard link to a volume lock, soft link, link to a dir or deldir file with `ERROR_OBJECT_WRONG_TYPE` before `CreateLink` is called; files, real dirs and file links still get through |
 | `dd_signalidle_live.c` | `dd_SignalIdle` reports a failed allocation as `ERROR_NO_FREE_STORE` and queues nothing; valid handles are queued and unlinked from the head, middle and tail |
-| `packet_dispatch_live.c` | `PacketMutatesFilesystem` reads the `rolloverinfo` of `ACTION_SET_ROLLOVER` from the right argument; `NormalCommands` does not overwrite the reply of FINDUPDATE/FINDOUTPUT/CREATE_DIR with a metadata-error rejection (which would leak the entry they returned) but still rejects every other mutation |
+| `packet_dispatch_live.c` | `PacketMutatesFilesystem` reads the `rolloverinfo` of `ACTION_SET_ROLLOVER` from the right argument; `NormalCommands` does not overwrite the reply of FINDUPDATE/FINDOUTPUT/CREATE_DIR with a metadata-error rejection (which would leak the entry they returned) but still rejects every other mutation; `InhibitedCommands` formats on `ACTION_PFS_FORMAT` only while inhibited |
 | `volume_probe_live.c` | `ProbeRootBlock` refuses a rootblock without `MODE_HARDDISK` or with `rblkcluster` outside 1..521, retries with 512-byte blocks once, resets the block size first and never touches the data cache |
 | `getcurrentroot_live.c` | `GetCurrentRoot` restores block size, softprotect, protectkey and the error handler after a probe and reports the block size it found; `CheckCurrentVolumeBack` accepts any readable disk when there is no current volume |
 | `newvolume_live.c` | `SwitchBlockSize` rolls geometry and data cache back when it cannot allocate; `NewVolume` invalidates only clean data-cache slots (dirty ones still belong to the old volume), switches block size only when it differs, and inserts nothing if that fails |
@@ -253,6 +253,21 @@ uv run tests/deldirloss.py [--driver pfs3aio] [--pds]
 - **Volume filled:** the blocks are reused and the deldir entries have to go.
 
 Takes seconds. `.github/workflows/blackbox-test.yml` runs it as a job of its own.
+
+## format with a reserved area of a chosen size
+
+```sh
+make
+uv run tests/pfsformat.py [--driver pfs3aio]
+```
+
+`ACTION_PFS_FORMAT` is sent as `pfsformat` sends it, between `ACTION_INHIBIT` on and off, on volumes with 512 and 4096 byte blocks.
+
+- **Size:** without a size the reserved area has the default size. A size in KiB gives that many reserved blocks (1 KiB with 512 byte blocks, 4 KiB with 4096 byte blocks), rounded up to 32, also below the default, and a size below the minimum gives the minimum (the bitmap twice, the blocks of the format and `RESERVED_BUFFER`). The new volume mounts and takes a file. The one with the minimum takes a file over its whole data area, deletes it without the deldir in one commit that changes every bitmap block, and takes a file again.
+- **Too large:** a reserved area larger than the partition is refused with 221 Disk full, one larger than a volume holds with 115 Bad number, and the volume before it stays with its file.
+- **Mounted:** a volume that is not inhibited answers 209 Packet not known and stays as it is.
+
+`.github/workflows/blackbox-test.yml` runs it as a job of its own.
 
 ## Direct SCSI
 

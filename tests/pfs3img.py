@@ -38,6 +38,9 @@ class Image:
         self.firstreserved = u32(rb, 56)
         self.reserved_free = u32(rb, 60)
         self.resblksize = u16(rb, 64)
+        self.blocksfree = u32(rb, 68)
+        self.alwaysfree = u32(rb, 72)
+        self.disksize = u32(rb, 84)
         self.indexblocks = [u32(rb, 116 + 4 * i) for i in range(99)]
         self.extension = u32(rb, 88)
         self.super = bool(self.options & MODE_SUPERINDEX)

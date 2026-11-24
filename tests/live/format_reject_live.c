@@ -1,4 +1,4 @@
-/* LIVE @src format.c @func MakeBootBlock @func MakeRootBlock @func FDSFormat
+/* LIVE @src format.c @func MakeBootBlock @func MinNumReserved @func MakeRootBlock @func FDSFormat
  *
  * A format that cannot succeed must not touch the disk. The boot block is the
  * first thing a formatter overwrites; if it is written before the checks have
@@ -8,8 +8,12 @@
  * zero writes, and a rejection of the DosEnvec must also leave the geometry
  * the driver is currently using alone.
  *
- * Everything FDSFormat calls is mocked; the three functions above are the
- * driver's real code.
+ * Everything FDSFormat calls is mocked; the functions above are the driver's
+ * real code. A reserved area asked for in KiB (pfsformat RESERVED) is counted
+ * in reserved blocks: 1 KiB with 512 byte blocks, 4 KiB with 4096 byte
+ * blocks. It is never smaller than the minimum the bitmap of the partition
+ * needs, and more than MAXNUMRESERVED blocks are refused with nothing
+ * written.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +27,7 @@ typedef UBYTE *DSTR;
 #define ENTER(x)
 
 #define PFS_ERROR_INCONSISTENT 213	/* ERROR_DISK_NOT_VALIDATED, as in struct.h */
+#define RESERVED_BUFFER 10	/* as in struct.h */
 
 #define DE_SIZEBLOCK 1
 #define DE_SECSPERBLK 4
@@ -83,8 +88,10 @@ static ULONG RawWrite(UBYTE *buf, ULONG nblocks, ULONG start, globaldata *g)
 }
 static BOOL detectaccessmode(UBYTE *buf, globaldata *g) { return detect_ok; }
 static BOOL InitLRU(globaldata *g, UWORD blocksize) { return TRUE; }
-static void MakeReservedBitmap(struct rootblock **rbl, ULONG numreserved, globaldata *g) {}
-static ULONG CalcNumReserved(globaldata *g, ULONG resblocksize) { return 32; }
+static ULONG made_reserved;	/* the reserved blocks of the last format */
+static void MakeReservedBitmap(struct rootblock **rbl, ULONG numreserved, globaldata *g) { made_reserved = numreserved; }
+static ULONG default_reserved = 32;	/* what the size of the device gives */
+static ULONG CalcNumReserved(globaldata *g, ULONG resblocksize) { return default_reserved; }
 static void ShowVersion(globaldata *g) {}
 static void GetDriveGeometry(globaldata *g) {}
 
@@ -139,6 +146,7 @@ static BOOL UpdateDisk(globaldata *g) { updates++; return TRUE; }
 static void FreeVolumeResources(struct volumedata *v, globaldata *g) {}
 
 #include "gen/MakeBootBlock.c"
+#include "gen/MinNumReserved.c"
 #include "gen/MakeRootBlock.c"
 #include "gen/FDSFormat.c"
 
@@ -152,7 +160,7 @@ struct spec {
 	ULONG sector, total;        /* what the device reports */
 	ULONG size_block, secsperblk; /* DosEnvec */
 	ULONG first, last;          /* partition limits it ends up with */
-	ULONG rsblocks;
+	ULONG reservedkib;           /* reserved area asked for, 0 the default */
 };
 
 /* a healthy 512-byte block partition of 20000 blocks */
@@ -189,7 +197,7 @@ static BOOL run(const struct spec *s, const char *name, SIPTR *error)
 	*error = 0;
 	dn[0] = (UBYTE)strlen(name);
 	memcpy(dn + 1, name, dn[0]);
-	rc = FDSFormat(dn, 0, error, s->rsblocks, &G);
+	rc = FDSFormat(dn, 0, error, s->reservedkib, &G);
 	return rc;
 }
 
@@ -272,9 +280,9 @@ int main(void)
 	rejected("100 blocks", &s, ERROR_DISK_FULL, 0);
 	s = good(); s.first = 0; s.last = 126;                 /* 127 blocks */
 	rejected("127 blocks (one below the minimum)", &s, ERROR_DISK_FULL, 0);
-	s = good(); s.first = 0; s.last = 199; s.rsblocks = 1000;
+	s = good(); s.first = 0; s.last = 199; s.reservedkib = 1000;
 	rejected("reserved area larger than partition", &s, ERROR_DISK_FULL, 0);
-	s = good(); s.first = 0; s.last = 129; s.rsblocks = 33; /* 64 reserved clusters of 2: 130 blocks used */
+	s = good(); s.first = 0; s.last = 129; s.reservedkib = 33; /* 64 reserved clusters of 2: 130 blocks used */
 	rejected("reserved area uses every block", &s, ERROR_DISK_FULL, 0);
 
 	/* smallest partitions that must still work */
@@ -282,10 +290,36 @@ int main(void)
 	rc = run(&s, "Test", &error);
 	printf("  %-38s rc=%d error=%ld  writes=%d\n", "128 blocks (the minimum)", rc, (long)error, raw_writes);
 	check(rc == DOSTRUE && raw_writes == 1, "128 blocks must format");
-	s = good(); s.first = 0; s.last = 130; s.rsblocks = 33; /* one block left for data */
+	s = good(); s.first = 0; s.last = 130; s.reservedkib = 33; /* one block left for data */
 	rc = run(&s, "Test", &error);
 	printf("  %-38s rc=%d error=%ld  writes=%d\n", "one data block left", rc, (long)error, raw_writes);
 	check(rc == DOSTRUE && raw_writes == 1, "a partition with one block more than the reserved area must format");
+
+	/* 4096 byte blocks: 1000 KiB are 250 reserved blocks of 4 KiB, 256 rounded up */
+	s = good(); s.size_block = 1024; s.first = 0; s.last = 256; s.reservedkib = 1000;
+	rejected("4096 byte blocks, 1000 KiB in 257 blocks", &s, ERROR_DISK_FULL, 0);
+	s = good(); s.size_block = 1024; s.first = 0; s.last = 299; s.reservedkib = 1000;
+	rc = run(&s, "Test", &error);
+	printf("  %-38s rc=%d error=%ld  writes=%d\n", "4096 byte blocks, 1000 KiB in 300", rc, (long)error, raw_writes);
+	check(rc == DOSTRUE && raw_writes == 1, "1000 KiB of 4 KiB reserved blocks must fit 300 blocks");
+
+	/* below the default: the size asked for, 64 rounded up from 33 */
+	default_reserved = 1024;
+	s = good(); s.first = 0; s.last = 299; s.reservedkib = 33;
+	rc = run(&s, "Test", &error);
+	printf("  %-38s rc=%d reserved=%lu\n", "33 KiB, a default of 1024 in 300", rc, (unsigned long)made_reserved);
+	check(rc == DOSTRUE && made_reserved == 64, "a size below the default must be taken");
+	default_reserved = 32;
+	/* below the minimum: the minimum, the bitmap twice and the format's
+	 * blocks; 1 KiB on 2 GiB of 512 byte blocks needs 2 * (519 + 3) + 7 + 10
+	 * + a rootblock cluster of 1, 1088 rounded up */
+	s = good(); s.total = 4194304; s.first = 0; s.last = 4194303; s.reservedkib = 1;
+	rc = run(&s, "Test", &error);
+	printf("  %-38s rc=%d reserved=%lu\n", "1 KiB on 2 GiB", rc, (unsigned long)made_reserved);
+	check(rc == DOSTRUE && made_reserved == 1088, "a size below the minimum must give the minimum");
+	/* more than MAXNUMRESERVED blocks */
+	s = good(); s.reservedkib = 0x7fffffff;
+	rejected("more reserved blocks than a volume holds", &s, ERROR_BAD_NUMBER, 0);
 
 	/* anything that fails after the checks must still leave the boot blocks alone */
 	s = good();

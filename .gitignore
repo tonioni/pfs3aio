@@ -13,3 +13,4 @@ boot
 /tools/setfnsize
 /tools/setlargefile
 /docs/*.guide
+/tools/pfsformat

@@ -85,8 +85,9 @@ all-variants:
 pfsdoctor:
 	$(MAKE) -C pfsdoctor CC=$(CC)
 
-# The volume setting tools in tools/: setdeldir, setfnsize, setlargefile.
-TOOLS = tools/setdeldir tools/setfnsize tools/setlargefile
+# The volume setting tools in tools/: setdeldir, setfnsize, setlargefile,
+# and pfsformat.
+TOOLS = tools/setdeldir tools/setfnsize tools/setlargefile tools/pfsformat
 tools:
 	$(MAKE) -C tools CC=$(CC)
 
@@ -145,6 +146,7 @@ archive: dist.readme.in $(GUIDES)
 	  printf 'pfs3aio-largefile[-custom]: LARGE_FILE_SIZE=1\n'; \
 	  printf 'pfsdoctor: disk check and repair tool\n'; \
 	  printf 'setdeldir, setfnsize, setlargefile: volume setting tools\n'; \
+	  printf 'pfsformat: format with a reserved area of a chosen size\n'; \
 	} > "$$stage/$$package/Build.txt"; \
 	(cd "$$stage" && $(LHA) co5 "$$package.lha" "$$package"); \
 	$(LHA) t "$$stage/$$package.lha"; \

@@ -1,4 +1,4 @@
-/* LIVE @src dostohandlerinterface.c @func PacketMutatesFilesystem @func RejectMetadataMutation @func NormalCommands
+/* LIVE @src dostohandlerinterface.c @func PacketMutatesFilesystem @func RejectMetadataMutation @func NormalCommands @func InhibitedCommands
  *
  * Lifts the checkout's real PacketMutatesFilesystem, RejectMetadataMutation and
  * NormalCommands (the packet dispatcher) over mock packet handlers that record
@@ -16,7 +16,9 @@
  *    -1, the rest with DOSFALSE);
  *  - with the flag already set, every mutating packet is failed before its
  *    handler is called; non-mutating packets and a handler-less volume are
- *    never failed.
+ *    never failed;
+ *  - ACTION_PFS_FORMAT (pfsformat) formats only while inhibited, as
+ *    ACTION_FORMAT does; on a mounted volume it is not known.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -38,42 +40,6 @@ typedef intptr_t BPTR;
 #define LARGE_FILE_SIZE 0
 #define EXTENDED_PACKETS_OS4 0
 #define EXTENDED_PACKETS_MORPHOS 0
-
-#define ACTION_LOCATE_OBJECT 8
-#define ACTION_RENAME_DISK 9
-#define ACTION_FREE_LOCK 15
-#define ACTION_DELETE_OBJECT 16
-#define ACTION_RENAME_OBJECT 17
-#define ACTION_MORE_CACHE 18
-#define ACTION_SET_PROTECT 21
-#define ACTION_CREATE_DIR 22
-#define ACTION_EXAMINE_OBJECT 23
-#define ACTION_SET_COMMENT 28
-#define ACTION_SET_DATE 34
-#define ACTION_SAME_LOCK 40
-#define ACTION_WRITE 'W'
-#define ACTION_READ 'R'
-#define ACTION_FINDUPDATE 1004
-#define ACTION_FINDINPUT 1005
-#define ACTION_FINDOUTPUT 1006
-#define ACTION_MAKE_LINK 1021
-#define ACTION_SET_FILE_SIZE 1022
-#define ACTION_SET_OWNER 1036
-#define ACTION_LOCK_RECORD 2008
-#define ACTION_FREE_RECORD 2009
-#define ACTION_ADD_NOTIFY 4097
-#define ACTION_REMOVE_NOTIFY 4098
-#define ACTION_SERIALIZE_DISK 4200
-#define ACTION_SLEEP 2200
-#define ACTION_REMOVE_DIRENTRY 2204
-#define ACTION_CREATE_ROLLOVER 2205
-#define ACTION_SET_ROLLOVER 2206
-#define ACTION_IS_PFS2 2211
-#define ACTION_ADD_IDLE_SIGNAL 2220
-#define ACTION_SET_DELDIR 2221
-#define ACTION_SET_FNSIZE 2222
-#define ACTION_SET_LARGEFILE 2223
-#define ACTION_KILL_EMPTY 3000
 
 /* struct.h: used by ACTION_SET_ROLLOVER; 68k alignment, as the handler sees it */
 #pragma pack(2)
@@ -114,6 +80,10 @@ HANDLER(NotKnown) HANDLER(NotYetImplemented) HANDLER(dd_WriteSFS) HANDLER(dd_See
 HANDLER(dd_AddNotify) HANDLER(dd_RemoveNotify) HANDLER(dd_KillEmpty) HANDLER(dd_RemoveDirEntry)
 HANDLER(dd_Sleep) HANDLER(dd_MakeRollover) HANDLER(dd_SetRollover) HANDLER(dd_IsPFS2)
 HANDLER(dd_SignalIdle) HANDLER(dd_SetDeldir) HANDLER(dd_SetFileSize)
+HANDLER(dd_InhibitOff) HANDLER(dd_Format) HANDLER(dd_Unlock) HANDLER(dd_Info) HANDLER(dd_Quit)
+HANDLER(dd_SerializeDisk)
+static int formats_reserved;
+static SIPTR dd_FormatReserved(struct DosPacket *a, globaldata *g) { formats_reserved++; return handle(a, g); }
 
 static struct functable functiontable0[ACTION_SAME_LOCK + 1];
 static struct functable functiontable1000[ACTION_SET_OWNER - 1000 + 1];
@@ -121,6 +91,7 @@ static struct functable functiontable1000[ACTION_SET_OWNER - 1000 + 1];
 #include "gen/PacketMutatesFilesystem.c"        /* the REAL functions from ../../dostohandlerinterface.c */
 #include "gen/RejectMetadataMutation.c"
 #include "gen/NormalCommands.c"
+#include "gen/InhibitedCommands.c"
 
 static int failures;
 static void check(int cond, const char *what)
@@ -376,6 +347,22 @@ static void on_crash(int sig)
 	_exit(1);
 }
 
+/* pfsformat's packet: a format while inhibited, unknown on a mounted volume */
+static void test_pfs_format(void)
+{
+	reset(); formats_reserved = 0;
+	fill(ACTION_PFS_FORMAT, 0, 0, 4096);
+	InhibitedCommands(&pkt, &gd);
+	check(formats_reserved == 1 && calls == 1 && pkt.dp_Res1 == 0x4321, "inhibited: ACTION_PFS_FORMAT formats");
+	reset(); formats_reserved = 0;
+	fill(ACTION_FORMAT, 0, 0, 0);
+	InhibitedCommands(&pkt, &gd);
+	check(formats_reserved == 0 && calls == 1 && last_type == ACTION_FORMAT, "inhibited: ACTION_FORMAT stays the plain format");
+	reset(); formats_reserved = 0;
+	send(ACTION_PFS_FORMAT, 0, 0, 4096);
+	check(formats_reserved == 0, "mounted: ACTION_PFS_FORMAT does not format");
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -390,8 +377,10 @@ int main(void)
 	printf("NormalCommands: metadata error already set\n");
 	test_error_before_packet();
 	test_setrollover_dispatch();
+	printf("InhibitedCommands: pfsformat\n");
+	test_pfs_format();
 
-	if (failures == 0) { printf("  PASS: SET_ROLLOVER is classified by dp_Arg3 and Open/CreateDir keep their reply\n"); return 0; }
+	if (failures == 0) { printf("  PASS: SET_ROLLOVER is classified by dp_Arg3, Open/CreateDir keep their reply, PFS_FORMAT only inhibited\n"); return 0; }
 	printf("  FAIL: %d check(s) failed\n", failures);
 	return 1;
 }

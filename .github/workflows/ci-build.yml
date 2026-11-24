@@ -102,6 +102,7 @@ jobs:
             tools/setdeldir
             tools/setfnsize
             tools/setlargefile
+            tools/pfsformat
           if-no-files-found: error
 
   guides:
@@ -225,7 +226,7 @@ jobs:
           chmod +x \
             pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom \
             pfsdoctor/pfsdoctor \
-            tools/setdeldir tools/setfnsize tools/setlargefile
+            tools/setdeldir tools/setfnsize tools/setlargefile tools/pfsformat
 
       - name: Build distribution
         env:
