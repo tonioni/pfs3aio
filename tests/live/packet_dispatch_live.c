@@ -18,7 +18,9 @@
  *    handler is called; non-mutating packets and a handler-less volume are
  *    never failed;
  *  - ACTION_PFS_FORMAT (pfsformat) formats only while inhibited, as
- *    ACTION_FORMAT does; on a mounted volume it is not known.
+ *    ACTION_FORMAT does; on a mounted volume it is not known;
+ *  - a packet InhibitedCommands does not know is answered with the reply of
+ *    NotKnown, not with the dp_Res1 the packet came with.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -363,6 +365,16 @@ static void test_pfs_format(void)
 	check(formats_reserved == 0, "mounted: ACTION_PFS_FORMAT does not format");
 }
 
+/* an unknown packet while inhibited fails, whatever dp_Res1 held */
+static void test_inhibited_unknown(void)
+{
+	reset();
+	fill(2299, 0, 0, 0);
+	pkt.dp_Res1 = 0x5a5a;
+	InhibitedCommands(&pkt, &gd);
+	check(calls == 1 && last_type == 2299 && pkt.dp_Res1 == 0x4321, "inhibited: an unknown packet takes the reply of NotKnown");
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -379,6 +391,7 @@ int main(void)
 	test_setrollover_dispatch();
 	printf("InhibitedCommands: pfsformat\n");
 	test_pfs_format();
+	test_inhibited_unknown();
 
 	if (failures == 0) { printf("  PASS: SET_ROLLOVER is classified by dp_Arg3, Open/CreateDir keep their reply, PFS_FORMAT only inhibited\n"); return 0; }
 	printf("  FAIL: %d check(s) failed\n", failures);

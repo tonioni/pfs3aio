@@ -577,7 +577,7 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 #endif
 
 		default:
-			NotKnown(action, g);
+			action->dp_Res1 = NotKnown(action, g);
 			break;
 	}
 }
