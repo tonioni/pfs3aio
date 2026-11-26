@@ -12,3 +12,4 @@ boot
 /tools/setdeldir
 /tools/setfnsize
 /tools/setlargefile
+/docs/*.guide

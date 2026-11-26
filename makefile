@@ -54,7 +54,7 @@ MISSING_DEPS = $(foreach obj,$(C_OBJS),$(if $(wildcard $(obj:.o=.d)),,$(obj)))
 
 -include $(C_OBJS:.o=.d)
 
-.PHONY: all largefile all-variants pfsdoctor tools floppy lha archive check clean force-deps
+.PHONY: all largefile all-variants pfsdoctor tools guides floppy lha archive check clean force-deps
 $(MISSING_DEPS): force-deps
 force-deps:
 
@@ -90,14 +90,26 @@ TOOLS = tools/setdeldir tools/setfnsize tools/setlargefile
 tools:
 	$(MAKE) -C tools CC=$(CC)
 
-# AmigaGuide documentation, generated from docs/*.md (see README.md).
+# AmigaGuide documentation, generated from docs/*.md with md2guide of the
+# amiga-toolchain image, run in it when md2guide is not installed.
 GUIDES = docs/pfsdoctor.guide docs/tools.guide
+GUIDE_VERSION ?= 20.0
+TOOLCHAIN_IMAGE ?= ghcr.io/pulchart/amiga-toolchain:latest
+MD2GUIDE ?= $(if $(shell command -v md2guide 2>/dev/null),md2guide,podman run --rm --security-opt label=disable \
+	-v "$(CURDIR):$(CURDIR)" -w "$(CURDIR)" $(TOOLCHAIN_IMAGE) md2guide)
+guides: $(GUIDES)
+
+docs/pfsdoctor.guide: docs/pfsdoctor.md
+	$(MD2GUIDE) $< $@ --version $(GUIDE_VERSION) --ver-title "pfsdoctor guide"
+
+docs/tools.guide: docs/tools.md
+	$(MD2GUIDE) $< $@ --version $(GUIDE_VERSION) --ver-title "pfs3aio tools guide"
 
 $(OBJS): makefile
 
 # 880K AmigaDOS floppy holding the handlers.
 FLOPPY_FILES = pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfsdoctor/pfsdoctor $(TOOLS) $(GUIDES) LICENSE versionhistory.doc
-floppy: all-variants
+floppy: all-variants $(GUIDES)
 	$(PYTHON) tools/mkadf.py pfs3aio.adf PFS3AIO $(FLOPPY_FILES)
 
 check:
@@ -109,7 +121,7 @@ lha: all-variants
 	$(MAKE) archive
 
 # CI packages the already-built matrix artifacts through this target.
-archive: dist.readme.in
+archive: dist.readme.in $(GUIDES)
 	$(PYTHON) tools/hunk.py custom pfs3aio pfs3aio-custom
 	$(PYTHON) tools/hunk.py custom pfs3aio-largefile pfs3aio-largefile-custom
 	@set -eu; \
@@ -141,7 +153,7 @@ archive: dist.readme.in
 
 clean:
 	$(RM) build/normal/*.o build/normal/*.d build/largefile/*.o build/largefile/*.d
-	$(RM) pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfs3aio.adf
+	$(RM) pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom pfs3aio.adf $(GUIDES)
 	$(MAKE) -C pfsdoctor clean
 	$(MAKE) -C tools clean
 
