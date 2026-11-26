@@ -1081,7 +1081,8 @@ typedef struct lockentry
 #endif
 
 #if EXTENDED_PACKETS_OS4
-/* Packet of the 64 bit actions; Res0 is DP64_INIT in an answer */
+/* Packet of the 64 bit actions, 64 bytes as in the AmigaOS 4 SDK. The sender
+ * sets Res0 to DP64_INIT, and the handler writes the same value back */
 #define DP64_INIT -3
 struct DosPacket64OS4
 {
@@ -1097,7 +1098,7 @@ struct DosPacket64OS4
 	QUAD  dp_Arg2;		/* 40 */
 	ULONG dp_Arg3;		/* 48 */
 	ULONG dp_Arg4;		/* 52 */
-	ULONG dp_Arg5;		/* 56 */
+	QUAD  dp_Arg5;		/* 56 */
 };
 #endif
 
