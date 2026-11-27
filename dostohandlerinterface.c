@@ -459,6 +459,10 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 			action->dp_Res1 = dd_Format(action, g);
 			break;
 
+		case ACTION_PFS_FORMAT:     // pfsformat: with the size of the reserved area
+			action->dp_Res1 = dd_FormatReserved(action, g);
+			break;
+
 		case ACTION_FREE_LOCK:      // UnLock()
 			action->dp_Res1 = dd_Unlock(action, g);
 			break;
@@ -573,7 +577,7 @@ void InhibitedCommands(struct DosPacket *action, globaldata *g)
 #endif
 
 		default:
-			NotKnown(action, g);
+			action->dp_Res1 = NotKnown(action, g);
 			break;
 	}
 }

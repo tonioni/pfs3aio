@@ -561,11 +561,11 @@ int DoSCSICommand(UBYTE *data, ULONG datalen, UBYTE *command,
 	volume.request->iotd_Req.io_Length = sizeof(struct SCSICmd);
 	volume.request->iotd_Req.io_Data = (APTR)&scsicmd;
 	volume.request->iotd_Req.io_Command = HD_SCSICMD;
-	DoIO((struct IORequest *)volume.request);
-	if (scsicmd.scsi_Status)
+	scsicmd.scsi_Status = 0;
+	/* a driver error comes in io_Error, a target error in scsi_Status */
+	if (DoIO((struct IORequest *)volume.request) || scsicmd.scsi_Status)
 		return 0;
-	else 
-		return 1;
+	return 1;
 }
 
 /* Convert BCPL/Pascal string to a CString. 

@@ -145,10 +145,11 @@
  */
 static void ShowVersion (globaldata *g);
 static ULONG MakeBootBlock(BOOL write, globaldata *g);
-static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, SIPTR *error, globaldata *g);
+static rootblock_t *MakeRootBlock (DSTR diskname, ULONG reservedkib, SIPTR *error, globaldata *g);
 static BOOL MakeBitmap (globaldata *g);
 static BOOL MakeRootDir (SIPTR *error, globaldata *g);
 static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize);
+static ULONG MinNumReserved (ULONG numblocks, ULONG resblocksize);
 static void MakeReservedBitmap (struct rootblock **rbl, ULONG numreserved, globaldata *g);
 static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, globaldata *g);
 
@@ -158,7 +159,10 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 /*                               FORMAT                               */
 /**********************************************************************/
 
-BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, globaldata *g)
+/* reservedkib: size of the reserved area in KiB, 0 for the default;
+ * requester: show the version requester
+ */
+BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG reservedkib, BOOL requester, globaldata *g)
 {
   struct rootblock *rootblock;
   struct volumedata *volume;
@@ -194,7 +198,8 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
 	// logical blocksize = size_block * sectors per block
 	ULONG cbs = (env[DE_SIZEBLOCK] << 2) * env[DE_SECSPERBLK];
 
-	ShowVersion (g);
+	if (requester)
+		ShowVersion (g);
 
 	/* issue 00118: disk cannot exceed MAX_DISK_SIZE */
 	if (g->geom->dg_TotalSectors > MAXDISKSIZE) {
@@ -235,7 +240,7 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG rsblocks, glob
  		return DOSFALSE;
 	}
 
-	if (!(rootblock = MakeRootBlock (diskname, rsblocks, error, g)))
+	if (!(rootblock = MakeRootBlock (diskname, reservedkib, error, g)))
 		return DOSFALSE;
 
 	/*  make volumedata BEFORE rext ! (bug 00135) */
@@ -393,7 +398,7 @@ static ULONG MakeBootBlock (BOOL write, globaldata *g)
  * including reserved bitmap
  * (will be written by Update and freed by FreeVolumeRes.)
  */
-static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, SIPTR *error, globaldata *g)
+static rootblock_t *MakeRootBlock (DSTR diskname, ULONG reservedkib, SIPTR *error, globaldata *g)
 {
 	struct rootblock *rbl;
 	struct DateStamp time;
@@ -444,23 +449,27 @@ static rootblock_t *MakeRootBlock (DSTR diskname, ULONG rsblocks, SIPTR *error, 
 	}
 
 	rescluster = resblocksize >> BLOCKSHIFT;
-	if (rsblocks == 0) {
-		numreserved = CalcNumReserved (g, resblocksize);
-	} else {
-		if (rsblocks > MAXNUMRESERVED) {
-			rsblocks = MAXNUMRESERVED;
+	numblocks = g->lastblock - g->firstblock + 1;
+	numreserved = CalcNumReserved (g, resblocksize);
+	/* the size asked for, never below the minimum: the format takes the
+	 * bitmap from the reserved area */
+	if (reservedkib) {
+		ULONG n = resblocksize / 1024;
+		ULONG asked = reservedkib / n + (reservedkib % n != 0);
+		ULONG min = MinNumReserved (numblocks, resblocksize);
+
+		if (asked > MAXNUMRESERVED) {
+			*error = ERROR_BAD_NUMBER;
+			return NULL;
 		}
-		numreserved = (rsblocks + 31) & ~31;
-		if (numreserved < 32) {
-			numreserved = 32;
-		}
+		asked = (asked + 31) & ~31;
+		numreserved = asked > min ? asked : min;
 	}
 
 	/* The reserved area (it starts at the rootblock) must leave room for
 	 * data blocks, otherwise the free block counters below underflow.
 	 * Partitions this small are not usable anyway.
 	 */
-	numblocks = g->lastblock - g->firstblock + 1;
 	reserved = rescluster*numreserved + ROOTBLOCK;
 	if (numblocks < 128 || numblocks <= reserved) {
 		*error = ERROR_DISK_FULL;
@@ -655,6 +664,28 @@ static ULONG CalcNumReserved (globaldata *g, ULONG resblocksize)
 	taken = min(MAXNUMRESERVED, taken - 1);
 	taken = (taken + 31) & ~0x1f;		/* multiple of 32 */
 	return taken;
+}
+
+/* the smallest reserved area for numblocks blocks, a multiple of 32: the
+ * bitmap and its index blocks twice, as a commit writes every changed block
+ * to a free one, the rootblock cluster with the reserved bitmap, the blocks
+ * the format makes (extension, anode, index and super index block, root
+ * directory, two deldir blocks) and RESERVED_BUFFER
+ */
+static ULONG MinNumReserved (ULONG numblocks, ULONG resblocksize)
+{
+	ULONG perblock = resblocksize / 4 - 3;	/* longs of a bitmap block, entries of an index block */
+	ULONG bitmap = ((numblocks >> 5) + 1 + perblock - 1) / perblock;
+	ULONG index = (bitmap + perblock - 1) / perblock;
+	ULONG min = 2 * (bitmap + index) + 7 + RESERVED_BUFFER;
+	ULONG longs, kib;
+
+	/* the rootblock cluster as MakeReservedBitmap sizes it, for an area
+	 * of up to min + 32 + the cluster itself */
+	longs = (min + 32 + 64) / 32;
+	kib = 1 + (longs > 125 ? (longs - 125 + 255) / 256 : 0);
+	min += (kib * 1024 + resblocksize - 1) / resblocksize;
+	return (min + 31) & ~31;
 }
 
 /* makes reserved bitmap and allocates rootblockextension */

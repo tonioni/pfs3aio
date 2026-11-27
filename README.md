@@ -38,6 +38,8 @@ AmigaGuide documentation, the Aminet readme, license, revision history and
 - `pfsdoctor`: checks and repairs PFS3 volumes (`pfsdoctor/`).
 - `setdeldir`, `setfnsize`, `setlargefile`: set the deldir size, the maximum
   file name length and large-file support of a mounted volume (`tools/`).
+- `pfsformat`: formats a partition with a reserved area of a chosen size
+  (`tools/`).
 
 Large-file support is
 opt-in: choose the large-file handler explicitly; the normal handler does
@@ -76,18 +78,21 @@ the uploader details and add release-specific changes before a release.
 
 ## Documentation
 
-`docs/pfsdoctor.md` and `docs/tools.md` describe pfsdoctor and the tools.
-The `.guide` files next to them are generated with `md2guide.py` of cfd
-(https://github.com/pulchart/cfd, `tools/md2guide.py`) and committed, so
-regenerate them after a change of the Markdown. The archive and the floppy
-image contain the guides.
+`docs/pfsdoctor.md` and `docs/setdeldir.md`, `docs/setfnsize.md`,
+`docs/setlargefile.md` and `docs/pfsformat.md` describe pfsdoctor and the
+tools.
+`make guides` turns them into the `.guide` files next to them with
+`md2guide` of the amiga-toolchain image
+(`ghcr.io/pulchart/amiga-toolchain`), run with podman when `md2guide` is
+not installed. The archive and the floppy image contain the guides, and
+`make archive` and `make floppy` make them first.
 
 ## Floppy image
 
 `make floppy` builds all four handlers, pfsdoctor and the tools and writes
 `pfs3aio.adf`, an 880K AmigaDOS floppy image named `PFS3AIO` containing the
 handlers, pfsdoctor, the tools, the guides, `LICENSE` and `versionhistory.doc`. `tools/mkadf.py` needs just Python. `make clean`
-removes the image.
+removes the image and the guides.
 
 ## GitHub Actions
 

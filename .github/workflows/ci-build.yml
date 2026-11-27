@@ -102,6 +102,26 @@ jobs:
             tools/setdeldir
             tools/setfnsize
             tools/setlargefile
+            tools/pfsformat
+          if-no-files-found: error
+
+  guides:
+    name: Build the guides
+    runs-on: ubuntu-latest
+    container: ghcr.io/pulchart/amiga-toolchain:latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build the guides
+        run: make guides
+
+      - name: Upload the guides
+        uses: actions/upload-artifact@v7
+        with:
+          name: pfs3aio-guides
+          path: docs/*.guide
           if-no-files-found: error
 
   damage:
@@ -161,7 +181,7 @@ jobs:
 
   package:
     name: Package both build variants
-    needs: [test, build, pfsdoctor, tools]
+    needs: [test, build, pfsdoctor, tools, guides]
     runs-on: ubuntu-latest
     container: stefanreinauer/amiga-gcc:gcc-v13.4
     steps:
@@ -192,12 +212,21 @@ jobs:
           name: pfs3aio-tools
           path: tools
 
+      - name: Download the guides
+        uses: actions/download-artifact@v8
+        with:
+          name: pfs3aio-guides
+          path: docs
+
+      - name: Keep the guides, as this job cannot build them
+        run: touch docs/*.guide
+
       - name: Restore executable permissions
         run: |
           chmod +x \
             pfs3aio pfs3aio-custom pfs3aio-largefile pfs3aio-largefile-custom \
             pfsdoctor/pfsdoctor \
-            tools/setdeldir tools/setfnsize tools/setlargefile
+            tools/setdeldir tools/setfnsize tools/setlargefile tools/pfsformat
 
       - name: Build distribution
         env:

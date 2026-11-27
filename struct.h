@@ -265,6 +265,7 @@ int stcu_d(char *out, unsigned int val);
 #define ACTION_SET_DELDIR 2221
 #define ACTION_SET_FNSIZE 2222
 #define ACTION_SET_LARGEFILE 2223
+#define ACTION_PFS_FORMAT 2225
 //#endif
 
 /****************************************************************************/

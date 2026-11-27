@@ -14,6 +14,7 @@ on:
       - tests/manylinks.py
       - tests/directorychains.py
       - tests/deldirloss.py
+      - tests/pfsformat.py
       - tests/pfs3img.py
       - tests/amifuse_fixes.py
       - tests/fi.py
@@ -74,6 +75,9 @@ jobs:
           - name: Deleted file in the deldir under AmiFUSE
             timeout: 10
             test: tests/deldirloss.py --driver pfs3aio
+          - name: Format with a reserved area of a chosen size under AmiFUSE
+            timeout: 10
+            test: tests/pfsformat.py --driver pfs3aio
           - name: Large file packets through Direct SCSI under AmiFUSE
             timeout: 30
             test: tests/largefile64.py --driver pfs3aio-largefile --pds
