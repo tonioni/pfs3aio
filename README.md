@@ -78,7 +78,9 @@ the uploader details and add release-specific changes before a release.
 
 ## Documentation
 
-`docs/pfsdoctor.md` and `docs/tools.md` describe pfsdoctor and the tools.
+`docs/pfsdoctor.md` and `docs/setdeldir.md`, `docs/setfnsize.md`,
+`docs/setlargefile.md` and `docs/pfsformat.md` describe pfsdoctor and the
+tools.
 `make guides` turns them into the `.guide` files next to them with
 `md2guide` of the amiga-toolchain image
 (`ghcr.io/pulchart/amiga-toolchain`), run with podman when `md2guide` is

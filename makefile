@@ -93,18 +93,15 @@ tools:
 
 # AmigaGuide documentation, generated from docs/*.md with md2guide of the
 # amiga-toolchain image, run in it when md2guide is not installed.
-GUIDES = docs/pfsdoctor.guide docs/tools.guide
+GUIDES = docs/pfsdoctor.guide docs/setdeldir.guide docs/setfnsize.guide docs/setlargefile.guide docs/pfsformat.guide
 GUIDE_VERSION ?= 20.0
 TOOLCHAIN_IMAGE ?= ghcr.io/pulchart/amiga-toolchain:latest
 MD2GUIDE ?= $(if $(shell command -v md2guide 2>/dev/null),md2guide,podman run --rm --security-opt label=disable \
 	-v "$(CURDIR):$(CURDIR)" -w "$(CURDIR)" $(TOOLCHAIN_IMAGE) md2guide)
 guides: $(GUIDES)
 
-docs/pfsdoctor.guide: docs/pfsdoctor.md
-	$(MD2GUIDE) $< $@ --version $(GUIDE_VERSION) --ver-title "pfsdoctor guide"
-
-docs/tools.guide: docs/tools.md
-	$(MD2GUIDE) $< $@ --version $(GUIDE_VERSION) --ver-title "pfs3aio tools guide"
+$(GUIDES): docs/%.guide: docs/%.md
+	$(MD2GUIDE) $< $@ --version $(GUIDE_VERSION) --ver-title "$* guide"
 
 $(OBJS): makefile
 
