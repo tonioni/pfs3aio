@@ -159,8 +159,10 @@ static crootblockextension_t *MakeFormatRBlkExtension (struct rootblock *rbl, gl
 /*                               FORMAT                               */
 /**********************************************************************/
 
-/* reservedkib: size of the reserved area in KiB, 0 for the default */
-BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG reservedkib, globaldata *g)
+/* reservedkib: size of the reserved area in KiB, 0 for the default;
+ * requester: show the version requester
+ */
+BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG reservedkib, BOOL requester, globaldata *g)
 {
   struct rootblock *rootblock;
   struct volumedata *volume;
@@ -196,7 +198,8 @@ BOOL FDSFormat (DSTR diskname, LONG disktype, SIPTR *error, ULONG reservedkib, g
 	// logical blocksize = size_block * sectors per block
 	ULONG cbs = (env[DE_SIZEBLOCK] << 2) * env[DE_SECSPERBLK];
 
-	ShowVersion (g);
+	if (requester)
+		ShowVersion (g);
 
 	/* issue 00118: disk cannot exceed MAX_DISK_SIZE */
 	if (g->geom->dg_TotalSectors > MAXDISKSIZE) {

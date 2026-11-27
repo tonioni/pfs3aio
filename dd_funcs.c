@@ -1906,7 +1906,7 @@ static SIPTR dd_InhibitOff(struct DosPacket *pkt, globaldata * g)
 }
 
 
-static SIPTR dd_PFSFormat(struct DosPacket *pkt, ULONG reservedkib, globaldata * g)
+static SIPTR dd_PFSFormat(struct DosPacket *pkt, ULONG reservedkib, BOOL requester, globaldata * g)
 {
 	/* argumenten stemmen NIET met de dosmanual overeen */
 	// ARG1 = BSTR Name of device (with trailing ':')
@@ -1934,7 +1934,7 @@ static SIPTR dd_PFSFormat(struct DosPacket *pkt, ULONG reservedkib, globaldata *
 	}
 
 	/* format disk */
-	SIPTR res = FDSFormat((DSTR)BADDR(pkt->dp_Arg1), pkt->dp_Arg2, &pkt->dp_Res2, reservedkib, g);
+	SIPTR res = FDSFormat((DSTR)BADDR(pkt->dp_Arg1), pkt->dp_Arg2, &pkt->dp_Res2, reservedkib, requester, g);
 	if (res)
 		g->inhibit_metadata_error = FALSE;
 	return res;
@@ -1942,18 +1942,18 @@ static SIPTR dd_PFSFormat(struct DosPacket *pkt, ULONG reservedkib, globaldata *
 
 static SIPTR dd_Format(struct DosPacket *pkt, globaldata * g)
 {
-	SIPTR res = dd_PFSFormat(pkt, 0, g);
+	SIPTR res = dd_PFSFormat(pkt, 0, TRUE, g);
 	if (res)
 		g->inhibit_metadata_error = FALSE;
 	return res;
 }
 
 /* ACTION_PFS_FORMAT: ACTION_FORMAT with ARG3 the size of the reserved area
- * in KiB, 0 for the default
+ * in KiB, 0 for the default, and without the version requester
  */
 static SIPTR dd_FormatReserved(struct DosPacket *pkt, globaldata * g)
 {
-	return dd_PFSFormat(pkt, pkt->dp_Arg3, g);
+	return dd_PFSFormat(pkt, pkt->dp_Arg3, FALSE, g);
 }
 
 /**********************

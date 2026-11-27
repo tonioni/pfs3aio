@@ -122,7 +122,7 @@ int main(void)
 	UBYTE *drive, *name, *bname = NULL;
 	ULONG kib = 0, len;
 	LONG rc = RETURN_FAIL, c;
-	BOOL inhibited = FALSE, formatted;
+	BOOL inhibited = FALSE, formatted, pfsformat;
 
 	SysBase = *((struct ExecBase **)4);
 	if (SysBase->LibNode.lib_Version < 37)
@@ -187,8 +187,9 @@ int main(void)
 
 		/* a handler with ACTION_PFS_FORMAT refuses a format without a name
 		 * at once, any other answer means it does not have it */
-		if (kib && (DoPkt(msgport, ACTION_PFS_FORMAT, 0, 0, 0, 0, 0) ||
-			IoErr() != ERROR_INVALID_COMPONENT_NAME))
+		pfsformat = !DoPkt(msgport, ACTION_PFS_FORMAT, 0, 0, 0, 0, 0) &&
+			IoErr() == ERROR_INVALID_COMPONENT_NAME;
+		if (kib && !pfsformat)
 		{
 			PutStr("RESERVED is not supported by this device\n");
 			break;
@@ -197,7 +198,8 @@ int main(void)
 			break;
 
 		PutStr("Initializing disk ...\n");
-		if (kib)
+		/* ACTION_PFS_FORMAT formats without the requester of Format() */
+		if (pfsformat)
 			formatted = DoPkt(msgport, ACTION_PFS_FORMAT, MKBADDR(bname), 0, kib, 0, 0);
 		else
 			formatted = Format((STRPTR)drive, (STRPTR)name, 0);

@@ -92,7 +92,9 @@ static ULONG made_reserved;	/* the reserved blocks of the last format */
 static void MakeReservedBitmap(struct rootblock **rbl, ULONG numreserved, globaldata *g) { made_reserved = numreserved; }
 static ULONG default_reserved = 32;	/* what the size of the device gives */
 static ULONG CalcNumReserved(globaldata *g, ULONG resblocksize) { return default_reserved; }
-static void ShowVersion(globaldata *g) {}
+static int versions;	/* version requesters shown */
+static BOOL requester = TRUE;
+static void ShowVersion(globaldata *g) { versions++; }
 static void GetDriveGeometry(globaldata *g) {}
 
 /* what the driver's block size and partition limit code would set up */
@@ -193,11 +195,11 @@ static BOOL run(const struct spec *s, const char *name, SIPTR *error)
 	G.blocksize = 512; G.blockshift = 9; G.blocksize_phys = 512;
 	G.firstblock = 7; G.lastblock = 77;
 	want_first = s->first; want_last = s->last;
-	raw_writes = updates = 0;
+	raw_writes = updates = versions = 0;
 	*error = 0;
 	dn[0] = (UBYTE)strlen(name);
 	memcpy(dn + 1, name, dn[0]);
-	rc = FDSFormat(dn, 0, error, s->reservedkib, &G);
+	rc = FDSFormat(dn, 0, error, s->reservedkib, requester, &G);
 	return rc;
 }
 
@@ -290,6 +292,12 @@ int main(void)
 	rc = run(&s, "Test", &error);
 	printf("  %-38s rc=%d error=%ld  writes=%d\n", "128 blocks (the minimum)", rc, (long)error, raw_writes);
 	check(rc == DOSTRUE && raw_writes == 1, "128 blocks must format");
+	check(versions == 1, "ACTION_FORMAT shows the version requester");
+	requester = FALSE;
+	rc = run(&s, "Test", &error);
+	requester = TRUE;
+	printf("  %-38s rc=%d versions=%d\n", "without the requester", rc, versions);
+	check(rc == DOSTRUE && versions == 0, "ACTION_PFS_FORMAT shows no requester");
 	s = good(); s.first = 0; s.last = 130; s.reservedkib = 33; /* one block left for data */
 	rc = run(&s, "Test", &error);
 	printf("  %-38s rc=%d error=%ld  writes=%d\n", "one data block left", rc, (long)error, raw_writes);
@@ -347,7 +355,7 @@ int main(void)
 		memset(ENV, 0, sizeof(ENV)); ENV[DE_SIZEBLOCK] = 128; ENV[DE_SECSPERBLK] = 1;
 		G.geom = &GEOM; G.dosenvec = ENV; G.softprotect = -1;
 		raw_writes = updates = 0; error = 0;
-		rc = FDSFormat(dn, 0, &error, 0, &G);
+		rc = FDSFormat(dn, 0, &error, 0, TRUE, &G);
 		printf("  %-38s rc=%d error=%ld  writes=%d\n", "error-induced soft protect", rc, (long)error, raw_writes);
 		check(rc == DOSFALSE && error == ERROR_DISK_WRITE_PROTECTED, "soft protect must refuse a format");
 		check(raw_writes == 0 && updates == 0, "a protected disk must not be written");
