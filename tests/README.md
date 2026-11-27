@@ -160,9 +160,9 @@ cannot be satisfied by leftovers of another one.
 `fi.py` is the fault-injection / crash harness the suite drives; see its docstring
 for the `FI_*` knobs (`FI_SKIP` and `FI_PROGRESS` are what let faults and kills
 land mid-operation). It hooks the classic, 64-bit TD and NSD (`NSCMD_TD_*64`)
-transfer commands; supermode images use the NSD ones. `timer_device.py` gives the
-vamos timer stub deferred completion using the host's monotonic clock, for
-AmiFUSE releases that do not ship their own `amifuse.timer_device`.
+transfer commands; supermode images use the NSD ones. `amifuse_fixes.py` makes the
+handler use AmiFUSE's deferred timer.device and frees the vamos memory pools before
+the runtime shuts down (see its docstring).
 
 ## timer writeback regression
 
@@ -170,10 +170,10 @@ AmiFUSE releases that do not ship their own `amifuse.timer_device`.
 uv run tests/writeback.py --image /path/to/pfs.hdf --driver pfs3aio
 ```
 
-This uses the real compiled m68k handler with a deferred timer.device: AmiFUSE's
-own `AmiFuseTimerDevice` driven by a virtual clock, or the `timer_device.py` shim on
-AmiFUSE releases without it. The run fails unless the handler's timer requests were
-really intercepted and replied to, so it cannot pass without exercising the deadline.
+This uses the real compiled m68k handler with AmiFUSE's deferred
+`AmiFuseTimerDevice`, driven by a virtual clock. The run fails unless the handler's
+timer requests were really replied at their deadline, so it cannot pass without
+exercising the deadline.
 It creates a small file, opens/reads/closes `foo.md` once per simulated second,
 and snapshots the image after six seconds while the writer is still mounted.
 Reopening that snapshot must recover the complete new file without relying on
@@ -196,7 +196,7 @@ uv run tests/largefile64.py [--driver pfs3aio-largefile] [--blocksize 4096] [--p
 
 Formats a sparse 6 GiB image with 4096 byte blocks, switches the large file flag on with `ACTION_SET_LARGEFILE` and drives the 64-bit packets of AmigaOS 4 (`ACTION_CHANGE_FILE_SIZE64`, position, size and the three examine packets) with a file that is grown past 4 GiB: write, seek, read, rename, hard link, truncate and delete. After each step it checks the neighbouring directory entries and the free space.
 
-`--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`uv venv && uv pip install --no-deps -r tests/requirements.txt`). It takes a few minutes with 4096 byte blocks. `.github/workflows/blackbox-test.yml` runs it as a job of its own, by hand and for changes to the handler sources, the makefile and the test.
+`--blocksize 512` formats 512 byte blocks with a `LARGE_FILE_SIZE` 2 build. Needs a large file build (`LARGE_FILE_SIZE` 1 or 2), `amifuse` and `rdbtool` (`uv venv && uv pip install -r tests/requirements.txt`). It takes a few minutes with 4096 byte blocks. `.github/workflows/blackbox-test.yml` runs it as a job of its own, by hand and for changes to the handler sources, the makefile and the test.
 
 ## hard links
 
