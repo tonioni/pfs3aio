@@ -109,6 +109,10 @@ def data_unallocated(path):
     return f"data block {blk} of anode {an} marked free"
 
 
+class BootStalled(RuntimeError):
+    """A boot that did not reach its Startup-Sequence."""
+
+
 def bootblock_id(path):
     """The bootblock lost its disk type."""
     poke(path, 0, b"\0\0\0\0")
@@ -568,7 +572,16 @@ class Machine:
         """Boots the system with hdf on ide0, runs script and returns OUT:.
         FS-UAE gets SIGTERM and writes what it holds; with kill SIGKILL, which
         loses those writes, as at a power cut. With requester a requester is
-        expected: when OUT: does not change for a while it gets left Amiga V."""
+        expected: when OUT: does not change for a while it gets left Amiga V.
+        A boot that stops before its Startup-Sequence, as the emulator on a
+        busy host at times does, runs once more."""
+        try:
+            return self.boot_once(name, hdf, script, kill, requester)
+        except BootStalled as e:
+            print(f"{e}, once more", flush=True)
+            return self.boot_once(name, hdf, script, kill, requester)
+
+    def boot_once(self, name, hdf, script, kill, requester):
         d = self.work / name
         shutil.rmtree(d, ignore_errors=True)
         out = d / "out"
@@ -652,7 +665,7 @@ class Machine:
                 if log
                 else "before its Startup-Sequence"
             )
-            raise RuntimeError(
+            raise (RuntimeError if log else BootStalled)(
                 f"boot {name} did not finish in {took:.0f} s, {where}, screen in {out / 'screen.png'}"
             )
         return out
